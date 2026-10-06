@@ -1,14 +1,23 @@
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest } from "next/server";
 
-const publicPaths = new Set(["/", "/login", "/register"]);
+const isPublicRoute = createRouteMatcher(["/", "/login(.*)", "/register(.*)"]);
+const authConfigured = Boolean(
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY,
+);
 
-export function proxy(request: NextRequest) {
-  if (publicPaths.has(request.nextUrl.pathname)) return NextResponse.next();
+const protectedMiddleware = clerkMiddleware(async (auth, request) => {
+  if (!isPublicRoute(request)) await auth.protect();
+});
 
-  // Fail closed until the managed identity provider verifies the server session.
-  // Replace this redirect with the selected provider's official middleware in milestone 0.2.
+function configurationBoundary(request: NextRequest) {
+  if (isPublicRoute(request)) return NextResponse.next();
   return NextResponse.redirect(new URL("/login", request.url));
 }
+
+export const proxy = authConfigured
+  ? protectedMiddleware
+  : configurationBoundary;
 
 export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],

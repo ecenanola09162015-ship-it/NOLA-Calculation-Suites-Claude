@@ -2,7 +2,17 @@
 
 ## Web
 
-Connect `apps/web` to Vercel. Configure managed-authentication keys, the project API URL, database credentials, and approved domains through protected environment variables. Preview deployments are for testing; production promotion requires CI and engineering-review gates.
+Connect `apps/web` to Vercel with the repository root set to `apps/web`. Configure the Clerk keys and Neon `DATABASE_URL` through protected environment variables. Preview deployments are for interface, account, project-isolation, and draft-storage testing. Production promotion requires CI and engineering-review gates.
+
+Required variables:
+
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
+- `CLERK_SECRET_KEY`
+- `NEXT_PUBLIC_CLERK_SIGN_IN_URL=/login`
+- `NEXT_PUBLIC_CLERK_SIGN_UP_URL=/register`
+- `DATABASE_URL`
+
+The Next.js build succeeds without service keys so pull requests remain testable, but protected routes fail closed and the sign-in page displays a configuration notice. Do not treat that state as a usable beta.
 
 ## Desktop
 

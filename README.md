@@ -4,7 +4,7 @@
 
 ## Current milestone
 
-This repository is the verified development foundation for version `0.1.0`. It supplies the cross-platform shells, shared contracts, launcher catalogue, authentication boundary, test harness, documentation, and CI. Engineering formulas remain locked behind a verification gate until approved references and benchmark cases are entered and independently reviewed.
+This repository is the verified development foundation for version `0.2.0`. The web vertical slice now includes Clerk authentication, account-scoped Neon project and calculation-draft storage, the launcher catalogue, and an interactive RC Column input workspace. The desktop and mobile shells share the same product contracts. Engineering formulas remain locked behind a verification gate until approved references and benchmark cases are entered and independently reviewed.
 
 ### Pilot modules
 
@@ -55,7 +55,17 @@ pnpm --filter @nola/mobile dev
 
 ## Authentication
 
-Login or registration is the first screen on all platforms. The initial adapter is designed for a managed identity provider; no application code may store passwords. Provider keys and hosted services are intentionally not committed.
+Login or registration is the first screen on all platforms. The web app uses Clerk and never stores passwords. Without valid Clerk keys, all protected routes fail closed. Provider keys and hosted services are intentionally not committed.
+
+## Web test deployment
+
+The deployable web milestone requires a Clerk application and a Neon Postgres database. Add the keys in `.env.local` for development or as protected Vercel environment variables. The first authenticated request creates the two prototype tables; move this bootstrap to reviewed migrations before production.
+
+```bash
+pnpm --filter @nola/web dev
+```
+
+The RC Column workspace can validate its input contract and save drafts. Capacity, utilization, pass/fail, and professional reports remain intentionally unavailable until the benchmark and independent-review gate is complete.
 
 ## Safety status
 

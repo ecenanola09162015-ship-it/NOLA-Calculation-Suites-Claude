@@ -31,8 +31,13 @@ a {
   color: inherit;
 }
 button,
-input {
+input,
+select {
   font: inherit;
+}
+button,
+select {
+  cursor: pointer;
 }
 .brandMark {
   display: inline-flex;
@@ -186,6 +191,18 @@ input {
   font-size: 12px;
   font-weight: 800;
 }
+.accountControl {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 9px 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
 .launcherHero {
   padding: 64px 0 32px;
 }
@@ -198,6 +215,116 @@ input {
 .launcherHero > p:last-child,
 .workspaceHeader p {
   color: var(--muted);
+}
+.projectSection {
+  margin: 6px 0 52px;
+  padding: 26px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: white;
+  box-shadow: 0 16px 48px rgba(23, 32, 51, 0.06);
+}
+.sectionHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.sectionHeading h2 {
+  margin: 4px 0 20px;
+  font-size: 28px;
+}
+.configurationChip {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #fff1d9;
+  color: #7a4b00;
+  font-size: 12px;
+  font-weight: 800;
+}
+.configurationPanel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 22px;
+  border-radius: 16px;
+  background: #f4f2fa;
+}
+.configurationPanel p {
+  max-width: 760px;
+  margin: 6px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.configurationPanel a {
+  flex: 0 0 auto;
+  color: var(--primary);
+  font-weight: 800;
+}
+.projectGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  gap: 16px;
+}
+.newProjectCard,
+.projectCard {
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fbfbfd;
+}
+.newProjectCard {
+  display: grid;
+  gap: 14px;
+}
+.newProjectCard label,
+.designerContext label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+.newProjectCard input,
+.designerContext input,
+.designerContext select {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white;
+  color: var(--ink);
+}
+.compactFields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.projectCard {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 108px;
+}
+.projectCard p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.projectMonogram {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  color: white;
+  background: linear-gradient(145deg, #725d83, #2b7d78);
+  font-weight: 900;
+}
+.moduleHeading {
+  margin-top: 10px;
 }
 .moduleGrid {
   display: grid;
@@ -338,6 +465,319 @@ input {
   text-align: right;
 }
 
+.primaryButton,
+.secondaryButton {
+  padding: 11px 15px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font-weight: 800;
+}
+.primaryButton {
+  color: white;
+  background: var(--primary);
+}
+.secondaryButton {
+  color: var(--primary-strong);
+  border-color: #cfc6e4;
+  background: white;
+}
+.designerShell {
+  min-height: 100vh;
+  background: #f0f2f5;
+}
+.designerTopbar {
+  display: flex;
+  position: sticky;
+  z-index: 20;
+  top: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: 78px;
+  padding: 14px 28px;
+  color: white;
+  background: #222a3a;
+  box-shadow: 0 6px 20px rgba(16, 24, 40, 0.18);
+}
+.designerTopbar h1 {
+  margin: 4px 0 0;
+  font-size: 22px;
+}
+.backLink {
+  color: #c8d0de;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.designerActions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.designerTopbar .statusBadge {
+  color: #f6d991;
+  background: #3a3541;
+}
+.designerContext {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr 1fr;
+  gap: 16px;
+  padding: 18px 24px;
+  border-bottom: 1px solid #d7dbe3;
+  background: white;
+}
+.designerGrid {
+  display: grid;
+  grid-template-columns: minmax(330px, 0.9fr) minmax(420px, 1.25fr) minmax(
+      300px,
+      0.8fr
+    );
+  gap: 16px;
+  width: min(1700px, 100%);
+  margin: 0 auto;
+  padding: 18px 24px 48px;
+}
+.inputRail,
+.designCanvas,
+.resultsRail {
+  min-width: 0;
+}
+.inputRail {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+.inputRail details,
+.designCanvas,
+.resultBlock,
+.verificationBanner {
+  border: 1px solid #d7dbe3;
+  border-radius: 14px;
+  background: white;
+  box-shadow: 0 3px 14px rgba(16, 24, 40, 0.035);
+}
+.inputRail summary {
+  padding: 15px 17px;
+  color: #31394b;
+  font-size: 13px;
+  font-weight: 900;
+  list-style: none;
+}
+.inputRail summary::-webkit-details-marker {
+  display: none;
+}
+.inputRail summary::after {
+  content: "+";
+  float: right;
+  color: var(--muted);
+}
+.inputRail details[open] summary::after {
+  content: "−";
+}
+.fieldGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 0 16px 17px;
+  border-top: 1px solid #eef0f4;
+}
+.engineeringField {
+  display: grid;
+  gap: 7px;
+  padding-top: 13px;
+  color: #5c6575;
+  font-size: 11px;
+  font-weight: 800;
+}
+.inputWithUnit {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid #ced3dc;
+  border-radius: 8px;
+  background: white;
+}
+.inputWithUnit:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(103, 80, 164, 0.1);
+}
+.inputWithUnit input {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 0;
+  outline: 0;
+  color: var(--ink);
+  background: transparent;
+}
+.inputWithUnit small {
+  padding: 0 9px;
+  color: #7b8390;
+  font-size: 10px;
+}
+.designCanvas {
+  align-self: start;
+  overflow: hidden;
+}
+.canvasHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 22px;
+  border-bottom: 1px solid #e3e6eb;
+}
+.canvasHeader h2 {
+  margin: 4px 0 0;
+  font-size: 20px;
+}
+.canvasHeader > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+.sectionStage {
+  display: grid;
+  place-items: center;
+  min-height: 460px;
+  padding: 26px;
+  background:
+    linear-gradient(#eef0f3 1px, transparent 1px),
+    linear-gradient(90deg, #eef0f3 1px, transparent 1px), #fafbfc;
+  background-size: 24px 24px;
+}
+.columnSection {
+  width: min(390px, 90%);
+  filter: drop-shadow(0 16px 18px rgba(35, 42, 57, 0.12));
+}
+.metricStrip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-top: 1px solid #e3e6eb;
+}
+.metricStrip div {
+  padding: 16px;
+  border-right: 1px solid #e3e6eb;
+}
+.metricStrip div:last-child {
+  border-right: 0;
+}
+.metricStrip span,
+.metricStrip strong {
+  display: block;
+}
+.metricStrip span {
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.metricStrip strong {
+  margin-top: 5px;
+  font-size: 13px;
+}
+.visualNote {
+  margin: 0;
+  padding: 12px 18px;
+  color: var(--muted);
+  border-top: 1px solid #e3e6eb;
+  font-size: 11px;
+  text-align: center;
+}
+.resultsRail {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+.verificationBanner {
+  padding: 18px;
+  border-color: #e6c875;
+  background: #fff9e9;
+}
+.verificationBanner span {
+  display: block;
+  color: #8a5c00;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+}
+.verificationBanner strong {
+  display: block;
+  margin-top: 8px;
+}
+.verificationBanner p {
+  margin: 8px 0 0;
+  color: #6e572a;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.resultBlock {
+  padding: 18px;
+}
+.resultBlock h2 {
+  margin: 0 0 14px;
+  font-size: 15px;
+}
+.lockedMetric {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-top: 1px solid #ebedf1;
+  color: var(--muted);
+  font-size: 12px;
+}
+.lockedMetric strong {
+  color: #a36d00;
+  font-size: 18px;
+}
+.releaseChecklist {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 12px;
+}
+.releaseChecklist li::before {
+  content: "○";
+  margin-right: 8px;
+  color: #a36d00;
+}
+.releaseChecklist li.done {
+  color: #27645b;
+}
+.releaseChecklist li.done::before {
+  content: "✓";
+  color: #168373;
+}
+.provenance dl {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+}
+.provenance dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+}
+.provenance dt {
+  color: var(--muted);
+}
+.provenance dd {
+  margin: 0;
+  font-weight: 800;
+  text-align: right;
+}
+.managedAuth {
+  justify-items: center;
+}
+.managedAuth > div:first-child {
+  justify-self: stretch;
+}
+
 @media (max-width: 820px) {
   .authPage {
     grid-template-columns: 1fr;
@@ -358,5 +798,44 @@ input {
   }
   .accountPill {
     display: none;
+  }
+  .configurationPanel,
+  .sectionHeading,
+  .designerTopbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .designerActions {
+    flex-wrap: wrap;
+  }
+  .designerContext,
+  .designerGrid {
+    grid-template-columns: 1fr;
+  }
+  .designerContext,
+  .designerGrid {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+  .compactFields,
+  .fieldGrid {
+    grid-template-columns: 1fr;
+  }
+  .metricStrip {
+    grid-template-columns: 1fr;
+  }
+  .metricStrip div {
+    border-right: 0;
+    border-bottom: 1px solid #e3e6eb;
+  }
+}
+
+@media (min-width: 821px) and (max-width: 1250px) {
+  .designerGrid {
+    grid-template-columns: minmax(320px, 0.85fr) minmax(430px, 1.15fr);
+  }
+  .resultsRail {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(3, 1fr);
   }
 }
