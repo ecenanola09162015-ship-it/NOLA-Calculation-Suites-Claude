@@ -18,7 +18,15 @@ export default function RootLayout({
     <html lang="en">
       <body>
         {isAuthConfigured() ? (
-          <ClerkProvider afterSignOutUrl="/login">{children}</ClerkProvider>
+          <ClerkProvider
+            signInUrl="/login"
+            signUpUrl="/register"
+            signInFallbackRedirectUrl="/launcher"
+            signUpFallbackRedirectUrl="/launcher"
+            afterSignOutUrl="/login"
+          >
+            {children}
+          </ClerkProvider>
         ) : (
           children
         )}

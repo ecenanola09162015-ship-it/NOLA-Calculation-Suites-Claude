@@ -6,9 +6,12 @@ const authConfigured = Boolean(
   process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY,
 );
 
-const protectedMiddleware = clerkMiddleware(async (auth, request) => {
-  if (!isPublicRoute(request)) await auth.protect();
-});
+const protectedMiddleware = clerkMiddleware(
+  async (auth, request) => {
+    if (!isPublicRoute(request)) await auth.protect();
+  },
+  { signInUrl: "/login", signUpUrl: "/register" },
+);
 
 function configurationBoundary(request: NextRequest) {
   if (isPublicRoute(request)) return NextResponse.next();
