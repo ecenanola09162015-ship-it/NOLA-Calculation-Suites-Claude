@@ -1,0 +1,33 @@
+{
+  "name": "@nola/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "dev": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "lint": "eslint app",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nola/auth": "workspace:*",
+    "@nola/calc-core": "workspace:*",
+    "@nola/design-tokens": "workspace:*",
+    "expo": "^54.0.0",
+    "expo-router": "^6.0.0",
+    "expo-status-bar": "~3.0.8",
+    "react": "^19.2.0",
+    "react-native": "^0.81.0",
+    "react-native-safe-area-context": "^5.6.0",
+    "react-native-screens": "^4.16.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "eslint": "^9.39.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

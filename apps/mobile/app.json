@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "ÑOLA Calculation Suites",
+    "slug": "nola-calculation-suites",
+    "version": "0.1.0",
+    "orientation": "default",
+    "scheme": "nolacalcs",
+    "userInterfaceStyle": "light",
+    "plugins": ["expo-router"],
+    "experiments": { "typedRoutes": true },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.nola.calculationsuites"
+    },
+    "android": { "package": "com.nola.calculationsuites" },
+    "extra": { "router": { "origin": false } }
+  }
+}

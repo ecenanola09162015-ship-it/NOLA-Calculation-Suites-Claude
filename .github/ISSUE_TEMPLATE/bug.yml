@@ -1,0 +1,31 @@
+name: Software defect
+description: Report an interface, account, synchronization, or application defect.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options: [Web, Windows desktop, iOS, Android, Shared package]
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Do not include passwords, tokens, client data, or proprietary project files.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Application version
+    validations:
+      required: true

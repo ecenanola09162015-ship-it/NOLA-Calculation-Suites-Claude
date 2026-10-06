@@ -1,0 +1,37 @@
+name: Calculation change
+description: Propose or correct engineering calculation logic.
+title: "[Calculation]: "
+labels: [engineering-review-required]
+body:
+  - type: input
+    id: module
+    attributes:
+      label: Module
+    validations:
+      required: true
+  - type: textarea
+    id: reference
+    attributes:
+      label: Code reference
+      description: Identify family, standard, edition, clause, and equation.
+    validations:
+      required: true
+  - type: textarea
+    id: change
+    attributes:
+      label: Proposed calculation change
+    validations:
+      required: true
+  - type: textarea
+    id: benchmarks
+    attributes:
+      label: Independent benchmarks and expected results
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety confirmation
+      options:
+        - label: No unverified result will be labeled as verified.
+          required: true
