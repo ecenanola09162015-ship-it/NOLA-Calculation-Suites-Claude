@@ -20,7 +20,7 @@ export interface CalculationDraftRecord {
   moduleSlug: string;
   title: string;
   payload: unknown;
-  verificationStatus: "interface-only";
+  verificationStatus: "interface-only" | "verification-required";
   updatedAt: string;
 }
 
@@ -157,16 +157,29 @@ export async function saveCalculationDraft(
 
   const id = input.id ?? crypto.randomUUID();
   const payload = JSON.stringify(input.payload);
+  const candidate = input.payload as {
+    kind?: string;
+    input?: { code?: string };
+  } | null;
+  const status =
+    input.moduleSlug === "rc-column" &&
+    candidate?.kind === "rc-column" &&
+    candidate.input?.code === "ACI 318-19"
+      ? "verification-required"
+      : "interface-only";
   const result = await getDb().execute(sql`
     insert into nola_calculation_drafts
-      (id, owner_id, project_id, module_slug, title, payload)
+      (id, owner_id, project_id, module_slug, title, payload, verification_status)
     values
-      (${id}, ${ownerId}, ${input.projectId}::uuid, ${input.moduleSlug}, ${input.title}, ${payload}::jsonb)
+      (${id}, ${ownerId}, ${input.projectId}::uuid, ${input.moduleSlug}, ${input.title}, ${payload}::jsonb, ${status})
     on conflict (id) do update set
       title = excluded.title,
       payload = excluded.payload,
+      verification_status = excluded.verification_status,
       updated_at = now()
     where nola_calculation_drafts.owner_id = ${ownerId}
+      and nola_calculation_drafts.project_id = excluded.project_id
+      and nola_calculation_drafts.module_slug = excluded.module_slug
     returning id, project_id, module_slug, title, payload, verification_status, updated_at
   `);
   const row = result.rows[0];
@@ -177,7 +190,10 @@ export async function saveCalculationDraft(
     moduleSlug: String(row.module_slug),
     title: String(row.title),
     payload: row.payload,
-    verificationStatus: "interface-only",
+    verificationStatus:
+      row.verification_status === "verification-required"
+        ? "verification-required"
+        : "interface-only",
     updatedAt: new Date(String(row.updated_at)).toISOString(),
   };
 }
@@ -187,7 +203,7 @@ export async function listCalculationDrafts(
 ): Promise<CalculationDraftRecord[]> {
   await ensureSchema();
   const result = await getDb().execute(
-    sql`select id, project_id, module_slug, title, payload, updated_at from nola_calculation_drafts where owner_id = ${ownerId} order by updated_at desc`,
+    sql`select id, project_id, module_slug, title, payload, verification_status, updated_at from nola_calculation_drafts where owner_id = ${ownerId} order by updated_at desc`,
   );
   return result.rows.map((row) => ({
     id: String(row.id),
@@ -195,7 +211,10 @@ export async function listCalculationDrafts(
     moduleSlug: String(row.module_slug),
     title: String(row.title),
     payload: row.payload,
-    verificationStatus: "interface-only",
+    verificationStatus:
+      row.verification_status === "verification-required"
+        ? "verification-required"
+        : "interface-only",
     updatedAt: new Date(String(row.updated_at)).toISOString(),
   }));
 }

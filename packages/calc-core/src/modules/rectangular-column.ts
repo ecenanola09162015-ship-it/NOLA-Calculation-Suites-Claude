@@ -1,0 +1,419 @@
+/** Development engine: rectangular tied sections, SI units, compression-positive. */
+export type ColumnCode = "ACI 318-19" | "NSCP 2015";
+export interface ColumnBar {
+  x: number;
+  y: number;
+  diameter: number;
+}
+export interface ColumnLoad {
+  id: string;
+  description: string;
+  pu: number;
+  mx: number;
+  my: number;
+  included: boolean;
+}
+export interface RectangularColumnInput {
+  code: ColumnCode;
+  width: number;
+  depth: number;
+  fc: number;
+  fy: number;
+  es: number;
+  cover: number;
+  tieDiameter: number;
+  bars: ColumnBar[];
+  loads: ColumnLoad[];
+}
+export interface ColumnState {
+  c: number;
+  pn: number;
+  mn: number;
+  phi: number;
+  designP: number;
+  designM: number;
+  tensionStrain: number;
+}
+export interface ColumnCurve {
+  axis: "x" | "y";
+  direction: 1 | -1;
+  points: ColumnState[];
+}
+export interface ColumnCheck {
+  load: ColumnLoad;
+  capacityX: number | null;
+  capacityY: number | null;
+  axialRatio: number;
+  interaction: number | null;
+  outcome:
+    "within-screening-envelope" | "outside-screening-envelope" | "not-checked";
+}
+export interface RectangularColumnResult {
+  status: "verification-required";
+  beta1: number;
+  steelArea: number;
+  grossArea: number;
+  steelRatio: number;
+  p0: number;
+  axialCap: number;
+  tensionCap: number;
+  curves: ColumnCurve[];
+  checks: ColumnCheck[];
+  governing: ColumnCheck | null;
+  warnings: string[];
+}
+const area = (bar: ColumnBar) => (Math.PI * bar.diameter ** 2) / 4;
+export function columnBeta1(fc: number) {
+  return Math.max(
+    0.65,
+    Math.min(0.85, 0.85 - (0.05 * Math.max(0, fc - 28)) / 7),
+  );
+}
+export function tiedColumnPhi(tensionStrain: number, fy: number, es: number) {
+  const yieldStrain = fy / es;
+  return (
+    0.65 +
+    0.25 * Math.max(0, Math.min(1, (tensionStrain - yieldStrain) / 0.003))
+  );
+}
+export function validateRectangularColumn(input: RectangularColumnInput) {
+  if (input.code !== "ACI 318-19")
+    throw new Error(
+      "NSCP 2015 is selected. Its clause mapping must be verified against the licensed code before numerical results are enabled.",
+    );
+  for (const key of [
+    "width",
+    "depth",
+    "fc",
+    "fy",
+    "es",
+    "tieDiameter",
+  ] as const)
+    if (!Number.isFinite(input[key]) || input[key] <= 0)
+      throw new Error(`${key} must be a finite positive number.`);
+  if (!Number.isFinite(input.cover) || input.cover < 0)
+    throw new Error("Cover must be a finite nonnegative number.");
+  if (
+    input.fc < 17 ||
+    input.fc > 80 ||
+    input.fy < 200 ||
+    input.fy > 550 ||
+    input.es < 100000 ||
+    input.es > 250000
+  )
+    throw new Error(
+      "This development build supports f′c 17–80 MPa, fy 200–550 MPa, and Es 100,000–250,000 MPa.",
+    );
+  if (input.fy / input.es > 0.003)
+    throw new Error(
+      "This build requires fy/Es ≤ 0.003 for the assumed axial compression limit.",
+    );
+  if (input.width > 10000 || input.depth > 10000)
+    throw new Error(
+      "Section dimensions must not exceed 10,000 mm in this build.",
+    );
+  if (new Set(input.loads.map((load) => load.id)).size !== input.loads.length)
+    throw new Error("Combination labels must be unique.");
+  if (input.bars.length < 4 || input.bars.length > 80)
+    throw new Error(
+      "Use 4–80 longitudinal bars for this rectangular tied-column build.",
+    );
+  input.bars.forEach((bar, i) => {
+    if (
+      ![bar.x, bar.y, bar.diameter].every(Number.isFinite) ||
+      bar.diameter <= 0
+    )
+      throw new Error(
+        `Bar ${i + 1}: enter finite coordinates and a positive diameter.`,
+      );
+    if (
+      Math.abs(bar.x) + bar.diameter / 2 > input.width / 2 ||
+      Math.abs(bar.y) + bar.diameter / 2 > input.depth / 2
+    )
+      throw new Error(`Bar ${i + 1} extends outside the concrete section.`);
+    input.bars.slice(0, i).forEach((other) => {
+      if (
+        Math.hypot(bar.x - other.x, bar.y - other.y) <
+        (bar.diameter + other.diameter) / 2 - 1e-6
+      )
+        throw new Error(`Bar ${i + 1} overlaps another longitudinal bar.`);
+    });
+  });
+  if (
+    input.bars.some(
+      (bar) =>
+        !input.bars.some(
+          (other) =>
+            Math.abs(bar.x + other.x) < 1e-6 &&
+            Math.abs(bar.y + other.y) < 1e-6 &&
+            Math.abs(bar.diameter - other.diameter) < 1e-6,
+        ),
+    )
+  )
+    throw new Error(
+      "This first build requires centrally symmetric reinforcement: matching bars at (x,y) and (-x,-y).",
+    );
+  if (
+    input.bars.reduce((sum, bar) => sum + area(bar), 0) >=
+    input.width * input.depth
+  )
+    throw new Error("Steel area must be smaller than gross concrete area.");
+  if (input.loads.length > 500)
+    throw new Error("This build supports at most 500 combinations.");
+  if (!input.loads.some((load) => load.included))
+    throw new Error("Include at least one factored load combination.");
+  for (const load of input.loads)
+    if (!load.id.trim() || ![load.pu, load.mx, load.my].every(Number.isFinite))
+      throw new Error(
+        "Each load needs a label and finite Pu, Mux and Muy values.",
+      );
+}
+export function columnStrainState(
+  input: RectangularColumnInput,
+  axis: "x" | "y",
+  direction: 1 | -1,
+  c: number,
+): ColumnState {
+  if (c === 0) {
+    const pn =
+      (-input.fy * input.bars.reduce((sum, bar) => sum + area(bar), 0)) / 1000;
+    const mn =
+      (-input.fy *
+        input.bars.reduce(
+          (sum, bar) => sum + area(bar) * (axis === "x" ? bar.y : bar.x),
+          0,
+        )) /
+      1e6;
+    return {
+      c: 0,
+      pn,
+      mn,
+      phi: 0.9,
+      designP: 0.9 * pn,
+      designM: 0.9 * mn,
+      tensionStrain: Infinity,
+    };
+  }
+  if (!(c > 0) || !Number.isFinite(c))
+    throw new Error("Neutral-axis depth must be positive and finite.");
+  const depth = axis === "x" ? input.depth : input.width;
+  const breadth = axis === "x" ? input.width : input.depth;
+  const a = Math.min(columnBeta1(input.fc) * c, depth);
+  const concreteForce = 0.85 * input.fc * breadth * a;
+  let p = concreteForce,
+    m = concreteForce * direction * (depth / 2 - a / 2),
+    tensile = 0;
+  for (const bar of input.bars) {
+    const coordinate = axis === "x" ? bar.y : bar.x;
+    const distance = depth / 2 - direction * coordinate;
+    const strain = 0.003 * (1 - distance / c);
+    tensile = Math.max(tensile, -strain);
+    const stress = Math.max(-input.fy, Math.min(input.fy, input.es * strain));
+    const force = area(bar) * (stress - (distance <= a ? 0.85 * input.fc : 0));
+    p += force;
+    m += force * coordinate;
+  }
+  const phi = tiedColumnPhi(tensile, input.fy, input.es);
+  const ast = input.bars.reduce((sum, bar) => sum + area(bar), 0);
+  const p0 =
+    (0.85 * input.fc * (input.width * input.depth - ast) + input.fy * ast) /
+    1000;
+  return {
+    c,
+    pn: p / 1000,
+    mn: m / 1e6,
+    phi,
+    designP: Math.min((phi * p) / 1000, 0.8 * 0.65 * p0),
+    designM: (phi * m) / 1e6,
+    tensionStrain: tensile,
+  };
+}
+export function columnCurve(
+  input: RectangularColumnInput,
+  axis: "x" | "y",
+  direction: 1 | -1,
+): ColumnCurve {
+  const d = axis === "x" ? input.depth : input.width;
+  const values = new Set<number>([0]);
+  for (let i = 0; i <= 300; i++) values.add(d * 10 ** (-5 + (i / 300) * 8));
+  const dt = Math.max(
+    ...input.bars.map(
+      (bar) => d / 2 - direction * (axis === "x" ? bar.y : bar.x),
+    ),
+  );
+  for (const strain of [
+    0,
+    input.fy / input.es / 2,
+    input.fy / input.es,
+    input.fy / input.es + 0.003,
+  ])
+    values.add((0.003 * dt) / (0.003 + strain));
+  for (const bar of input.bars) {
+    const boundary =
+      (d / 2 - direction * (axis === "x" ? bar.y : bar.x)) /
+      columnBeta1(input.fc);
+    if (boundary > 0) {
+      values.add(boundary * (1 - 1e-8));
+      values.add(boundary);
+    }
+  }
+  return {
+    axis,
+    direction,
+    points: [...values]
+      .sort((a, b) => a - b)
+      .map((c) => columnStrainState(input, axis, direction, c)),
+  };
+}
+export function columnCapacityAt(
+  input: RectangularColumnInput,
+  curve: ColumnCurve,
+  pu: number,
+): number | null {
+  let maximum = -Infinity;
+  const points = curve.points;
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i]!,
+      b = points[i + 1]!;
+    if (Math.abs(a.designP - pu) < 1e-7)
+      maximum = Math.max(maximum, curve.direction * a.designM);
+    if (
+      pu < Math.min(a.designP, b.designP) ||
+      pu > Math.max(a.designP, b.designP)
+    )
+      continue;
+    if (Math.abs(a.designP - b.designP) < 1e-8) {
+      maximum = Math.max(
+        maximum,
+        curve.direction * a.designM,
+        curve.direction * b.designM,
+      );
+      continue;
+    }
+    let lo = a.c,
+      hi = b.c,
+      left = a.designP - pu;
+    for (let iteration = 0; iteration < 55; iteration++) {
+      const middle = (lo + hi) / 2;
+      const value =
+        columnStrainState(input, curve.axis, curve.direction, middle).designP -
+        pu;
+      if (left * value <= 0) hi = middle;
+      else {
+        lo = middle;
+        left = value;
+      }
+    }
+    const state = columnStrainState(
+      input,
+      curve.axis,
+      curve.direction,
+      (lo + hi) / 2,
+    );
+    if (Math.abs(state.designP - pu) < Math.max(0.01, Math.abs(pu) * 1e-6))
+      maximum = Math.max(maximum, curve.direction * state.designM);
+  }
+  return Number.isFinite(maximum) && maximum >= 0 ? maximum : null;
+}
+export function analyzeRectangularColumn(
+  input: RectangularColumnInput,
+): RectangularColumnResult {
+  validateRectangularColumn(input);
+  const steelArea = input.bars.reduce((sum, bar) => sum + area(bar), 0),
+    grossArea = input.width * input.depth;
+  const p0 =
+      (0.85 * input.fc * (grossArea - steelArea) + input.fy * steelArea) / 1000,
+    axialCap = 0.8 * 0.65 * p0,
+    tensionCap = (-0.9 * input.fy * steelArea) / 1000;
+  const curves = (["x", "y"] as const).flatMap((axis) =>
+    ([1, -1] as const).map((direction) => columnCurve(input, axis, direction)),
+  );
+  const warnings = [
+    "Development calculation: independent engineering review is pending.",
+    "Short, non-slender rectangular tied sections with centrally symmetric reinforcement only. Slenderness, P–Δ, shear, seismic confinement, tie spacing, development and splices are excluded.",
+    "Biaxial results use the spreadsheet’s linear interaction screening at constant Pu, not a full biaxial strain-compatibility surface.",
+    "Bars are represented by concentrated areas at their centers; displaced concrete is subtracted when a bar center is within the compression block.",
+  ];
+  if (steelArea / grossArea < 0.01 || steelArea / grossArea > 0.08)
+    warnings.push(
+      "Longitudinal steel ratio is outside the 1–8% general column range; this is not a compliant-column approval.",
+    );
+  if (
+    input.bars.some(
+      (bar) =>
+        Math.min(
+          input.width / 2 - Math.abs(bar.x),
+          input.depth / 2 - Math.abs(bar.y),
+        ) <
+        input.cover + input.tieDiameter + bar.diameter / 2 - 1e-6,
+    )
+  )
+    warnings.push(
+      "One or more bar locations do not satisfy the declared clear cover and tie diameter. Review the reinforcement layout.",
+    );
+  const checks: ColumnCheck[] = input.loads.map((load) => {
+    if (!load.included)
+      return {
+        load,
+        capacityX: null,
+        capacityY: null,
+        axialRatio: 0,
+        interaction: null,
+        outcome: "not-checked",
+      };
+    const axialRatio = load.pu >= 0 ? load.pu / axialCap : load.pu / tensionCap;
+    const cx = columnCapacityAt(
+      input,
+      curves.find(
+        (curve) =>
+          curve.axis === "x" && curve.direction === (load.mx >= 0 ? 1 : -1),
+      )!,
+      load.pu,
+    );
+    const cy = columnCapacityAt(
+      input,
+      curves.find(
+        (curve) =>
+          curve.axis === "y" && curve.direction === (load.my >= 0 ? 1 : -1),
+      )!,
+      load.pu,
+    );
+    const rx =
+      load.mx === 0 ? 0 : cx && cx > 0 ? Math.abs(load.mx) / cx : Infinity;
+    const ry =
+      load.my === 0 ? 0 : cy && cy > 0 ? Math.abs(load.my) / cy : Infinity;
+    const interaction = rx + ry;
+    return {
+      load,
+      capacityX: cx,
+      capacityY: cy,
+      axialRatio,
+      interaction: Number.isFinite(interaction) ? interaction : null,
+      outcome:
+        axialRatio <= 1 && interaction <= 1
+          ? "within-screening-envelope"
+          : "outside-screening-envelope",
+    };
+  });
+  const included = checks.filter((check) => check.load.included);
+  const score = (check: ColumnCheck) =>
+    Math.max(check.axialRatio, check.interaction ?? Infinity);
+  const governing = included.reduce<ColumnCheck | null>(
+    (best, check) => (!best || score(check) > score(best) ? check : best),
+    null,
+  );
+  return {
+    status: "verification-required",
+    beta1: columnBeta1(input.fc),
+    steelArea,
+    grossArea,
+    steelRatio: steelArea / grossArea,
+    p0,
+    axialCap,
+    tensionCap,
+    curves,
+    checks,
+    governing,
+    warnings,
+  };
+}

@@ -1,6 +1,14 @@
 "use client";
 import { useState, type ReactNode } from "react";
 import Image from "next/image";
+import dynamic from "next/dynamic";
+const RectangularColumnWorkspace = dynamic(
+  () =>
+    import("./rectangular-column-workspace").then(
+      (m) => m.RectangularColumnWorkspace,
+    ),
+  { loading: () => <p>Opening RC column workspace…</p> },
+);
 import { BrandMark } from "./brand-mark";
 import { createProjectAction, createInterfaceDraftAction } from "@/app/actions";
 import type { ProjectRecord, CalculationDraftRecord } from "@/lib/projects";
@@ -14,11 +22,13 @@ const projectFields = [
   ["approvedBy", "Approved By"],
 ] as const;
 export function SuiteWorkspace({
+  initialModule,
   initialProjects,
   initialDrafts,
   cloudReady,
   account,
 }: {
+  initialModule?: string;
   initialProjects: ProjectRecord[];
   initialDrafts: CalculationDraftRecord[];
   cloudReady: boolean;
@@ -30,7 +40,10 @@ export function SuiteWorkspace({
   const [newProject, setNewProject] = useState(false);
   const [explorer, setExplorer] = useState(false);
   const [search, setSearch] = useState("");
-  const [module, setModule] = useState<UiModule | null>(null);
+  const [module, setModule] = useState<UiModule | null>(
+    () => uiCatalogue.find((item) => item.slug === initialModule) ?? null,
+  );
+  const [workspaceSession, setWorkspaceSession] = useState(0);
   const [draftId, setDraftId] = useState("");
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
@@ -45,6 +58,7 @@ export function SuiteWorkspace({
     setExplorer(false);
   }
   function openModule(item: UiModule) {
+    setWorkspaceSession((previous) => previous + 1);
     setModule(item);
     setDraftId("");
     setTitle(`${item.name} — 01`);
@@ -202,6 +216,7 @@ export function SuiteWorkspace({
                                 (m) => m.slug === d.moduleSlug,
                               );
                               if (item) {
+                                setWorkspaceSession((previous) => previous + 1);
                                 setModule(item);
                                 setDraftId(d.id);
                                 setTitle(d.title);
@@ -211,7 +226,11 @@ export function SuiteWorkspace({
                             }}
                           >
                             ▤ {d.title}
-                            <small>UI draft</small>
+                            <small>
+                              {d.moduleSlug === "rc-column"
+                                ? "Column draft"
+                                : "UI draft"}
+                            </small>
                           </button>
                         ))}
                       {!drafts.some((d) => d.projectId === item.id) && (
@@ -260,7 +279,8 @@ export function SuiteWorkspace({
             )}
           </div>
           <div className="suiteNotice">
-            UI development — calculation engines await verification.
+            Development build — RC column section screening available;
+            engineering review pending.
           </div>
           <p className="suiteFeedback" role="status" aria-live="polite">
             {message}
@@ -317,6 +337,19 @@ export function SuiteWorkspace({
                 </div>
               </section>
             </>
+          ) : module.slug === "rc-column" ? (
+            <RectangularColumnWorkspace
+              key={`${projectId}:${workspaceSession}`}
+              project={project}
+              draft={selectedDraft}
+              cloudReady={cloudReady}
+              onSaved={(item) => {
+                setDrafts((previous) => [
+                  item,
+                  ...previous.filter((d) => d.id !== item.id),
+                ]);
+              }}
+            />
           ) : (
             <section className="suiteDraftWorkspace">
               <Image
@@ -418,7 +451,7 @@ export function SuiteWorkspace({
       </div>
       <footer className="suiteFooter">
         <span>ÑOLA Calculation Suites</span>
-        <span>Interface build · Calculation engines not started</span>
+        <span>Pilot build · Independent calculation review pending</span>
       </footer>
     </main>
   );

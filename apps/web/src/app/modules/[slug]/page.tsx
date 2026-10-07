@@ -1,11 +1,6 @@
 import { getModule } from "@nola/calc-core";
-import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
-import { notFound } from "next/navigation";
-
-import { RcColumnWorkspace } from "@/components/rc-column-workspace";
-import { isAuthConfigured, isDatabaseConfigured } from "@/lib/env";
-import { listProjects, type ProjectRecord } from "@/lib/projects";
+import { redirect, notFound } from "next/navigation";
 
 export default async function ModulePage({
   params,
@@ -16,15 +11,7 @@ export default async function ModulePage({
   const module = getModule(slug);
   if (!module) notFound();
 
-  let projects: ProjectRecord[] = [];
-  if (slug === "rc-column" && isAuthConfigured() && isDatabaseConfigured()) {
-    const { userId } = await auth();
-    if (userId) projects = await listProjects(userId);
-  }
-
-  if (slug === "rc-column") {
-    return <RcColumnWorkspace module={module} projects={projects} />;
-  }
+  if (slug === "rc-column") redirect("/launcher?module=rc-column");
 
   return (
     <main className="workspacePage">
