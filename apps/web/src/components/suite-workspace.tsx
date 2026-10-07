@@ -1,0 +1,425 @@
+"use client";
+import { useState, type ReactNode } from "react";
+import Image from "next/image";
+import { BrandMark } from "./brand-mark";
+import { createProjectAction, createInterfaceDraftAction } from "@/app/actions";
+import type { ProjectRecord, CalculationDraftRecord } from "@/lib/projects";
+import { uiCatalogue, type UiModule } from "@/lib/ui-catalogue";
+const projectFields = [
+  ["name", "Project Name"],
+  ["buildingName", "Building Name"],
+  ["location", "Location"],
+  ["preparedBy", "Prepared By"],
+  ["checkedBy", "Checked By"],
+  ["approvedBy", "Approved By"],
+] as const;
+export function SuiteWorkspace({
+  initialProjects,
+  initialDrafts,
+  cloudReady,
+  account,
+}: {
+  initialProjects: ProjectRecord[];
+  initialDrafts: CalculationDraftRecord[];
+  cloudReady: boolean;
+  account: ReactNode;
+}) {
+  const [projects, setProjects] = useState(initialProjects);
+  const [drafts, setDrafts] = useState(initialDrafts);
+  const [projectId, setProjectId] = useState(initialProjects[0]?.id ?? "");
+  const [newProject, setNewProject] = useState(false);
+  const [explorer, setExplorer] = useState(false);
+  const [search, setSearch] = useState("");
+  const [module, setModule] = useState<UiModule | null>(null);
+  const [draftId, setDraftId] = useState("");
+  const [title, setTitle] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const project = projects.find((item) => item.id === projectId);
+  const selectedDraft = drafts.find((item) => item.id === draftId);
+  function selectProject(id: string) {
+    setProjectId(id);
+    setModule(null);
+    setDraftId("");
+    setMessage("");
+    setExplorer(false);
+  }
+  function openModule(item: UiModule) {
+    setModule(item);
+    setDraftId("");
+    setTitle(`${item.name} — 01`);
+    setMessage("");
+  }
+  async function createProject(form: FormData) {
+    setBusy(true);
+    setMessage("");
+    try {
+      const item = await createProjectAction(form);
+      setProjects((previous) => [item, ...previous]);
+      selectProject(item.id);
+      setNewProject(false);
+      setMessage("Project created and saved.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Project could not be saved.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function saveDraft() {
+    if (!module || !project) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const item = await createInterfaceDraftAction(
+        project.id,
+        module.slug,
+        title,
+      );
+      setDrafts((previous) => [item, ...previous]);
+      setDraftId(item.id);
+      setMessage("Interface draft saved to this project.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Draft could not be saved.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  function card(item: UiModule) {
+    return (
+      <button
+        type="button"
+        className="suiteModule"
+        key={item.slug}
+        onClick={() => openModule(item)}
+      >
+        <Image src={`/icons/${item.slug}.svg`} width={84} height={84} alt="" />
+        <strong>{item.name}</strong>
+        <span className={`suiteBadge ${item.pilot ? "isPilot" : ""}`}>
+          {item.pilot ? "Pilot" : "Future Development"}
+        </span>
+      </button>
+    );
+  }
+  return (
+    <main className="suiteApp">
+      <header className="suiteTopbar">
+        <BrandMark />
+        <nav aria-label="Main navigation">
+          <button
+            className="active"
+            onClick={() => {
+              setModule(null);
+              setDraftId("");
+            }}
+          >
+            Projects
+          </button>
+          <button
+            onClick={() => {
+              setModule(null);
+              setDraftId("");
+            }}
+          >
+            Calculation modules
+          </button>
+        </nav>
+        {account}
+      </header>
+      <div className="suiteBody">
+        <aside
+          className={`suiteExplorer ${explorer ? "isOpen" : ""}`}
+          aria-label="Project explorer"
+        >
+          <div className="suiteExplorerHeading">
+            <h2>PROJECT EXPLORER</h2>
+            <button
+              className="mobileOnly"
+              onClick={() => setExplorer(false)}
+              aria-label="Close project explorer"
+            >
+              ×
+            </button>
+          </div>
+          <button
+            className="suitePrimary"
+            onClick={() => {
+              setNewProject(true);
+              setMessage("");
+              setExplorer(false);
+            }}
+          >
+            ＋ New project
+          </button>
+          <label className="suiteSearch">
+            <span className="srOnly">Search projects</span>
+            <input
+              placeholder="Search projects…"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </label>
+          <div className="suiteTree">
+            {projects
+              .filter((item) =>
+                `${item.name} ${item.buildingName}`
+                  .toLowerCase()
+                  .includes(search.toLowerCase()),
+              )
+              .map((item) => (
+                <div key={item.id}>
+                  <button
+                    className={`suiteFolder ${projectId === item.id ? "selected" : ""}`}
+                    onClick={() => selectProject(item.id)}
+                  >
+                    <span aria-hidden="true">
+                      {projectId === item.id ? "▾" : "▸"} ▣
+                    </span>{" "}
+                    {item.name}
+                  </button>
+                  {projectId === item.id && (
+                    <div className="suiteTreeChildren">
+                      <button
+                        onClick={() => {
+                          setModule(null);
+                          setDraftId("");
+                        }}
+                      >
+                        ▤ Project information
+                      </button>
+                      <p>▾ Calculations</p>
+                      {drafts
+                        .filter((d) => d.projectId === item.id)
+                        .map((d) => (
+                          <button
+                            className={draftId === d.id ? "selected" : ""}
+                            key={d.id}
+                            onClick={() => {
+                              const item = uiCatalogue.find(
+                                (m) => m.slug === d.moduleSlug,
+                              );
+                              if (item) {
+                                setModule(item);
+                                setDraftId(d.id);
+                                setTitle(d.title);
+                                setMessage("");
+                                setExplorer(false);
+                              }
+                            }}
+                          >
+                            ▤ {d.title}
+                            <small>UI draft</small>
+                          </button>
+                        ))}
+                      {!drafts.some((d) => d.projectId === item.id) && (
+                        <span className="suiteEmpty">No calculations yet</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            {!projects.length && (
+              <p className="suiteEmpty">
+                Create your first project to organize calculation drafts.
+              </p>
+            )}
+          </div>
+        </aside>
+        <section className="suiteMain">
+          <button
+            className="suiteSecondary mobileOnly"
+            onClick={() => setExplorer(true)}
+          >
+            ☰ Project explorer
+          </button>
+          <p className="suiteBreadcrumb">
+            Projects / {project?.name ?? "Your workspace"}
+          </p>
+          <div className="suiteHeading">
+            <div>
+              <h1>{module?.name ?? "Calculation modules"}</h1>
+              <p>
+                {project
+                  ? `${project.buildingName || "Building name not set"} · ${project.location}`
+                  : "Interface preview · Pilot and future modules"}
+              </p>
+            </div>
+            {module && (
+              <button
+                className="suiteSecondary"
+                onClick={() => {
+                  setModule(null);
+                  setDraftId("");
+                }}
+              >
+                ← All modules
+              </button>
+            )}
+          </div>
+          <div className="suiteNotice">
+            UI development — calculation engines await verification.
+          </div>
+          <p className="suiteFeedback" role="status" aria-live="polite">
+            {message}
+          </p>
+          {!module ? (
+            <>
+              <details className="suiteProjectInfo">
+                <summary>
+                  Project information{project ? ` · ${project.name}` : ""}
+                </summary>
+                {project ? (
+                  <dl>
+                    {projectFields.map(([key, label]) => (
+                      <div key={key}>
+                        <dt>{label}</dt>
+                        <dd>{project[key] || "Not set"}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : (
+                  <p>
+                    Create a project to save building and reviewer information.
+                  </p>
+                )}
+              </details>
+              <section
+                aria-labelledby="structural-heading"
+                className="suiteTrade"
+              >
+                <h2 id="structural-heading">STRUCTURAL</h2>
+                <div className="suiteStructural">
+                  {["Concrete", "LOADS", "Steel"].map((group) => (
+                    <section key={group} className={`suiteGroup group${group}`}>
+                      <h3>{group}</h3>
+                      <div className="suiteCards">
+                        {uiCatalogue
+                          .filter((item) => item.group === group)
+                          .map(card)}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              </section>
+              <section
+                aria-labelledby="geotechnical-heading"
+                className="suiteTrade geotechnical"
+              >
+                <h2 id="geotechnical-heading">GEOTECHNICAL</h2>
+                <h3>Foundation & soil</h3>
+                <div className="suiteGeoCards">
+                  {uiCatalogue
+                    .filter((item) => item.group === "Geotechnical")
+                    .map(card)}
+                </div>
+              </section>
+            </>
+          ) : (
+            <section className="suiteDraftWorkspace">
+              <Image
+                src={`/icons/${module.slug}.svg`}
+                width={120}
+                height={120}
+                alt=""
+              />
+              <span className={`suiteBadge ${module.pilot ? "isPilot" : ""}`}>
+                {module.pilot ? "Pilot" : "Future Development"}
+              </span>
+              <h2>
+                {selectedDraft
+                  ? selectedDraft.title
+                  : `${module.name} workspace`}
+              </h2>
+              <p>
+                {module.pilot
+                  ? "Organize an interface draft now. Engineering inputs and calculations will be added after approval."
+                  : "This module is planned for future development. Its calculation engine has not been started."}
+              </p>
+              {module.pilot && !selectedDraft && (
+                <>
+                  <label>
+                    Calculation title
+                    <input
+                      value={title}
+                      maxLength={100}
+                      onChange={(event) => setTitle(event.target.value)}
+                    />
+                  </label>
+                  <button
+                    className="suitePrimary"
+                    disabled={!project || !cloudReady || busy || !title.trim()}
+                    onClick={saveDraft}
+                  >
+                    {busy ? "Saving…" : "Create interface draft"}
+                  </button>
+                  {!project && <p>Select or create a project first.</p>}
+                </>
+              )}
+              <div className="suiteLocked">
+                Calculations and design results are unavailable in this
+                interface build.
+              </div>
+              {project && (
+                <p>
+                  Project: {project.name} · Building: {project.buildingName}
+                </p>
+              )}
+            </section>
+          )}
+        </section>
+        {newProject && (
+          <aside className="suiteDrawer" aria-labelledby="new-project-title">
+            <div className="suiteDrawerHeading">
+              <h2 id="new-project-title">New project</h2>
+              <button
+                disabled={busy}
+                aria-label="Close new project form"
+                onClick={() => setNewProject(false)}
+              >
+                ×
+              </button>
+            </div>
+            <p>All fields are required.</p>
+            <form action={createProject}>
+              {projectFields.map(([name, label]) => (
+                <label key={name}>
+                  {label} <span aria-hidden="true">*</span>
+                  <input
+                    name={name}
+                    required
+                    maxLength={100}
+                    autoComplete="off"
+                  />
+                </label>
+              ))}
+              <p role="status">{message}</p>
+              <button
+                className="suitePrimary"
+                disabled={busy || !cloudReady}
+                type="submit"
+              >
+                {busy ? "Creating…" : "Create project"}
+              </button>
+              <button
+                className="suiteSecondary"
+                disabled={busy}
+                type="button"
+                onClick={() => setNewProject(false)}
+              >
+                Cancel
+              </button>
+              {!cloudReady && <p>Cloud storage is not configured.</p>}
+            </form>
+          </aside>
+        )}
+      </div>
+      <footer className="suiteFooter">
+        <span>ÑOLA Calculation Suites</span>
+        <span>Interface build · Calculation engines not started</span>
+      </footer>
+    </main>
+  );
+}

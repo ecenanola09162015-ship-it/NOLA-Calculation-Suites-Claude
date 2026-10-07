@@ -6,6 +6,10 @@ export interface ProjectRecord {
   id: string;
   name: string;
   projectNumber: string;
+  buildingName: string;
+  preparedBy: string;
+  checkedBy: string;
+  approvedBy: string;
   location: string;
   updatedAt: string;
 }
@@ -37,6 +41,18 @@ async function ensureSchema() {
           updated_at timestamptz not null default now()
         )
       `);
+      await db.execute(
+        sql`alter table nola_projects add column if not exists building_name text not null default ''`,
+      );
+      await db.execute(
+        sql`alter table nola_projects add column if not exists prepared_by text not null default ''`,
+      );
+      await db.execute(
+        sql`alter table nola_projects add column if not exists checked_by text not null default ''`,
+      );
+      await db.execute(
+        sql`alter table nola_projects add column if not exists approved_by text not null default ''`,
+      );
       await db.execute(sql`
         create index if not exists nola_projects_owner_idx
         on nola_projects (owner_id, updated_at desc)
@@ -69,7 +85,7 @@ async function ensureSchema() {
 export async function listProjects(ownerId: string): Promise<ProjectRecord[]> {
   await ensureSchema();
   const result = await getDb().execute(sql`
-    select id, name, project_number, location, updated_at
+    select id, name, project_number, building_name, prepared_by, checked_by, approved_by, location, updated_at
     from nola_projects
     where owner_id = ${ownerId}
     order by updated_at desc
@@ -78,6 +94,10 @@ export async function listProjects(ownerId: string): Promise<ProjectRecord[]> {
     id: String(row.id),
     name: String(row.name),
     projectNumber: String(row.project_number),
+    buildingName: String(row.building_name),
+    preparedBy: String(row.prepared_by),
+    checkedBy: String(row.checked_by),
+    approvedBy: String(row.approved_by),
     location: String(row.location),
     updatedAt: new Date(String(row.updated_at)).toISOString(),
   }));
@@ -85,14 +105,22 @@ export async function listProjects(ownerId: string): Promise<ProjectRecord[]> {
 
 export async function createProject(
   ownerId: string,
-  input: { name: string; projectNumber: string; location: string },
+  input: {
+    name: string;
+    projectNumber: string;
+    location: string;
+    buildingName: string;
+    preparedBy: string;
+    checkedBy: string;
+    approvedBy: string;
+  },
 ): Promise<ProjectRecord> {
   await ensureSchema();
   const id = crypto.randomUUID();
   const result = await getDb().execute(sql`
-    insert into nola_projects (id, owner_id, name, project_number, location)
-    values (${id}, ${ownerId}, ${input.name}, ${input.projectNumber}, ${input.location})
-    returning id, name, project_number, location, updated_at
+    insert into nola_projects (id, owner_id, name, project_number, location, building_name, prepared_by, checked_by, approved_by)
+    values (${id}, ${ownerId}, ${input.name}, ${input.projectNumber}, ${input.location}, ${input.buildingName}, ${input.preparedBy}, ${input.checkedBy}, ${input.approvedBy})
+    returning id, name, project_number, building_name, prepared_by, checked_by, approved_by, location, updated_at
   `);
   const row = result.rows[0];
   if (!row) throw new Error("Project creation did not return a record.");
@@ -100,6 +128,10 @@ export async function createProject(
     id: String(row.id),
     name: String(row.name),
     projectNumber: String(row.project_number),
+    buildingName: String(row.building_name),
+    preparedBy: String(row.prepared_by),
+    checkedBy: String(row.checked_by),
+    approvedBy: String(row.approved_by),
     location: String(row.location),
     updatedAt: new Date(String(row.updated_at)).toISOString(),
   };
@@ -148,4 +180,22 @@ export async function saveCalculationDraft(
     verificationStatus: "interface-only",
     updatedAt: new Date(String(row.updated_at)).toISOString(),
   };
+}
+
+export async function listCalculationDrafts(
+  ownerId: string,
+): Promise<CalculationDraftRecord[]> {
+  await ensureSchema();
+  const result = await getDb().execute(
+    sql`select id, project_id, module_slug, title, payload, updated_at from nola_calculation_drafts where owner_id = ${ownerId} order by updated_at desc`,
+  );
+  return result.rows.map((row) => ({
+    id: String(row.id),
+    projectId: String(row.project_id),
+    moduleSlug: String(row.module_slug),
+    title: String(row.title),
+    payload: row.payload,
+    verificationStatus: "interface-only",
+    updatedAt: new Date(String(row.updated_at)).toISOString(),
+  }));
 }
