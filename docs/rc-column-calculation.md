@@ -4,14 +4,14 @@ The first numerical module implements SI-unit section strength for short, rectan
 
 ## Code status
 
-| Choice     | Status                                                                                                      |
-| ---------- | ----------------------------------------------------------------------------------------------------------- |
-| ACI 318-19 | Development section calculation, `verification-required`                                                    |
-| NSCP 2015  | Inputs can be saved; numerical output blocked pending licensed provision mapping and independent benchmarks |
-| BS EN 1992 | Disabled, Future Development                                                                                |
-| AS 3600    | Disabled, Future Development                                                                                |
+| Choice     | Status                                                                                                                  |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------- |
+| ACI 318-19 | Development section calculation, `verification-required`                                                                |
+| NSCP 2015  | NSCP project workflow using the same ACI 318-19 engine; results explicitly identify ACI 318-19 as the calculation basis |
+| BS EN 1992 | Disabled, Future Development                                                                                            |
+| AS 3600    | Disabled, Future Development                                                                                            |
 
-An ACI calculation is never relabeled as NSCP. The old public `calculateRcColumn` interface-only contract remains unchanged; the new explicit development engine is `analyzeRectangularColumn`.
+Both options use one ACI 318-19 engine. The NSCP option represents the project standard, not a separate NSCP implementation or confirmation that all NSCP 2015 provisions match ACI 318-19. Results and reports explicitly identify the calculation basis. The old public `calculateRcColumn` interface-only contract remains unchanged; the new explicit development engine is `analyzeRectangularColumn`.
 
 ## Engineering basis
 
@@ -47,7 +47,7 @@ The save API requires a signed-in user, same-origin JSON, valid UUIDs, a bounded
 - Independent published reference: StructurePoint, _Interaction Diagram — Tied Reinforced Concrete Column Design Strength (ACI 318-19)_, May 24, 2022, summary/control points. https://structurepoint.org/publication/pdf/Interaction-Diagram-Tied-Reinforced-Concrete-Column-Design-Strength-ACI-318-19.pdf
 - The reference's 16 in square, eight #9 (nominal 1 in²) section is converted to SI. Axial cap, four strain-control-point forces/moments, pure bending, and pure tension agree within 2%. This tolerance covers the independently tabulated SI β₁ thresholds (28/7 MPa) versus the example's imperial 4000/1000 psi thresholds; SI-converted f′c gives β₁≈0.80376 rather than 0.80. The general 2% benchmark tolerance does not weaken the force-equilibrium root tolerance.
 - Primary ACI-published explanation of Table 21.2.2: https://www.concrete.org/publications/getarticle.aspx?m=icap&pubID=51740277
-- Regression checks cover φ/β₁ boundaries, signed symmetry, excessive axial/moment demands, excluded rows, invalid geometry, NSCP blocking, Excel formats/atomic rejection, payload validation, API authentication/errors, and rendered code choices/diagrams.
-- Repository lint/typechecking, 18 automated tests, and web production build pass. UI browser interaction/print/mobile verification and authenticated live save/reload remain outstanding: the local headless browser binary was unavailable and its download failed. Server-render tests are not substitutes for those browser checks.
+- Regression checks cover φ/β₁ boundaries, signed symmetry, excessive axial/moment demands, excluded rows, invalid geometry, ACI/NSCP workflow equivalence and explicit calculation-basis labeling, Excel formats/atomic rejection, payload validation, API authentication/errors, and rendered code choices/diagrams.
+- Repository lint/typechecking, 20 automated tests, and web production build pass. UI browser interaction/print/mobile verification and authenticated live save/reload remain outstanding: the local headless browser binary was unavailable and its download failed. Server-render tests are not substitutes for those browser checks.
 
 Independent engineering review against licensed ACI/NSCP clauses, additional benchmark cases (including full biaxial analysis), and a signed release decision remain required before changing status to `verified`. Web implementation is complete for this development milestone; desktop/mobile integration and installers are separate future milestones.

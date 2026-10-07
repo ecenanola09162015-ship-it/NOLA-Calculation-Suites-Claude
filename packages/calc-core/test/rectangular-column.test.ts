@@ -76,10 +76,14 @@ describe("rectangular tied-column development engine", () => {
       columnCapacityAt(input, columnCurve(input, "x", 1), 9000),
     ).toBeNull();
   });
-  it("rejects overlap, no included loads, and unverified NSCP", () => {
-    expect(() =>
-      analyzeRectangularColumn({ ...input, code: "NSCP 2015" }),
-    ).toThrow("clause mapping");
+  it("uses identical ACI equations for the NSCP project workflow and exposes the basis", () => {
+    const aci = analyzeRectangularColumn(input);
+    const nscp = analyzeRectangularColumn({ ...input, code: "NSCP 2015" });
+    expect(nscp).toEqual(aci);
+    expect(nscp.calculationBasis).toBe("ACI 318-19");
+    expect(nscp.status).toBe("verification-required");
+  });
+  it("rejects overlap and no included loads", () => {
     expect(() =>
       analyzeRectangularColumn({
         ...input,

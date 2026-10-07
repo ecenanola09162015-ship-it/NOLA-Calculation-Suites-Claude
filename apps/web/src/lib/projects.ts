@@ -164,7 +164,8 @@ export async function saveCalculationDraft(
   const status =
     input.moduleSlug === "rc-column" &&
     candidate?.kind === "rc-column" &&
-    candidate.input?.code === "ACI 318-19"
+    (candidate.input?.code === "ACI 318-19" ||
+      candidate.input?.code === "NSCP 2015")
       ? "verification-required"
       : "interface-only";
   const result = await getDb().execute(sql`

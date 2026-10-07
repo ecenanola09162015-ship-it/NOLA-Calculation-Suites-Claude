@@ -50,6 +50,7 @@ export interface ColumnCheck {
 }
 export interface RectangularColumnResult {
   status: "verification-required";
+  calculationBasis: "ACI 318-19";
   beta1: number;
   steelArea: number;
   grossArea: number;
@@ -77,9 +78,9 @@ export function tiedColumnPhi(tensionStrain: number, fy: number, es: number) {
   );
 }
 export function validateRectangularColumn(input: RectangularColumnInput) {
-  if (input.code !== "ACI 318-19")
+  if (input.code !== "ACI 318-19" && input.code !== "NSCP 2015")
     throw new Error(
-      "NSCP 2015 is selected. Its clause mapping must be verified against the licensed code before numerical results are enabled.",
+      "Choose a supported project code. The calculation basis is ACI 318-19.",
     );
   for (const key of [
     "width",
@@ -404,6 +405,7 @@ export function analyzeRectangularColumn(
   );
   return {
     status: "verification-required",
+    calculationBasis: "ACI 318-19",
     beta1: columnBeta1(input.fc),
     steelArea,
     grossArea,

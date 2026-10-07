@@ -21,6 +21,58 @@ describe("column interface server render", () => {
     expect(html).toContain("I have assessed slenderness");
     expect(html).not.toContain("Combination screening");
   });
+  it("restores an NSCP draft with the explicit ACI calculation basis", () => {
+    const html = renderToStaticMarkup(
+      <RectangularColumnWorkspace
+        cloudReady={false}
+        onSaved={() => {}}
+        draft={{
+          id: "saved",
+          projectId: "project",
+          moduleSlug: "rc-column",
+          title: "NSCP column",
+          verificationStatus: "verification-required",
+          updatedAt: "2026-10-07",
+          payload: {
+            kind: "rc-column",
+            version: 1,
+            scopeConfirmed: true,
+            input: {
+              code: "NSCP 2015",
+              width: 400,
+              depth: 500,
+              fc: 28,
+              fy: 420,
+              es: 200000,
+              cover: 40,
+              tieDiameter: 10,
+              bars: [
+                [-130, -180],
+                [-130, 180],
+                [130, -180],
+                [130, 180],
+              ].map(([x, y]) => ({ x, y, diameter: 25 })),
+              loads: [
+                {
+                  id: "LC1",
+                  description: "",
+                  pu: 1000,
+                  mx: 50,
+                  my: 30,
+                  included: true,
+                },
+              ],
+            },
+          },
+        }}
+      />,
+    );
+    expect(html).toContain('value="NSCP 2015" selected=""');
+    expect(html).toContain(
+      "Project standard: NSCP 2015. Calculation basis: ACI 318-19.",
+    );
+    expect(html).not.toContain("Numerical results await verification");
+  });
   it("renders valid signed diagrams and handles incomplete section dimensions", () => {
     const input: RectangularColumnInput = {
       code: "ACI 318-19",

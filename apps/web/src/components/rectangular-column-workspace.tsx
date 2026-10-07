@@ -373,16 +373,18 @@ export function RectangularColumnWorkspace({
               }
             >
               <option>ACI 318-19</option>
-              <option>NSCP 2015</option>
+              <option value="NSCP 2015">
+                NSCP 2015 project — ACI 318-19 calculation basis
+              </option>
               <option disabled>BS EN 1992 — Future Development</option>
               <option disabled>AS 3600 — Future Development</option>
             </select>
           </label>
           {input.code === "NSCP 2015" && (
             <p className="rcAlert">
-              NSCP inputs can be saved. Numerical results await verification of
-              the licensed NSCP provisions; ACI results will not be relabeled as
-              NSCP.
+              Project standard: NSCP 2015. Calculation basis: ACI 318-19. This
+              option uses the same ACI section-strength engine; it does not
+              confirm compliance with every NSCP 2015 provision.
             </p>
           )}
           <div className="rcFields">
@@ -708,8 +710,9 @@ export function RectangularColumnWorkspace({
               {project?.approvedBy ?? "—"}
             </p>
             <p>
-              {input.code} · Rectangular tied column · SI units · Independent
-              review pending
+              Project standard: {input.code} · Calculation basis:{" "}
+              {result.calculationBasis} · Rectangular tied column · SI units ·
+              Independent review pending
             </p>
           </div>
           <div className="rcStats">
@@ -823,7 +826,7 @@ export function RectangularColumnWorkspace({
               <ColumnBiaxialPlot check={check} />
             </section>
             <section className="rcPanel">
-              <h3>Calculation basis</h3>
+              <h3>Calculation basis · {result.calculationBasis}</h3>
               <dl className="rcBasis">
                 <div>
                   <dt>Concrete ultimate strain</dt>
