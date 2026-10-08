@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { columnQuantitySchema } from "./column-quantity";
 export const columnInputSchema = z
   .object({
     code: z.enum(["ACI 318-19", "NSCP 2015"]),
@@ -43,4 +44,5 @@ export const columnDraftSchema = z.object({
   version: z.literal(1),
   input: columnInputSchema,
   scopeConfirmed: z.boolean(),
+  quantity: columnQuantitySchema.optional(),
 });

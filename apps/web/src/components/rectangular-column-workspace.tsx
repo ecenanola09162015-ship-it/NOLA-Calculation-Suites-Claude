@@ -4,6 +4,8 @@ import {
   analyzeRectangularColumn,
   parseColumnLoads,
   columnDraftSchema,
+  defaultColumnQuantity,
+  type ColumnQuantityInput,
   type RectangularColumnInput,
   type RectangularColumnResult,
   type ColumnLoad,
@@ -14,6 +16,7 @@ import {
   ColumnPMPlot,
   ColumnBiaxialPlot,
 } from "./column-diagrams";
+import { ColumnQuantityPanel } from "./column-quantity-panel";
 const initial: RectangularColumnInput = {
   code: "ACI 318-19",
   width: 600,
@@ -138,6 +141,11 @@ export function RectangularColumnWorkspace({
   const [input, setInput] = useState<RectangularColumnInput>(() =>
     restored.success ? restored.data.input : structuredClone(initial),
   );
+  const [quantity, setQuantity] = useState<ColumnQuantityInput>(() =>
+    restored.success && restored.data.quantity
+      ? restored.data.quantity
+      : defaultColumnQuantity(initial.tieDiameter),
+  );
   const [scope, setScope] = useState(
     restored.success ? restored.data.scopeConfirmed : false,
   );
@@ -249,6 +257,7 @@ export function RectangularColumnWorkspace({
         version: 1,
         input,
         scopeConfirmed: scope,
+        quantity,
       });
       if (!parsed.success)
         throw new Error(
@@ -280,6 +289,7 @@ export function RectangularColumnWorkspace({
         version: 1,
         input,
         scopeConfirmed: scope,
+        quantity,
       };
       const parsed = columnDraftSchema.safeParse(payload);
       if (!parsed.success)
@@ -695,6 +705,15 @@ export function RectangularColumnWorkspace({
           not included in this build.
         </p>
       </section>
+      <ColumnQuantityPanel
+        section={input}
+        value={quantity}
+        onChange={(next) => {
+          editVersion.current++;
+          setQuantity(next);
+          setSaved(false);
+        }}
+      />
       {result ? (
         <section className="rcResults">
           <div className="rcReportHeader">

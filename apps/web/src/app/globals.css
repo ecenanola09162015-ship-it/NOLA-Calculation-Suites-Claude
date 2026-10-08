@@ -2283,3 +2283,143 @@ select {
     background: white;
   }
 }
+
+/* Optional column quantity estimate */
+.cqPanel {
+  font-family: "Century Gothic", "Avenir Next", Arial, sans-serif;
+  margin: 18px 0;
+}
+.cqToggle {
+  display: flex !important;
+  align-items: center;
+  gap: 9px;
+  font-weight: 700;
+}
+.cqControls,
+.cqFilters {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 16px 0;
+}
+.cqControls label,
+.cqFilters label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+}
+.cqControls input {
+  width: 145px;
+}
+.cqPanel input,
+.cqPanel select {
+  border: 1px solid #c8d6df;
+  border-radius: 5px;
+  padding: 7px;
+  color: #203b4d;
+}
+.cqActions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 14px 0;
+}
+.cqScroll {
+  overflow-x: auto;
+}
+.cqPanel table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.cqPanel th,
+.cqPanel td {
+  padding: 7px;
+  text-align: left;
+  border-bottom: 1px solid #dbe5eb;
+}
+.cqPanel caption {
+  text-align: left;
+  padding: 12px 0;
+  font-weight: 700;
+}
+.cqPanel td input {
+  width: 72px;
+}
+.cqPanel td:first-child input {
+  width: 135px;
+}
+.cqSummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 20px 0;
+}
+.cqSummary div {
+  display: grid;
+  gap: 7px;
+  background: #e8f5f3;
+  padding: 14px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.cqSummary strong {
+  font-size: 20px;
+  color: #087987;
+}
+.cqDrawings {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+.cqDrawings > div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.cqDrawings figure {
+  margin: 0;
+  min-width: 0;
+}
+.cqDrawings svg {
+  width: 100%;
+  height: auto;
+}
+.cqDrawings figcaption,
+.cqDrawings small {
+  font-size: 11px;
+  line-height: 1.5;
+}
+.cqPanel li,
+.cqPanel p {
+  font-size: 12px;
+  line-height: 1.6;
+}
+@media (max-width: 650px) {
+  .cqDrawings {
+    grid-template-columns: 1fr;
+  }
+  .cqDrawings > div {
+    grid-template-columns: 1fr;
+  }
+}
+@media print {
+  .cqDisabled,
+  .cqToggle,
+  .cqFilters,
+  .cqActions {
+    display: none !important;
+  }
+  .cqPanel {
+    break-before: page;
+  }
+  .cqPanel table {
+    font-size: 8px;
+  }
+  .cqDrawings figure {
+    break-inside: avoid;
+  }
+  .cqPanel .cqScroll {
+    overflow: visible;
+  }
+}

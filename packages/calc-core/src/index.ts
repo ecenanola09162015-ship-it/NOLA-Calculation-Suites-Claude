@@ -10,3 +10,5 @@ export * from "./modules/column-load-import";
 export * from "./modules/column-draft";
 
 export * from "./modules/slab-design";
+
+export * from "./modules/column-quantity";
