@@ -2423,3 +2423,50 @@ select {
     overflow: visible;
   }
 }
+
+/* Prominent optional estimate control and derived leg counts. */
+.cqQuickToggle,
+.cqPanel .cqToggle {
+  display: flex !important;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border: 2px solid #087987;
+  border-radius: 8px;
+  background: #e5f5f3;
+  color: #075965;
+  cursor: pointer;
+}
+.cqQuickToggle input,
+.cqPanel .cqToggle input {
+  width: 24px !important;
+  height: 24px;
+  accent-color: #087987;
+  flex-shrink: 0;
+}
+.cqQuickToggle span {
+  display: grid;
+  gap: 4px;
+}
+.cqQuickToggle small {
+  font-size: 11px;
+}
+.cqJump {
+  text-decoration: none;
+}
+.cqDerivedLegs {
+  display: block;
+  white-space: nowrap;
+  color: #087987;
+  margin-top: 6px;
+  font-weight: 600;
+}
+#column-quantity {
+  scroll-margin-top: 20px;
+}
+@media print {
+  .cqQuickToggle,
+  .cqJump {
+    display: none !important;
+  }
+}

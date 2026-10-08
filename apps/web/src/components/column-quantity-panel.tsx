@@ -2,6 +2,7 @@
 import { useMemo, useState } from "react";
 import {
   estimateColumnQuantity,
+  editColumnTieArrangement,
   defaultColumnTieZones,
   columnQuantityLimitations,
   type ColumnQuantityInput,
@@ -73,11 +74,18 @@ export function ColumnQuantityPanel({
   function zone(index: number, key: string, v: number | string | null) {
     onChange({
       ...value,
-      zones: value.zones.map((z, i) => (i === index ? { ...z, [key]: v } : z)),
+      zones: value.zones.map((z, i) =>
+        i !== index
+          ? z
+          : key === "hoops" || key === "interiorX" || key === "interiorY"
+            ? editColumnTieArrangement(z, key, Number(v))
+            : { ...z, [key]: v },
+      ),
     });
   }
   return (
     <section
+      id="column-quantity"
       className={`rcPanel cqPanel ${!value.enabled ? "cqDisabled" : ""}`}
     >
       <h2>Quantity estimate · Column segment</h2>
@@ -143,9 +151,10 @@ export function ColumnQuantityPanel({
           </div>
           <p className="rcMuted">
             Longitudinal bars follow the current column design: diameter, count
-            and fy. Leg counts are parallel to X (width) and Y (depth). Each
-            full-section hoop contributes 2 legs in each direction; remaining
-            legs are cross-ties. Multiple hoops are assumed full-section, not
+            and fy. Interior cross-ties are parallel to X (width) and Y (depth).
+            Each full-section hoop contributes 2 exterior legs in each
+            direction. Enter interior cross-ties only; total legs are calculated
+            automatically. Multiple hoops are assumed full-section, not
             overlapping inner hoops.
           </p>
           <div className="cqActions">
@@ -208,8 +217,8 @@ export function ColumnQuantityPanel({
                     "Ø",
                     "fy MPa",
                     "Hoops / set",
-                    "X legs",
-                    "Y legs",
+                    "Interior X cross-ties / set",
+                    "Interior Y cross-ties / set",
                     "",
                   ].map((s, i) => (
                     <th key={i}>{s}</th>
@@ -234,18 +243,39 @@ export function ColumnQuantityPanel({
                         "diameter",
                         "fy",
                         "hoops",
-                        "legsX",
-                        "legsY",
+                        "interiorX",
+                        "interiorY",
                       ] as const
                     ).map((k) => (
                       <td key={k}>
                         <input
-                          aria-label={`Zone ${i + 1} ${k}`}
+                          aria-label={`Zone ${i + 1} ${k === "interiorX" ? "interior X cross-ties" : k === "interiorY" ? "interior Y cross-ties" : k}`}
                           type="number"
                           step={
-                            k === "hoops" || k.startsWith("legs") ? 1 : "any"
+                            k === "hoops" || k.startsWith("interior")
+                              ? 1
+                              : "any"
                           }
-                          value={Number.isFinite(z[k]) ? z[k] : ""}
+                          min={
+                            k === "hoops"
+                              ? 1
+                              : k.startsWith("interior")
+                                ? 0
+                                : undefined
+                          }
+                          value={
+                            k === "interiorX"
+                              ? Number.isFinite(z.legsX - 2 * z.hoops)
+                                ? z.legsX - 2 * z.hoops
+                                : ""
+                              : k === "interiorY"
+                                ? Number.isFinite(z.legsY - 2 * z.hoops)
+                                  ? z.legsY - 2 * z.hoops
+                                  : ""
+                                : Number.isFinite(z[k])
+                                  ? z[k]
+                                  : ""
+                          }
                           onChange={(e) =>
                             zone(
                               i,
@@ -256,6 +286,18 @@ export function ColumnQuantityPanel({
                             )
                           }
                         />
+                        {k === "interiorX" || k === "interiorY" ? (
+                          <small className="cqDerivedLegs">
+                            Total {k === "interiorX" ? "X" : "Y"} legs:{" "}
+                            {Number.isFinite(
+                              k === "interiorX" ? z.legsX : z.legsY,
+                            )
+                              ? k === "interiorX"
+                                ? z.legsX
+                                : z.legsY
+                              : "—"}
+                          </small>
+                        ) : null}
                       </td>
                     ))}
                     <td>
@@ -329,9 +371,13 @@ export function ColumnQuantityPanel({
                 <div>
                   <strong>{f(r.longitudinal)} kg</strong>Longitudinal —
                   axial/flexural
+                  <small>
+                    {f(r.longitudinalPercent)}% of total steel weight
+                  </small>
                 </div>
                 <div>
                   <strong>{f(r.shear)} kg</strong>Shear / ties
+                  <small>{f(r.shearPercent)}% of total steel weight</small>
                 </div>
                 <div>
                   <strong>{f(r.total)} kg</strong>Total steel

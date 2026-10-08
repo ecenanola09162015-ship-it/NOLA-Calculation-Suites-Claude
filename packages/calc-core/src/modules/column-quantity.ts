@@ -30,6 +30,21 @@ export const columnQuantitySchema = z.object({
     .max(20),
 });
 export type ColumnQuantityInput = z.infer<typeof columnQuantitySchema>;
+/** Drafts retain total legs for backward compatibility; UI edits physical interior cross-ties. */
+export function editColumnTieArrangement(
+  zone: ColumnQuantityInput["zones"][number],
+  field: "hoops" | "interiorX" | "interiorY",
+  value: number,
+) {
+  if (field === "hoops" && !Number.isFinite(value)) return zone;
+  const x = zone.legsX - 2 * zone.hoops,
+    y = zone.legsY - 2 * zone.hoops;
+  return field === "hoops"
+    ? { ...zone, hoops: value, legsX: 2 * value + x, legsY: 2 * value + y }
+    : field === "interiorX"
+      ? { ...zone, legsX: 2 * zone.hoops + value }
+      : { ...zone, legsY: 2 * zone.hoops + value };
+}
 export function defaultColumnQuantity(diameter = 10): ColumnQuantityInput {
   return {
     enabled: false,
@@ -274,6 +289,12 @@ export function estimateColumnQuantity(
     longitudinal,
     shear,
     total: longitudinal + shear,
+    longitudinalPercent:
+      longitudinal + shear > 0
+        ? (100 * longitudinal) / (longitudinal + shear)
+        : 0,
+    shearPercent:
+      longitudinal + shear > 0 ? (100 * shear) / (longitudinal + shear) : 0,
     concrete,
     ratio: (longitudinal + shear) / concrete,
   };

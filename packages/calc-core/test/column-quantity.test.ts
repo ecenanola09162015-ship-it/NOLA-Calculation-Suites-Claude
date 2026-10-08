@@ -5,6 +5,7 @@ import {
   rebarUnitWeight,
   columnHookGeometry,
   columnDraftSchema,
+  editColumnTieArrangement,
   type RectangularColumnInput,
 } from "../src";
 const section: RectangularColumnInput = {
@@ -50,6 +51,26 @@ function q() {
   return v;
 }
 describe("column quantity estimate", () => {
+  it("edits interior cross-ties while preserving hoop contributions without double counting", () => {
+    const z = q().zones[0];
+    const cross = editColumnTieArrangement(z, "interiorX", 2);
+    expect(cross.legsX).toBe(4);
+    const double = editColumnTieArrangement(cross, "hoops", 2);
+    expect(double.legsX).toBe(6);
+    expect(double.legsY).toBe(4);
+    const v = q();
+    v.zones = [double];
+    const r = estimateColumnQuantity(section, v)!;
+    expect(r.rows.find((b) => b.mark === "Z1-H")?.count).toBe(10);
+    expect(r.rows.find((b) => b.mark === "Z1-X")?.count).toBe(10);
+    expect(r.rows.some((b) => b.mark === "Z1-Y")).toBe(false);
+  });
+  it("reports unfiltered weight percentages adding to 100 percent", () => {
+    const r = estimateColumnQuantity(section, q())!;
+    expect(r.longitudinalPercent).toBeCloseTo((100 * r.longitudinal) / r.total);
+    expect(r.shearPercent).toBeCloseTo((100 * r.shear) / r.total);
+    expect(r.longitudinalPercent + r.shearPercent).toBeCloseTo(100);
+  });
   it("uses checked cutting-length overrides and labels their source", () => {
     const v = q();
     v.zones[0].hoopLength = 1700;

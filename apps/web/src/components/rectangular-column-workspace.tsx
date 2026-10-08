@@ -340,6 +340,28 @@ export function RectangularColumnWorkspace({
             }}
           />
         </label>
+        <label className="cqQuickToggle">
+          <input
+            type="checkbox"
+            checked={quantity.enabled}
+            onChange={(e) => {
+              editVersion.current++;
+              setQuantity({ ...quantity, enabled: e.target.checked });
+              setSaved(false);
+            }}
+          />{" "}
+          <span>
+            <strong>Enable Quantity Estimate</strong>
+            <small>
+              {quantity.enabled
+                ? "ON · Steel & concrete quantities"
+                : "OFF · Optional steel & concrete quantities"}
+            </small>
+          </span>
+        </label>
+        <a className="suiteSecondary cqJump" href="#column-quantity">
+          Open estimate ↓
+        </a>
         <span className="suiteBadge isPilot">Rectangular · Tied · SI</span>
         <span>{saved ? "Saved inputs" : "Unsaved inputs"}</span>
         <button
