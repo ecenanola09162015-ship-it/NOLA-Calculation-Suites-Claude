@@ -2,6 +2,17 @@ import type { ModuleDefinition } from "./types";
 
 export const moduleRegistry = [
   {
+    slug: "slab",
+    name: "Slab Design",
+    discipline: "Concrete",
+    summary:
+      "Rectangular edge-supported slab flexure, reinforcement and shear screening.",
+    releasePhase: "Pilot",
+    priority: "P0",
+    verificationStatus: "verification-required",
+    initialCodes: ["ACI 318-19", "NSCP 2015 project / ACI 318-19 basis"],
+  },
+  {
     slug: "rc-column",
     name: "RC Column",
     discipline: "Concrete",

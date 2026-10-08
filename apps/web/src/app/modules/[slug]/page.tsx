@@ -11,7 +11,8 @@ export default async function ModulePage({
   const module = getModule(slug);
   if (!module) notFound();
 
-  if (slug === "rc-column") redirect("/launcher?module=rc-column");
+  if (slug === "rc-column" || slug === "slab")
+    redirect(`/launcher?module=${slug}`);
 
   return (
     <main className="workspacePage">

@@ -1,6 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
-import { columnDraftSchema, getModule } from "@nola/calc-core";
+import { columnDraftSchema, slabDraftSchema, getModule } from "@nola/calc-core";
 import { isDatabaseConfigured } from "@/lib/env";
 import { saveCalculationDraft } from "@/lib/projects";
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -63,6 +63,18 @@ export async function POST(request: Request) {
         {
           error:
             "Invalid RC column inputs. Check dimensions, materials, bars, and unique load labels.",
+        },
+        { status: 400 },
+      );
+    body.payload = parsed.data;
+  }
+  if (body.moduleSlug === "slab") {
+    const parsed = slabDraftSchema.safeParse(body.payload);
+    if (!parsed.success)
+      return NextResponse.json(
+        {
+          error:
+            "Invalid slab inputs. Check geometry, reinforcement, cover, cutoffs and unique load combination labels.",
         },
         { status: 400 },
       );

@@ -1766,3 +1766,520 @@ select {
     text-decoration: none;
   }
 }
+
+/* Slab pilot: one reinforcement model across inputs, diagrams and report. */
+.slabWorkspace {
+  display: grid;
+  gap: 18px;
+  font-family: "Century Gothic", "Avenir Next", Arial, sans-serif;
+}
+.slabToolbar {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+.slabToolbar label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.slabToolbar input {
+  min-width: 220px;
+}
+.slabWorkspace input:not([type="checkbox"]),
+.slabWorkspace select,
+.slabWorkspace textarea {
+  border: 1px solid #c8d6df;
+  border-radius: 5px;
+  padding: 7px 8px;
+  font: inherit;
+  color: #203b4d;
+  background: #fff;
+  max-width: 100%;
+  min-width: 0;
+}
+.slabWorkspace input:focus,
+.slabWorkspace select:focus,
+.slabWorkspace textarea:focus {
+  outline: 2px solid #087e8b;
+  outline-offset: 2px;
+}
+.slabWorkspace input:disabled {
+  background: #eef3f6;
+  color: #5a6f7f;
+}
+.slabWorkspace button {
+  cursor: pointer;
+}
+.slabWorkspace button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.slabPilot {
+  margin: 0;
+  background: #fff4df;
+  border-left: 4px solid #e0a047;
+  padding: 10px 14px;
+  font-size: 12px;
+}
+.slabGrid {
+  display: grid;
+  grid-template-columns: minmax(330px, 0.9fr) minmax(460px, 1.8fr) minmax(
+      210px,
+      0.65fr
+    );
+  gap: 14px;
+  align-items: start;
+}
+.slabPanel {
+  background: white;
+  border: 1px solid #d7e2e8;
+  border-radius: 8px;
+  padding: 16px;
+  min-width: 0;
+}
+.slabPanel h2 {
+  font-size: 17px;
+  color: #087987;
+  margin: 0 0 16px;
+}
+.slabPanel h3 {
+  font-size: 14px;
+  margin: 22px 0 12px;
+}
+.slabPanel p,
+.slabPanel li {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.slabFieldGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.slabNumeric {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+}
+.slabNumeric small {
+  font-weight: normal;
+  color: #617c8c;
+}
+.slabNumeric input {
+  width: 100%;
+}
+.slabSupportGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 15px 0;
+}
+.slabSupportGrid label {
+  display: grid;
+  gap: 5px;
+  font-size: 11px;
+}
+.slabClassification {
+  background: #e0f3f2;
+  padding: 8px;
+  border-radius: 5px;
+  color: #075f69;
+  font-weight: 600;
+}
+.slabTableWrap {
+  overflow-x: auto;
+  margin: 12px 0;
+}
+.slabWorkspace table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 11px;
+}
+.slabWorkspace th,
+.slabWorkspace td {
+  border-bottom: 1px solid #e0e8ed;
+  padding: 8px 6px;
+  text-align: left;
+  vertical-align: middle;
+}
+.slabWorkspace thead {
+  background: #eef4f7;
+}
+.slabWorkspace th {
+  font-weight: 600;
+}
+.slabWorkspace caption {
+  text-align: left;
+  padding: 14px 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.slabBars th {
+  min-width: 76px;
+  text-transform: capitalize;
+}
+.slabBars td input {
+  width: 59px;
+}
+.slabBars td:nth-child(4) input {
+  width: 66px;
+}
+.slabMode {
+  border: 1px solid #b5d8df;
+  color: #087987;
+  background: #eef9fa;
+  padding: 5px;
+  border-radius: 4px;
+  font-size: 10px;
+}
+.slabExcluded {
+  opacity: 0.6;
+}
+.slabExcluded small {
+  display: block;
+  font-size: 9px;
+}
+.slabMainLabel {
+  color: #145da0;
+}
+.slabExtraLabel {
+  color: #c15c0b;
+}
+.slabMuted {
+  font-size: 11px !important;
+  color: #597384;
+}
+.slabInputs details {
+  margin-top: 15px;
+  border-top: 1px solid #e1e9ed;
+  padding-top: 12px;
+}
+.slabInputs summary,
+.slabPaste summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: #087987;
+  font-weight: 700;
+}
+.slabTabs,
+.slabViewButtons {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.slabTabs button,
+.slabViewButtons button {
+  background: #f1f7f8;
+  border: 1px solid #c8dce0;
+  border-radius: 5px;
+  padding: 9px 12px;
+  font-size: 12px;
+  text-transform: capitalize;
+  color: #24505c;
+}
+.slabTabs [aria-selected="true"],
+.slabViewButtons [aria-pressed="true"] {
+  background: #087987;
+  color: white;
+}
+.slabLegend {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 14px;
+}
+.slabPlans {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.slabPlans:has(> figure:only-child) {
+  grid-template-columns: 1fr;
+}
+.slabFigure {
+  margin: 0;
+  min-width: 0;
+}
+.slabFigure figcaption {
+  color: #174458;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 9px 0;
+}
+.slabFigure svg {
+  width: 100%;
+  height: auto;
+  font-family: "Century Gothic", Arial, sans-serif;
+}
+.slabSection {
+  border-top: 1px solid #e0e9ee;
+  padding-top: 8px;
+}
+.slabSection svg {
+  min-height: 155px;
+}
+.slabScreenHidden {
+  display: none;
+}
+.slabStatus {
+  background: #e9f5f3;
+  padding: 12px;
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  border-radius: 5px;
+}
+.slabStatus strong {
+  font-size: 14px;
+  color: #12666a;
+}
+.slabBad {
+  color: #ae3425;
+  background: #fff0eb;
+}
+.slabSummary dl {
+  font-size: 11px;
+}
+.slabSummary dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid #e2e9ec;
+  padding: 11px 0;
+}
+.slabSummary dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 600;
+}
+.slabRecommendation {
+  display: grid;
+  gap: 5px;
+  padding: 12px 0;
+  border-bottom: 1px solid #e2e9ed;
+  font-size: 12px;
+  text-transform: capitalize;
+}
+.slabRecommendation small {
+  text-transform: none;
+  line-height: 1.5;
+}
+.slabError {
+  color: #a02d21;
+  padding: 10px 14px;
+  background: #fff0eb;
+  font-size: 12px;
+}
+.slabFeedback {
+  color: #146b65;
+  font-size: 12px;
+}
+.slabLoads td input:not([type="checkbox"]) {
+  width: 80px;
+}
+.slabLoads td:nth-child(2) input {
+  width: 110px;
+}
+.slabPaste {
+  margin-top: 18px;
+  background: #f4f8fa;
+  padding: 12px;
+}
+.slabPaste textarea {
+  width: 100%;
+  min-height: 130px;
+  font-family: monospace;
+}
+.slabPaste button,
+.slabLoads td button {
+  padding: 7px 9px;
+  border: 1px solid #b6d6dc;
+  border-radius: 5px;
+  background: white;
+  color: #087987;
+}
+.slabCoefficients {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  font-size: 11px;
+  gap: 8px;
+}
+.slabCoefficients > div {
+  display: flex;
+  justify-content: space-between;
+  border-bottom: 1px solid #e1e8ec;
+  padding: 5px;
+}
+.slabCoefficients dd {
+  margin: 0;
+}
+.slabReportHeader {
+  border-bottom: 2px solid #087987;
+  padding-bottom: 8px;
+}
+.slabWarnings {
+  color: #735024;
+  background: #fff8ec;
+  padding: 14px 14px 14px 30px;
+}
+@media (max-width: 1550px) {
+  .slabGrid {
+    grid-template-columns: minmax(315px, 0.85fr) minmax(420px, 1.5fr);
+  }
+  .slabSummary {
+    grid-column: 1/-1;
+  }
+  .slabSummary dl {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0 15px;
+  }
+  .slabSummary .slabRecommendation {
+    display: inline-grid;
+    width: 24%;
+    padding: 12px;
+    vertical-align: top;
+  }
+}
+@media (max-width: 1000px) {
+  .slabGrid {
+    grid-template-columns: 1fr;
+  }
+  .slabSummary {
+    grid-column: auto;
+  }
+  .slabInputs {
+    max-width: none;
+  }
+  .slabFieldGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .slabBars td input {
+    width: 85px;
+  }
+}
+@media (max-width: 600px) {
+  .slabPanel {
+    padding: 12px;
+  }
+  .slabPlans {
+    grid-template-columns: 1fr;
+  }
+  .slabFieldGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .slabToolbar label,
+  .slabToolbar input,
+  .slabToolbar select {
+    width: 100%;
+  }
+  .slabSummary dl {
+    grid-template-columns: 1fr;
+  }
+  .slabSummary .slabRecommendation {
+    width: 100%;
+  }
+  .slabSection svg {
+    min-height: 0;
+  }
+  .slabCoefficients {
+    grid-template-columns: 1fr;
+  }
+}
+@media print {
+  .slabToolbar,
+  .slabTabs,
+  .slabViewButtons,
+  .slabPaste,
+  .slabWorkspace button,
+  .slabSummary,
+  .slabFeedback,
+  .slabError[role="status"] {
+    display: none !important;
+  }
+  .slabGrid,
+  .slabCenter {
+    display: block;
+  }
+  .slabWorkspace {
+    display: block;
+    color: #173547;
+  }
+  .slabPanel {
+    border: 0;
+    border-radius: 0;
+    padding: 8px 0;
+    break-inside: avoid;
+  }
+  .slabInputs {
+    break-after: page;
+  }
+  .slabScreenHidden {
+    display: block;
+  }
+  .slabInputs details {
+    display: block;
+  }
+  .slabInputs details::details-content {
+    display: block;
+    content-visibility: visible;
+    height: auto;
+  }
+  .slabInputs summary {
+    font-weight: bold;
+  }
+  .slabWorkspace input:not([type="checkbox"]),
+  .slabWorkspace select {
+    border: 0;
+    padding: 1px;
+    background: white;
+    color: #173547;
+  }
+  .slabWorkspace input:disabled {
+    background: white;
+    color: #173547;
+  }
+  .slabTableWrap {
+    overflow: visible;
+  }
+  .slabWorkspace table {
+    font-size: 8px;
+  }
+  .slabWorkspace td,
+  .slabWorkspace th {
+    padding: 4px;
+  }
+  .slabBars td input {
+    width: 44px;
+    font-size: 9px;
+  }
+  .slabResults {
+    break-before: page;
+  }
+  .slabFigure {
+    break-inside: avoid;
+  }
+  .slabPlans {
+    grid-template-columns: 1fr 1fr;
+  }
+  .slabDrawing {
+    break-before: page;
+  }
+  .slabLoads {
+    break-before: page;
+  }
+  .slabWorkspace li,
+  .slabWorkspace p {
+    font-size: 9px;
+  }
+  .slabWarnings {
+    background: white;
+  }
+}

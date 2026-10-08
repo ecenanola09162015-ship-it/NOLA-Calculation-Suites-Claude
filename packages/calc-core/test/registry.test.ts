@@ -3,8 +3,9 @@ import { describe, expect, it } from "vitest";
 import { getModule, getPilotModules, moduleRegistry } from "../src";
 
 describe("module registry", () => {
-  it("contains the four approved pilot modules", () => {
+  it("contains the approved pilot modules including slab", () => {
     expect(getPilotModules().map((module) => module.slug)).toEqual([
+      "slab",
       "rc-column",
       "steel-column",
       "seismic-loads",
@@ -19,10 +20,12 @@ describe("module registry", () => {
     });
   });
 
-  it("keeps every initial module behind the interface-only safety gate", () => {
+  it("does not mark development modules as independently verified", () => {
     expect(
       moduleRegistry.every(
-        (module) => module.verificationStatus === "interface-only",
+        (module) =>
+          module.verificationStatus === "interface-only" ||
+          module.verificationStatus === "verification-required",
       ),
     ).toBe(true);
   });

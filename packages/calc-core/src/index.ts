@@ -8,3 +8,5 @@ export * from "./modules/rectangular-column";
 export * from "./modules/column-load-import";
 
 export * from "./modules/column-draft";
+
+export * from "./modules/slab-design";

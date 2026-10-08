@@ -162,8 +162,8 @@ export async function saveCalculationDraft(
     input?: { code?: string };
   } | null;
   const status =
-    input.moduleSlug === "rc-column" &&
-    candidate?.kind === "rc-column" &&
+    ((input.moduleSlug === "rc-column" && candidate?.kind === "rc-column") ||
+      (input.moduleSlug === "slab" && candidate?.kind === "slab")) &&
     (candidate.input?.code === "ACI 318-19" ||
       candidate.input?.code === "NSCP 2015")
       ? "verification-required"

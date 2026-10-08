@@ -33,7 +33,7 @@ export const uiCatalogue = [
     slug: "slab",
     name: "Slab Design",
     group: "Concrete",
-    pilot: false,
+    pilot: true,
   },
   {
     slug: "retaining-wall",

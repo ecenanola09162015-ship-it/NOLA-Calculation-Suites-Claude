@@ -9,6 +9,10 @@ const RectangularColumnWorkspace = dynamic(
     ),
   { loading: () => <p>Opening RC column workspace…</p> },
 );
+const SlabWorkspace = dynamic(
+  () => import("./slab-workspace").then((m) => m.SlabWorkspace),
+  { loading: () => <p>Opening slab workspace…</p> },
+);
 import { BrandMark } from "./brand-mark";
 import { createProjectAction, createInterfaceDraftAction } from "@/app/actions";
 import type { ProjectRecord, CalculationDraftRecord } from "@/lib/projects";
@@ -229,7 +233,9 @@ export function SuiteWorkspace({
                             <small>
                               {d.moduleSlug === "rc-column"
                                 ? "Column draft"
-                                : "UI draft"}
+                                : d.moduleSlug === "slab"
+                                  ? "Slab draft"
+                                  : "UI draft"}
                             </small>
                           </button>
                         ))}
@@ -279,7 +285,7 @@ export function SuiteWorkspace({
             )}
           </div>
           <div className="suiteNotice">
-            Development build — RC column section screening available;
+            Development build — RC column and slab screening available;
             engineering review pending.
           </div>
           <p className="suiteFeedback" role="status" aria-live="polite">
@@ -349,6 +355,19 @@ export function SuiteWorkspace({
                   ...previous.filter((d) => d.id !== item.id),
                 ]);
               }}
+            />
+          ) : module.slug === "slab" ? (
+            <SlabWorkspace
+              key={`${projectId}:${workspaceSession}`}
+              project={project}
+              draft={selectedDraft}
+              cloudReady={cloudReady}
+              onSaved={(item) =>
+                setDrafts((previous) => [
+                  item,
+                  ...previous.filter((d) => d.id !== item.id),
+                ])
+              }
             />
           ) : (
             <section className="suiteDraftWorkspace">

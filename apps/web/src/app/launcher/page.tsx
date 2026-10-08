@@ -16,10 +16,13 @@ export default async function LauncherPage({
   const [projects, drafts] = ready
     ? await Promise.all([listProjects(userId), listCalculationDrafts(userId)])
     : [[], []];
+  const requested = (await searchParams).module;
   return (
     <SuiteWorkspace
       initialModule={
-        (await searchParams).module === "rc-column" ? "rc-column" : undefined
+        requested === "rc-column" || requested === "slab"
+          ? requested
+          : undefined
       }
       initialProjects={projects}
       initialDrafts={drafts}

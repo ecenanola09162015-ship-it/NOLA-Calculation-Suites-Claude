@@ -6,6 +6,7 @@ vi.mock("@/lib/projects", () => ({ saveCalculationDraft: vi.fn() }));
 import { auth } from "@clerk/nextjs/server";
 import { isDatabaseConfigured } from "@/lib/env";
 import { saveCalculationDraft } from "@/lib/projects";
+import { defaultSlabInput } from "@nola/calc-core";
 import { POST } from "../src/app/api/calculations/route";
 const projectId = "12345678-1234-1234-1234-123456789012";
 const body = {
@@ -115,5 +116,46 @@ describe("column draft API", () => {
     const response = await POST(request(body));
     expect(response.status).toBe(503);
     expect(JSON.stringify(await response.json())).not.toContain("private");
+  });
+});
+
+describe("slab draft API", () => {
+  const slab = {
+    projectId,
+    moduleSlug: "slab",
+    title: "SL-01",
+    payload: { kind: "slab", version: 1, input: defaultSlabInput() },
+  };
+  it("saves the authenticated slab payload and rejects invalid slab input", async () => {
+    vi.mocked(saveCalculationDraft).mockResolvedValue({
+      id: projectId,
+      projectId,
+      moduleSlug: "slab",
+      title: "SL-01",
+      payload: slab.payload,
+      verificationStatus: "verification-required",
+      updatedAt: "2026-10-08T00:00:00Z",
+    });
+    expect((await POST(request(slab))).status).toBe(201);
+    expect(saveCalculationDraft).toHaveBeenCalledWith(
+      "owner",
+      expect.objectContaining({ moduleSlug: "slab", payload: slab.payload }),
+    );
+    vi.mocked(saveCalculationDraft).mockClear();
+    expect(
+      (
+        await POST(
+          request({
+            ...slab,
+            payload: {
+              kind: "slab",
+              version: 1,
+              input: { ...slab.payload.input, h: -1 },
+            },
+          }),
+        )
+      ).status,
+    ).toBe(400);
+    expect(saveCalculationDraft).not.toHaveBeenCalled();
   });
 });
