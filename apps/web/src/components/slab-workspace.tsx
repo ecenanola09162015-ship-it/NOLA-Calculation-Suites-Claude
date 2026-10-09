@@ -2,6 +2,8 @@
 import { useMemo, useRef, useState } from "react";
 import {
   analyzeSlab,
+  defaultSlabQuantity,
+  type SlabQuantityInput,
   defaultSlabInput,
   parseSlabLoads,
   resolveSlabBars,
@@ -13,6 +15,7 @@ import {
   type SlabResult,
 } from "@nola/calc-core";
 import type { ProjectRecord, CalculationDraftRecord } from "@/lib/projects";
+import { SlabQuantityPanel } from "./slab-quantity-panel";
 import { SlabPlan, SlabSection } from "./slab-diagrams";
 const fmt = (n: number | null | undefined, p = 2) =>
   n === null || n === undefined || !Number.isFinite(n)
@@ -68,6 +71,12 @@ export function SlabWorkspace({
   );
   const [input, setInput] = useState<SlabInput>(() =>
     restored.success ? restored.data.input : defaultSlabInput(),
+  );
+  const [quantity, setQuantity] = useState<SlabQuantityInput>(() =>
+    restored.success
+      ? (restored.data.quantity ??
+        defaultSlabQuantity(restored.data.input.supportWidth))
+      : defaultSlabQuantity(),
   );
   const [title, setTitle] = useState(draft?.title ?? "Slab Design — SL-01");
   const [id, setId] = useState<string | undefined>(
@@ -266,6 +275,7 @@ export function SlabWorkspace({
         kind: "slab",
         version: 1,
         input,
+        quantity,
       });
       if (!parsed.success || !title.trim())
         throw new Error(
@@ -332,6 +342,21 @@ export function SlabWorkspace({
   return (
     <section className="slabWorkspace">
       <div className="slabToolbar">
+        <label className="cqQuickToggle">
+          <input
+            type="checkbox"
+            checked={quantity.enabled}
+            onChange={(e) => {
+              editVersion.current++;
+              setSaved(false);
+              setQuantity({ ...quantity, enabled: e.target.checked });
+            }}
+          />
+          Enable Quantity Estimate
+        </label>
+        <a className="suiteSecondary cqJump" href="#slab-quantity">
+          Open Estimate ↓
+        </a>
         <label>
           Calculation Title
           <input
@@ -477,7 +502,7 @@ export function SlabWorkspace({
             in the report.
           </p>
           <details open>
-            <summary>Extra-Bar Cutoff Lengths</summary>
+            <summary id="slab-cutoffs">Extra-Bar Cutoff Lengths</summary>
             <p className="slabMuted">
               Fractions of the span along each bar. Distribution covers the full
               transverse width. Top extras are credited at Fixed supports only.
@@ -1136,6 +1161,28 @@ export function SlabWorkspace({
           </ul>
         </section>
       )}
+      <SlabQuantityPanel
+        input={input}
+        value={quantity}
+        onChange={(q) => {
+          editVersion.current++;
+          setSaved(false);
+          setQuantity(q);
+        }}
+        onResetCutoffs={() =>
+          update({
+            ...input,
+            cutoffs: {
+              bottomStart: 0.25,
+              bottomEnd: 0.75,
+              west: 1 / 3,
+              east: 1 / 3,
+              south: 1 / 3,
+              north: 1 / 3,
+            },
+          })
+        }
+      />
     </section>
   );
 }

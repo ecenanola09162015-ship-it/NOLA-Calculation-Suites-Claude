@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { defaultSlabInput, defaultSlabQuantity } from "@nola/calc-core";
 vi.mock("@clerk/nextjs/server", () => ({ auth: vi.fn() }));
 // Source route uses @/ alias; resolve those imports through the explicit mocked paths.
 vi.mock("@/lib/env", () => ({ isDatabaseConfigured: vi.fn() }));
@@ -157,5 +158,57 @@ describe("slab draft API", () => {
       ).status,
     ).toBe(400);
     expect(saveCalculationDraft).not.toHaveBeenCalled();
+  });
+});
+
+describe("slab estimate draft API", () => {
+  it("persists slab estimate settings with owner authorization and rejects malformed settings", async () => {
+    const quantity = defaultSlabQuantity();
+    quantity.enabled = true;
+    quantity.beams.west.main.shape = "L-hook";
+    const payload = {
+      kind: "slab",
+      version: 1,
+      input: defaultSlabInput(),
+      quantity,
+    };
+    vi.mocked(saveCalculationDraft).mockResolvedValue({
+      id: projectId,
+      projectId,
+      moduleSlug: "slab",
+      title: "S1",
+      payload,
+      verificationStatus: "verification-required",
+      updatedAt: "2026-10-10T00:00:00Z",
+    });
+    expect(
+      (
+        await POST(
+          request({ projectId, moduleSlug: "slab", title: "S1", payload }),
+        )
+      ).status,
+    ).toBe(201);
+    expect(saveCalculationDraft).toHaveBeenCalledWith(
+      "owner",
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          quantity: expect.objectContaining({
+            beams: expect.objectContaining({
+              west: expect.objectContaining({
+                main: expect.objectContaining({ shape: "L-hook" }),
+              }),
+            }),
+          }),
+        }),
+      }),
+    );
+    quantity.members = 0;
+    expect(
+      (
+        await POST(
+          request({ projectId, moduleSlug: "slab", title: "S1", payload }),
+        )
+      ).status,
+    ).toBe(400);
   });
 });

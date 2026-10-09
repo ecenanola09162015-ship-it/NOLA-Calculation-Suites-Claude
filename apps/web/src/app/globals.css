@@ -2513,3 +2513,56 @@ select {
     display: none;
   }
 }
+
+.sqPanel {
+  margin-top: 24px;
+  scroll-margin-top: 20px;
+}
+.sqBeams {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.sqBeams fieldset {
+  min-width: 0;
+  border: 1px solid #cad8e2;
+  border-radius: 8px;
+  padding: 14px;
+}
+.sqBeams legend {
+  font-weight: 700;
+  padding: 0 8px;
+}
+.sqEndGroup {
+  border-top: 1px solid #e0e7ed;
+  margin-top: 12px;
+  padding-top: 12px;
+}
+.sqBeams .cqControls {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.sqDiagrams {
+  display: grid;
+  gap: 16px;
+}
+.sqDiagrams figure {
+  margin: 0;
+}
+.sqDiagrams svg {
+  width: 100%;
+  height: auto;
+}
+@media (max-width: 900px) {
+  .sqBeams {
+    grid-template-columns: 1fr;
+  }
+}
+@media print {
+  .sqBeams,
+  .sqPanel .cqControls {
+    display: none;
+  }
+  .sqDiagrams figure {
+    break-inside: avoid;
+  }
+}

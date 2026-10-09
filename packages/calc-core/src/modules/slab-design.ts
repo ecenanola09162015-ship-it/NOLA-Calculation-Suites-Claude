@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { slabQuantitySchema } from "./slab-quantity-schema";
 import { solveSlabPlate } from "./slab-plate";
 export type SlabDirection = "short" | "long";
 export type SlabFace = "bottom" | "top";
@@ -49,8 +50,8 @@ export const slabInputSchema = z
     main: barsSchema,
     extra: barsSchema,
     cutoffs: z.object({
-      bottomStart: z.number().min(0.05).max(0.45),
-      bottomEnd: z.number().min(0.55).max(0.95),
+      bottomStart: z.number().min(0).max(0.49),
+      bottomEnd: z.number().min(0.51).max(1),
       west: z.number().min(0.05).max(0.45),
       east: z.number().min(0.05).max(0.45),
       south: z.number().min(0.05).max(0.45),
@@ -80,6 +81,7 @@ export const slabDraftSchema = z.object({
   kind: z.literal("slab"),
   version: z.literal(1),
   input: slabInputSchema,
+  quantity: slabQuantitySchema.optional(),
 });
 export type SlabInput = z.infer<typeof slabInputSchema>;
 export type SlabBar = z.infer<typeof barSchema>;
@@ -217,12 +219,12 @@ export function defaultSlabInput(): SlabInput {
     main,
     extra,
     cutoffs: {
-      bottomStart: 0.2,
-      bottomEnd: 0.8,
-      west: 0.3,
-      east: 0.3,
-      south: 0.3,
-      north: 0.3,
+      bottomStart: 0.25,
+      bottomEnd: 0.75,
+      west: 1 / 3,
+      east: 1 / 3,
+      south: 1 / 3,
+      north: 1 / 3,
     },
     sdl: 2.4,
     partition: 0.5,
