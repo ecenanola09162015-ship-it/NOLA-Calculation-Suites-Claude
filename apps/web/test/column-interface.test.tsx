@@ -16,7 +16,7 @@ describe("column interface server render", () => {
     expect(html).toMatch(/<option disabled="">BS EN 1992 — Future Development/);
     expect(html).toMatch(/<option disabled="">AS 3600 — Future Development/);
     expect(html).toContain("Clear cover to ties");
-    expect(html).toContain("Paste from Excel");
+    expect(html).toContain("Paste From Excel");
     expect(html).toContain("Calculate section");
     expect(html).toContain("I have assessed slenderness");
     expect(html).not.toContain("Combination screening");

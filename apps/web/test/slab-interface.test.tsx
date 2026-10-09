@@ -10,14 +10,14 @@ describe("slab workspace and diagrams", () => {
     );
     expect(html).toContain("MAIN BARS");
     expect(html).toContain("EXTRA BARS");
-    expect(html).toContain("Top clear cover");
-    expect(html).toContain("Bottom clear cover");
+    expect(html).toContain("Top Clear Cover");
+    expect(html).toContain("Bottom Clear Cover");
     expect(html).toContain("Elevation z mm");
     expect(html).toContain("Auto");
-    expect(html).toContain("DCR criterion");
+    expect(html).toContain("DCR Criterion");
     expect(html).toContain("BS EN 1992 — Future Development");
     expect(html).toContain("AS 3600 — Future Development");
-    expect(html).toContain("Paste from Excel");
+    expect(html).toContain("Paste From Excel");
     expect(html).toContain("Support anchorage");
     expect(html).toContain("REVIEW REQUIRED");
     expect(html).not.toContain("NaN");

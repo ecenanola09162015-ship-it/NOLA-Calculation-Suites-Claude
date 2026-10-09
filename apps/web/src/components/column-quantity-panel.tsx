@@ -8,6 +8,12 @@ import {
   type ColumnQuantityInput,
   type RectangularColumnInput,
 } from "@nola/calc-core";
+import { ColumnTieSection } from "./column-tie-section";
+import {
+  adoptSectionTieDiameter,
+  crossTiePositions,
+  zoneColor,
+} from "../lib/column-tie-layout";
 const f = (v: number, p = 2) =>
   Number.isFinite(v)
     ? v.toLocaleString("en-US", {
@@ -47,6 +53,7 @@ export function ColumnQuantityPanel({
   value: ColumnQuantityInput;
   onChange: (q: ColumnQuantityInput) => void;
 }) {
+  const [adoptOpen, setAdoptOpen] = useState(false);
   const [diameter, setDiameter] = useState("all"),
     [grade, setGrade] = useState("all"),
     [fn, setFn] = useState("all");
@@ -88,7 +95,7 @@ export function ColumnQuantityPanel({
       id="column-quantity"
       className={`rcPanel cqPanel ${!value.enabled ? "cqDisabled" : ""}`}
     >
-      <h2>Quantity estimate · Column segment</h2>
+      <h2>Quantity Estimate · Column Segment</h2>
       <label className="cqToggle">
         <input
           type="checkbox"
@@ -106,32 +113,32 @@ export function ColumnQuantityPanel({
         <>
           <div className="cqControls">
             <Num
-              label="Floor-to-floor height (mm)"
+              label="Floor-To-Floor Height (mm)"
               value={value.height}
               onChange={(v) => change("height", v)}
             />
             <Num
-              label="Upper beam depth (mm)"
+              label="Upper Beam Depth (mm)"
               value={value.beamDepth}
               onChange={(v) => change("beamDepth", v)}
             />
             <Num
-              label="Identical columns"
+              label="Identical Columns"
               value={value.members}
               onChange={(v) => change("members", v)}
             />
             <Num
-              label="First tie above floor (mm)"
+              label="First Tie Above Floor (mm)"
               value={value.firstOffset}
               onChange={(v) => change("firstOffset", v)}
             />
             <Num
-              label="Last tie below upper floor (mm)"
+              label="Last Tie Below Upper Floor (mm)"
               value={value.lastOffset}
               onChange={(v) => change("lastOffset", v)}
             />
             <label>
-              Hook basis
+              Hook Basis
               <select
                 value={value.hookBasis}
                 onChange={(e) =>
@@ -161,6 +168,13 @@ export function ColumnQuantityPanel({
             <button
               type="button"
               className="suiteSecondary"
+              onClick={() => setAdoptOpen(true)}
+            >
+              Adopt Section Tie Diameter · Ø{section.tieDiameter} mm
+            </button>
+            <button
+              type="button"
+              className="suiteSecondary"
               onClick={() => {
                 if (
                   Number.isFinite(value.height) &&
@@ -177,7 +191,7 @@ export function ColumnQuantityPanel({
                   });
               }}
             >
-              Generate / reset spacing zones
+              Generate / Reset Spacing Zones
             </button>
             <button
               type="button"
@@ -199,13 +213,45 @@ export function ColumnQuantityPanel({
                 });
               }}
             >
-              Add zone
+              Add Zone
             </button>
           </div>
+          {adoptOpen ? (
+            <div
+              className="cqAdoptConfirm"
+              role="region"
+              aria-label="Confirm Section Tie Diameter Adoption"
+            >
+              <h3>Adopt Section Tie Diameter?</h3>
+              <p>
+                Apply Ø{section.tieDiameter} mm From Section &amp; Materials To
+                All {value.zones.length} Zones. Spacing, fy And Counts Are
+                Retained. Checked Cutting-Length Overrides Will Be Cleared
+                Because The Diameter Has Changed.
+              </p>
+              <button
+                type="button"
+                className="suitePrimary"
+                onClick={() => {
+                  onChange(adoptSectionTieDiameter(value, section.tieDiameter));
+                  setAdoptOpen(false);
+                }}
+              >
+                Confirm Adoption
+              </button>
+              <button
+                type="button"
+                className="suiteSecondary"
+                onClick={() => setAdoptOpen(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : null}
           <div className="cqScroll">
             <table>
               <caption>
-                Tie zones · elevations measured from lower floor (mm)
+                Tie Zones · Elevations Measured From Lower Floor (mm)
               </caption>
               <thead>
                 <tr>
@@ -216,9 +262,9 @@ export function ColumnQuantityPanel({
                     "Spacing",
                     "Ø",
                     "fy MPa",
-                    "Hoops / set",
-                    "Interior X cross-ties / set",
-                    "Interior Y cross-ties / set",
+                    "Hoops / Set",
+                    "Interior X Cross-Ties / Set",
+                    "Interior Y Cross-Ties / Set",
                     "",
                   ].map((s, i) => (
                     <th key={i}>{s}</th>
@@ -321,7 +367,7 @@ export function ColumnQuantityPanel({
             </table>
           </div>
           <details className="cqActions">
-            <summary>Checked cutting-length overrides (mm)</summary>
+            <summary>Checked Cutting-Length Overrides (mm)</summary>
             <p>
               Automatic lengths exclude bend arcs and closure details. Enter
               independently checked full piece lengths to include those effects.
@@ -360,6 +406,59 @@ export function ColumnQuantityPanel({
               ))}
             </div>
           </details>
+          <details className="cqActions">
+            <summary>
+              Cross-Tie Positions · Relative To Section Centre (mm)
+            </summary>
+            <p>
+              Blank Uses Opposing Peripheral Bar Positions. X Cross-Ties Use Y
+              Coordinates; Y Cross-Ties Use X Coordinates. Enter Comma-Separated
+              Coordinates To Override. Positions Affect Drawings; Full-Section
+              Cutting-Length Assumptions Remain In Force.
+            </p>
+            <div className="cqControls">
+              {value.zones.map((z, i) => (
+                <div key={i}>
+                  <strong style={{ color: zoneColor(i) }}>{z.name}</strong>
+                  {(["X", "Y"] as const).map((axis) => {
+                    const key =
+                      axis === "X" ? "crossXPositions" : "crossYPositions";
+                    const layout = crossTiePositions(section, z, axis);
+                    return (
+                      <label key={axis}>
+                        {axis} Cross-Tie Positions
+                        <input
+                          aria-label={`${z.name} ${axis} cross-tie positions`}
+                          placeholder={`Auto: ${layout.positions.join(", ") || "No Aligned Bars"}`}
+                          defaultValue={z[key]?.join(", ") ?? ""}
+                          onBlur={(e) => {
+                            const raw = e.target.value.trim();
+                            const positions = raw
+                              ? raw.split(",").map((s) => Number(s.trim()))
+                              : undefined;
+                            if (positions?.some((p) => !Number.isFinite(p))) {
+                              e.target.setCustomValidity(
+                                "Enter comma-separated numeric coordinates.",
+                              );
+                              e.target.reportValidity();
+                              return;
+                            }
+                            e.target.setCustomValidity("");
+                            onChange({
+                              ...value,
+                              zones: value.zones.map((v, j) =>
+                                i === j ? { ...v, [key]: positions } : v,
+                              ),
+                            });
+                          }}
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </details>
           {computed.error ? (
             <p role="alert" className="rcAlert">
               {computed.error}
@@ -380,20 +479,20 @@ export function ColumnQuantityPanel({
                   <small>{f(r.shearPercent)}% of total steel weight</small>
                 </div>
                 <div>
-                  <strong>{f(r.total)} kg</strong>Total steel
+                  <strong>{f(r.total)} kg</strong>Total Steel
                 </div>
                 <div>
-                  <strong>{f(r.concrete, 3)} m³</strong>Gross concrete incl.
+                  <strong>{f(r.concrete, 3)} m³</strong>Gross Concrete Incl.
                   joint
                 </div>
                 <div>
-                  <strong>{f(r.ratio)} kg/m³</strong>Total steel / concrete
+                  <strong>{f(r.ratio)} kg/m³</strong>Total Steel / concrete
                 </div>
               </div>
               <div className="cqDrawings">
                 <figure>
                   <figcaption>
-                    Elevation · actual tie levels · 1 column
+                    Elevation · Actual Tie Levels · 1 Column
                   </figcaption>
                   <svg
                     viewBox="0 0 440 390"
@@ -426,14 +525,18 @@ export function ColumnQuantityPanel({
                             x2="147"
                             y1={360 - (345 * e) / value.height}
                             y2={360 - (345 * e) / value.height}
-                            stroke="#df7c22"
-                            strokeWidth="1.4"
+                            stroke={zoneColor(z.index)}
+                            strokeWidth={Math.max(
+                              0.5,
+                              (345 * z.diameter) / value.height,
+                            )}
                           />
                         ))}
                         <text
                           x="185"
                           y={360 - (345 * (z.start + z.end)) / 2 / value.height}
                           fontSize="11"
+                          fill={zoneColor(z.index)}
                         >
                           {z.name}: {z.sets} sets, ≤{z.spacing} mm
                         </text>
@@ -446,94 +549,30 @@ export function ColumnQuantityPanel({
                   </svg>
                 </figure>
                 <div>
-                  {r.zones.map((z, i) => (
-                    <figure key={i}>
-                      <figcaption>
-                        {z.name} · {z.hoops} hoop(s), {z.legsX - 2 * z.hoops} X
-                        cross-ties, {z.legsY - 2 * z.hoops} Y cross-ties
-                      </figcaption>
-                      <svg
-                        viewBox="0 0 240 170"
-                        role="img"
-                        aria-label={`${z.name} schematic tie arrangement`}
+                  {[...r.zones]
+                    .sort((a, b) => b.start - a.start)
+                    .map((z) => (
+                      <figure
+                        key={z.index}
+                        style={{ borderTop: `4px solid ${zoneColor(z.index)}` }}
                       >
-                        <rect
-                          x="20"
-                          y="10"
-                          width="200"
-                          height="120"
-                          fill="#edf3f6"
-                          stroke="#617a88"
+                        <figcaption style={{ color: zoneColor(z.index) }}>
+                          {z.name} · {z.hoops} hoop(s), {z.legsX - 2 * z.hoops}{" "}
+                          X cross-ties, {z.legsY - 2 * z.hoops} Y cross-ties
+                        </figcaption>
+                        <ColumnTieSection
+                          section={section}
+                          zone={z}
+                          basis={value.hookBasis}
+                          color={zoneColor(z.index)}
                         />
-                        {Array.from({ length: z.hoops }, (_, j) => (
-                          <rect
-                            key={j}
-                            x={35 + j * 3}
-                            y={23 + j * 3}
-                            width={170 - j * 6}
-                            height={94 - j * 6}
-                            fill="none"
-                            stroke="#df7c22"
-                          />
-                        ))}
-                        {Array.from(
-                          { length: z.legsX - 2 * z.hoops },
-                          (_, k) => (
-                            <line
-                              key={`x${k}`}
-                              x1="35"
-                              x2="205"
-                              y1={
-                                23 +
-                                (94 * (k + 1)) / (z.legsX - 2 * z.hoops + 1)
-                              }
-                              y2={
-                                23 +
-                                (94 * (k + 1)) / (z.legsX - 2 * z.hoops + 1)
-                              }
-                              stroke="#df7c22"
-                            />
-                          ),
-                        )}
-                        {Array.from(
-                          { length: z.legsY - 2 * z.hoops },
-                          (_, k) => (
-                            <line
-                              key={`y${k}`}
-                              y1="23"
-                              y2="117"
-                              x1={
-                                35 +
-                                (170 * (k + 1)) / (z.legsY - 2 * z.hoops + 1)
-                              }
-                              x2={
-                                35 +
-                                (170 * (k + 1)) / (z.legsY - 2 * z.hoops + 1)
-                              }
-                              stroke="#df7c22"
-                            />
-                          ),
-                        )}
-                        {section.bars.map((b, j) => (
-                          <circle
-                            key={j}
-                            cx={120 + (b.x / section.width) * 200}
-                            cy={70 - (b.y / section.depth) * 120}
-                            r="3"
-                            fill="#145da0"
-                          />
-                        ))}
-                        <text x="20" y="148" fontSize="10">
-                          X → width · Y ↑ depth · hooks schematic only
-                        </text>
-                      </svg>
-                      <small>
-                        {z.hook.angle
-                          ? `135° ends · extension ${f(z.hook.extension, 1)} mm each · min inside bend ${f(z.hook.insideBend!, 1)} mm`
-                          : `8db = ${f(z.hook.extension, 1)} mm each end`}
-                      </small>
-                    </figure>
-                  ))}
+                        <small>
+                          {z.hook.angle
+                            ? `135° ends · extension ${f(z.hook.extension, 1)} mm each · min inside bend ${f(z.hook.insideBend!, 1)} mm`
+                            : `8db = ${f(z.hook.extension, 1)} mm each end`}
+                        </small>
+                      </figure>
+                    ))}
                 </div>
               </div>
               <div className="cqFilters">
@@ -577,20 +616,20 @@ export function ColumnQuantityPanel({
               <div className="cqScroll">
                 <table>
                   <caption>
-                    Detailed estimate · counts include {value.members} identical
+                    Detailed Estimate · Counts Include {value.members} identical
                     column(s)
                   </caption>
                   <thead>
                     <tr>
                       {[
                         "Mark",
-                        "Zone / piece",
+                        "Zone / Piece",
                         "Function",
                         "Ø mm",
                         "fy",
                         "Count",
-                        "Length / piece m",
-                        "Total length m",
+                        "Length / Piece m",
+                        "Total Length m",
                         "kg/m",
                         "Weight kg",
                       ].map((s) => (
@@ -634,7 +673,7 @@ export function ColumnQuantityPanel({
             are counted once and assigned to the upper zone. Actual grid spacing
             is fitted at or below the entered maximum.
           </p>
-          <h3>Assumptions & limitations</h3>
+          <h3>Assumptions & Limitations</h3>
           <ul>
             {columnQuantityLimitations.map((s) => (
               <li key={s}>{s}</li>

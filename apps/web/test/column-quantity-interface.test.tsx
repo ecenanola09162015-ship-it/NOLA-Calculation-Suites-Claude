@@ -27,7 +27,7 @@ describe("optional column estimate UI", () => {
       />,
     );
     expect(h).toContain("Enable Quantity Estimate");
-    expect(h).not.toContain("Total steel");
+    expect(h).not.toContain("Total Steel");
   });
   it("renders zones, filters, physical arrangement, quantities and exclusions", () => {
     const q = defaultColumnQuantity();
@@ -36,13 +36,13 @@ describe("optional column estimate UI", () => {
       <ColumnQuantityPanel section={section} value={q} onChange={() => {}} />,
     );
     for (const label of [
-      "Floor-to-floor height",
-      "Upper beam depth",
+      "Floor-To-Floor Height",
+      "Upper Beam Depth",
       "ACI 318-19",
       "Beam-column joint",
-      "Interior X cross-ties",
-      "Interior Y cross-ties",
-      "Gross concrete",
+      "Interior X Cross-Ties",
+      "Interior Y Cross-Ties",
+      "Gross Concrete",
       "Function",
       "Filtered subtotal",
       "% of total steel weight",
@@ -53,6 +53,15 @@ describe("optional column estimate UI", () => {
       "minimum inside bend",
     ])
       expect(h).toContain(label);
+    expect(h).toContain("Adopt Section Tie Diameter");
+    const figures = h.slice(h.indexOf('aria-label="Column elevation'));
+    expect(figures.indexOf("Beam-column joint dimension-scaled")).toBeLessThan(
+      figures.indexOf("Upper zone dimension-scaled"),
+    );
+    expect(figures.indexOf("Upper zone dimension-scaled")).toBeLessThan(
+      figures.indexOf("Lower zone dimension-scaled"),
+    );
+    expect(h).toContain('stroke-width="10"');
     expect(h).not.toContain("NaN");
   });
 });

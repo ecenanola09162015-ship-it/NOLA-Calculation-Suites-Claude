@@ -21,6 +21,8 @@ export const columnQuantitySchema = z.object({
         hoops: finite.int().min(1).max(8),
         legsX: finite.int().min(2).max(16),
         legsY: finite.int().min(2).max(16),
+        crossXPositions: z.array(finite).max(14).optional(),
+        crossYPositions: z.array(finite).max(14).optional(),
         hoopLength: finite.positive().max(50000).nullable().optional(),
         crossXLength: finite.positive().max(50000).nullable().optional(),
         crossYLength: finite.positive().max(50000).nullable().optional(),
@@ -272,7 +274,7 @@ export function estimateColumnQuantity(
         ? "Designer cutting length"
         : "Preliminary automatic",
     );
-    return { ...z, sets, elevations, x, y, hook };
+    return { ...z, index, sets, elevations, x, y, hook };
   });
   const longitudinal = rows
       .filter((r) => r.function.startsWith("Longitudinal"))

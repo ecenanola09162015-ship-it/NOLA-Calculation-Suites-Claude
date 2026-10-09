@@ -2470,3 +2470,46 @@ select {
     display: none !important;
   }
 }
+
+/* Column estimate: elevation-ordered, consistently coloured zone sections. */
+.cqDrawings {
+  align-items: start;
+}
+.cqDrawings > div {
+  grid-template-columns: 1fr;
+}
+.cqDrawings figure {
+  background: #fff;
+  border: 1px solid #d6e1e8;
+  border-radius: 8px;
+  padding: 14px;
+}
+.cqDrawings figcaption {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+.cqDrawings > figure {
+  position: sticky;
+  top: 16px;
+}
+.cqAdoptConfirm {
+  border: 2px solid #007f86;
+  background: #edfafa;
+  padding: 16px;
+  border-radius: 10px;
+  margin: 16px 0;
+}
+.cqAdoptConfirm button {
+  margin: 6px 8px 0 0;
+}
+@media (max-width: 900px), print {
+  .cqDrawings > figure {
+    position: static;
+  }
+}
+@media print {
+  .cqAdoptConfirm {
+    display: none;
+  }
+}

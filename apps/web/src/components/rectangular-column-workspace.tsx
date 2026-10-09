@@ -329,7 +329,7 @@ export function RectangularColumnWorkspace({
     <div className="rcWorkspace">
       <div className="rcToolbar">
         <label>
-          Calculation title
+          Calculation Title
           <input
             value={title}
             maxLength={100}
@@ -392,7 +392,7 @@ export function RectangularColumnWorkspace({
       </p>
       <div className="rcGrid">
         <section className="rcPanel">
-          <h2>01 · Section & materials</h2>
+          <h2>01 · Section & Materials</h2>
           <label>
             Design code
             <select
@@ -452,27 +452,27 @@ export function RectangularColumnWorkspace({
           </p>
         </section>
         <section className="rcPanel">
-          <h2>02 · Reinforcement layout</h2>
+          <h2>02 · Reinforcement Layout</h2>
           <ColumnSection input={input} />
           <p className="rcMuted">
             Initial values reproduce your workbook example. Bar coordinates are
             retained; cover and steel-ratio issues appear in results.
           </p>
           <details>
-            <summary>Generate a uniform perimeter layout</summary>
+            <summary>Generate A Uniform Perimeter Layout</summary>
             <div className="rcFields">
               <NumberField
-                label="Bars across b (including corners)"
+                label="Bars Across b (Including Corners)"
                 value={nX}
                 onChange={setNX}
               />
               <NumberField
-                label="Bars along h (including corners)"
+                label="Bars Along h (Including Corners)"
                 value={nY}
                 onChange={setNY}
               />
               <NumberField
-                label="Bar diameter"
+                label="Bar Diameter"
                 unit="mm"
                 value={diameter}
                 onChange={setDiameter}
@@ -564,7 +564,7 @@ export function RectangularColumnWorkspace({
       </details>
       <section className="rcPanel">
         <div className="rcPanelHeading">
-          <h2>03 · Factored load combinations</h2>
+          <h2>03 · Factored Load Combinations</h2>
           <button
             className="suiteSecondary"
             disabled={input.loads.length >= 500}
@@ -591,7 +591,7 @@ export function RectangularColumnWorkspace({
           </button>
         </div>
         <details className="rcPaste">
-          <summary>Paste from Excel</summary>
+          <summary>Paste From Excel</summary>
           <p>
             Copy Excel cells and paste below. Values must be in{" "}
             <strong>kN and kN·m</strong>. Supports Pu / Mux / Muy; Label / Pu /
@@ -783,11 +783,11 @@ export function RectangularColumnWorkspace({
           </div>
           <div className="rcGrid">
             <section className="rcPanel">
-              <h3>P–Mx interaction</h3>
+              <h3>P–Mx Interaction</h3>
               <ColumnPMPlot axis="x" result={result} selected={selected} />
             </section>
             <section className="rcPanel">
-              <h3>P–My interaction</h3>
+              <h3>P–My Interaction</h3>
               <ColumnPMPlot axis="y" result={result} selected={selected} />
             </section>
           </div>
@@ -796,7 +796,7 @@ export function RectangularColumnWorkspace({
             strength · Dotted amber: axial cap · Points: factored demands
           </p>
           <section className="rcPanel">
-            <h3>Combination screening</h3>
+            <h3>Combination Screening</h3>
             <p>Select a combination to highlight its demand in the diagrams.</p>
             <div className="rcTableWrap">
               <table>
@@ -859,7 +859,7 @@ export function RectangularColumnWorkspace({
           </section>
           <div className="rcGrid">
             <section className="rcPanel">
-              <h3>Linear biaxial screen · {selected}</h3>
+              <h3>Linear Biaxial Screen · {selected}</h3>
               <p>
                 At Pu = {fmt(check?.load.pu ?? null)} kN, use capacities from
                 the applicable signed branches.
@@ -867,7 +867,7 @@ export function RectangularColumnWorkspace({
               <ColumnBiaxialPlot check={check} />
             </section>
             <section className="rcPanel">
-              <h3>Calculation basis · {result.calculationBasis}</h3>
+              <h3>Calculation Basis · {result.calculationBasis}</h3>
               <dl className="rcBasis">
                 <div>
                   <dt>Concrete ultimate strain</dt>
@@ -905,7 +905,7 @@ export function RectangularColumnWorkspace({
         </section>
       ) : (
         <section className="rcPanel rcEmptyResult">
-          <h2>Results workspace</h2>
+          <h2>Results Workspace</h2>
           <p>
             Confirm the section-check scope, review inputs, then choose
             Calculate section. Results are cleared when engineering inputs

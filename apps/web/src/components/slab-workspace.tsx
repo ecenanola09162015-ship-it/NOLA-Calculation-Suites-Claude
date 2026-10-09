@@ -333,7 +333,7 @@ export function SlabWorkspace({
     <section className="slabWorkspace">
       <div className="slabToolbar">
         <label>
-          Calculation title
+          Calculation Title
           <input
             value={title}
             maxLength={100}
@@ -391,7 +391,7 @@ export function SlabWorkspace({
       )}
       <div className="slabGrid">
         <aside className="slabInputs slabPanel">
-          <h2>Slab inputs</h2>
+          <h2>Slab Inputs</h2>
           <div className="slabFieldGrid">
             <Numeric
               label="Span X"
@@ -406,22 +406,22 @@ export function SlabWorkspace({
               onChange={(v) => change("ly", v)}
             />
             <Numeric
-              label="Slab thickness"
+              label="Slab Thickness"
               value={input.h}
               onChange={(v) => change("h", v)}
             />
             <Numeric
-              label="Top clear cover"
+              label="Top Clear Cover"
               value={input.topCover}
               onChange={(v) => change("topCover", v)}
             />
             <Numeric
-              label="Bottom clear cover"
+              label="Bottom Clear Cover"
               value={input.bottomCover}
               onChange={(v) => change("bottomCover", v)}
             />
             <Numeric
-              label="Side clear cover"
+              label="Side Clear Cover"
               value={input.sideCover}
               onChange={(v) => change("sideCover", v)}
             />
@@ -477,14 +477,14 @@ export function SlabWorkspace({
             in the report.
           </p>
           <details open>
-            <summary>Extra-bar cutoff lengths</summary>
+            <summary>Extra-Bar Cutoff Lengths</summary>
             <p className="slabMuted">
               Fractions of the span along each bar. Distribution covers the full
               transverse width. Top extras are credited at Fixed supports only.
             </p>
             <div className="slabFieldGrid">
               <Numeric
-                label="Bottom start / L"
+                label="Bottom Start / L"
                 unit=""
                 value={input.cutoffs.bottomStart}
                 onChange={(v) =>
@@ -495,7 +495,7 @@ export function SlabWorkspace({
                 }
               />
               <Numeric
-                label="Bottom end / L"
+                label="Bottom End / L"
                 unit=""
                 value={input.cutoffs.bottomEnd}
                 onChange={(v) =>
@@ -522,32 +522,32 @@ export function SlabWorkspace({
             </div>
           </details>
           <details>
-            <summary>Detailing & serviceability settings</summary>
+            <summary>Detailing & Serviceability Settings</summary>
             <div className="slabFieldGrid">
               <Numeric
-                label="Maximum aggregate"
+                label="Maximum Aggregate"
                 value={input.aggregate}
                 onChange={(v) => change("aggregate", v)}
               />
               <Numeric
-                label="Support width (diagram)"
+                label="Support Width (Diagram)"
                 value={input.supportWidth}
                 onChange={(v) => change("supportWidth", v)}
               />
               <Numeric
-                label="DCR criterion"
+                label="DCR Criterion"
                 value={input.dcrLimit}
                 unit=""
                 onChange={(v) => change("dcrLimit", v)}
               />
               <Numeric
-                label="Immediate limit L /"
+                label="Immediate Limit L /"
                 value={input.deflectionDivisor}
                 unit=""
                 onChange={(v) => change("deflectionDivisor", v)}
               />
               <Numeric
-                label="Poisson ratio"
+                label="Poisson Ratio"
                 value={input.nu}
                 unit=""
                 onChange={(v) => change("nu", v)}
@@ -559,7 +559,7 @@ export function SlabWorkspace({
                 onChange={(v) => change("es", v)}
               />
               <Numeric
-                label="Concrete unit weight"
+                label="Concrete Unit Weight"
                 value={input.unitWeight}
                 unit="kN/m³"
                 onChange={(v) => change("unitWeight", v)}
@@ -626,22 +626,22 @@ export function SlabWorkspace({
           <section
             className={`slabPanel slabLoads ${tab === "calculations" ? "" : "slabScreenHidden"}`}
           >
-            <h2>Uniform loads & combinations</h2>
+            <h2>Uniform Loads & Combinations</h2>
             <div className="slabFieldGrid">
               <Numeric
-                label="Superimposed dead"
+                label="Superimposed Dead"
                 value={input.sdl}
                 unit="kPa"
                 onChange={(v) => change("sdl", v)}
               />
               <Numeric
-                label="Partition dead"
+                label="Partition Dead"
                 value={input.partition}
                 unit="kPa"
                 onChange={(v) => change("partition", v)}
               />
               <Numeric
-                label="Live load"
+                label="Live Load"
                 value={input.live}
                 unit="kPa"
                 onChange={(v) => change("live", v)}
@@ -780,7 +780,7 @@ export function SlabWorkspace({
               ＋ Combination
             </button>
             <details className="slabPaste">
-              <summary>Paste from Excel</summary>
+              <summary>Paste From Excel</summary>
               <p>
                 Copy cells with a header:{" "}
                 <code>ID · DeadFactor · LiveFactor · ServiceLiveFactor</code>.
@@ -830,7 +830,7 @@ export function SlabWorkspace({
             </details>
             {r && (
               <>
-                <h3>Analysis method</h3>
+                <h3>Analysis Method</h3>
                 <p>{r.method}</p>
                 <p>
                   Moments = α × wu × Lshort². Deflection = β × ws × Lshort⁴ /
@@ -853,7 +853,7 @@ export function SlabWorkspace({
           </section>
         </div>
         <aside className="slabPanel slabSummary">
-          <h2>Design checks</h2>
+          <h2>Design Checks</h2>
           <div
             className={`slabStatus ${r?.status === "REVISE" ? "slabBad" : ""}`}
           >
@@ -904,7 +904,7 @@ export function SlabWorkspace({
                   <dd>REVIEW REQUIRED</dd>
                 </div>
               </dl>
-              <h3>Suggested design</h3>
+              <h3>Suggested Design</h3>
               <p>
                 Largest practical main-bar spacing on a 25 mm grid, keeping the
                 entered diameter and extra bars.
@@ -947,7 +947,7 @@ export function SlabWorkspace({
       {r && (
         <section className="slabPanel slabResults">
           <header className="slabReportHeader">
-            <h2>{title} · Calculation report</h2>
+            <h2>{title} · Calculation Report</h2>
             <p>
               {project?.name ?? "Unsaved project"} ·{" "}
               {project?.buildingName ?? "—"} · {project?.location ?? "—"}
@@ -961,7 +961,7 @@ export function SlabWorkspace({
               {input.code} · {r.method} · {r.engineVersion} · {r.status}
             </p>
           </header>
-          <h3>Resolved reinforcement schedule</h3>
+          <h3>Resolved Reinforcement Schedule</h3>
           <div className="slabTableWrap">
             <table>
               <thead>
@@ -1008,7 +1008,7 @@ export function SlabWorkspace({
             Top extra groups repeat at each eligible fixed edge. Detailed
             lengths, hooks and wastage are not scheduled.
           </p>
-          <h3>Flexural checks · one-metre strips</h3>
+          <h3>Flexural Checks · One-Metre Strips</h3>
           <div className="slabTableWrap">
             <table>
               <thead>
@@ -1056,7 +1056,7 @@ export function SlabWorkspace({
             distribution: min(5h,450). Minimum clear spacing:
             max(25,db,4dagg/3).
           </p>
-          <h3>One-way shear checks at d from idealized support line</h3>
+          <h3>One-Way Shear Checks At d From Idealized Support Line</h3>
           <div className="slabTableWrap">
             <table>
               <thead>
@@ -1093,7 +1093,7 @@ export function SlabWorkspace({
             0.42√f′c bwd; ϕ = 0.75. Only main steel is credited in ρw. λs =
             min(1,√[2/(1+0.004d)]).
           </p>
-          <h3>Detailing & serviceability review</h3>
+          <h3>Detailing & Serviceability Review</h3>
           <p>
             Immediate uncracked δ = {fmt(r.deflection.immediate)} mm; selected
             limit = {fmt(r.deflection.limit)} mm; service combination{" "}
