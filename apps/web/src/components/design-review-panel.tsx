@@ -52,6 +52,7 @@ export function DesignReviewPanel({
           <thead>
             <tr>
               <th>Check</th>
+              <th>Code Reference</th>
               <th>DCR</th>
               <th>Status</th>
             </tr>
@@ -63,6 +64,7 @@ export function DesignReviewPanel({
                   {c.label}
                   {c.detail ? <p className="slabMuted">{c.detail}</p> : null}
                 </th>
+                <td className="designClause">{c.clause}</td>
                 <td>
                   {c.dcr === null
                     ? "—"

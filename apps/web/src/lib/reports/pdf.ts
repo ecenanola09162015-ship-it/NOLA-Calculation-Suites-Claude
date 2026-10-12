@@ -334,7 +334,9 @@ async function build(
           ? s.columns[2] === "Status / Remarks"
             ? [0.43, 0.08, 0.49]
             : [0.22, 0.6, 0.18]
-          : Array(s.columns.length).fill(1 / s.columns.length);
+          : s.columns.length === 4 && s.columns[3] === "Status / Remarks"
+            ? [0.33, 0.25, 0.08, 0.34]
+            : Array(s.columns.length).fill(1 / s.columns.length);
     const colW = fractions.map((v) => v * w);
     if (!s.rows.length) return;
     const headingHeight =

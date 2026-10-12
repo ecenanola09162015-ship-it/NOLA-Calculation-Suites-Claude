@@ -4,6 +4,7 @@ import {
   analyzeSlab,
   defaultDesignCheckPolicy,
   slabDesignChecks,
+  slabClauses,
   missingJudgmentRemarks,
   type DesignRemarks,
   defaultSlabQuantity,
@@ -959,9 +960,19 @@ export function SlabWorkspace({
                   </dd>
                 </div>
                 <div>
-                  <dt>Immediate δ</dt>
+                  <dt>Min. thickness</dt>
                   <dd>
-                    {fmt(r.deflection.immediate)} / {fmt(r.deflection.limit)} mm
+                    h {input.h} / hmin {fmt(r.deflection.minimumThickness.hmin)}{" "}
+                    mm ·{" "}
+                    {r.deflection.minimumThickness.ok ? "OK" : "CALCULATE δ"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Cracked δ (Ie)</dt>
+                  <dd>
+                    {fmt(r.deflection.crackedImmediate)} /{" "}
+                    {fmt(r.deflection.limit)} mm ·{" "}
+                    {r.deflection.ok ? "OK" : "REVISE"}
                   </dd>
                 </div>
                 <div>
@@ -1247,10 +1258,22 @@ export function SlabWorkspace({
           </p>
           <h3>Detailing & Serviceability Review</h3>
           <p>
-            Immediate uncracked δ = {fmt(r.deflection.immediate)} mm; selected
-            limit = {fmt(r.deflection.limit)} mm; service combination{" "}
-            {r.deflection.combination}. This does not establish long-term
-            deflection compliance.
+            Minimum thickness: {r.deflection.minimumThickness.formula}
+            {r.deflection.minimumThickness.ok
+              ? " — h ≥ hmin, calculated deflection waived"
+              : " — h < hmin, deflection calculated"}{" "}
+            (
+            {slabClauses.minimumThickness(r.deflection.minimumThickness.system)}
+            ).
+          </p>
+          <p>
+            Immediate δ: gross {fmt(r.deflection.immediate)} mm; cracked{" "}
+            {fmt(r.deflection.crackedImmediate)} mm (Ma {fmt(r.deflection.ma)},
+            Mcr {fmt(r.deflection.mcr)} kN·m/m; Ie/Ig ={" "}
+            {fmt(r.deflection.ie / r.deflection.ig, 3)}); limit{" "}
+            {fmt(r.deflection.limit)} mm; service combination{" "}
+            {r.deflection.crackedCombination} ({slabClauses.deflection()}). This
+            does not establish long-term deflection compliance.
           </p>
           <div className="slabTableWrap">
             <table>

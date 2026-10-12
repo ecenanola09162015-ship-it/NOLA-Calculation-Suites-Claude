@@ -2657,6 +2657,11 @@ select {
 .designReviewPanel p {
   font-size: 12px;
 }
+.designReviewPanel .designClause {
+  font-size: 11px;
+  color: #475467;
+  min-width: 140px;
+}
 .judgmentRemarks label {
   display: block;
   margin: 12px 0;

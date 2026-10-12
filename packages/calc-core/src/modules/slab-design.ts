@@ -179,10 +179,26 @@ export interface SlabResult {
     combination: string;
   }[];
   deflection: {
+    /** Uncracked (gross Ig) immediate deflection, mm. */
     immediate: number;
     limit: number;
     combination: string;
     cracked: boolean;
+    /** Immediate deflection using effective inertia Ie, mm. */
+    crackedImmediate: number;
+    crackedCombination: string;
+    /** Midspan service moment of the governing combination, kN·m/m. */
+    ma: number;
+    mcr: number;
+    ig: number;
+    icr: number;
+    ieMid: number;
+    ieAvg: number | null;
+    ie: number;
+    minimumThickness: SlabMinimumThickness;
+    /** "thickness": h ≥ hmin waives calculation; "calculation": Δcr governs. */
+    governedBy: "thickness" | "calculation";
+    ok: boolean;
   };
   recommendations: {
     layer: SlabLayer;
@@ -468,6 +484,121 @@ export function slabDevelopmentLength(i: SlabInput, b: SlabResolvedBar) {
     (((i.fy / (1.1 * Math.sqrt(i.fc))) * psiTop * psiSize) /
       Math.min(2.5, cb / b.diameter)) *
       b.diameter,
+  );
+}
+export interface SlabMinimumThickness {
+  system: "one-way" | "two-way";
+  /** Required minimum thickness, mm. */
+  hmin: number;
+  /** One-way: centre-to-centre span ℓ; two-way: clear long span ℓn (mm). */
+  span: number;
+  /** Two-way only: clear long / clear short span. */
+  beta: number | null;
+  /** One-way end condition used for the ℓ/20, ℓ/24, ℓ/28 divisor. */
+  continuity:
+    "simply supported" | "one end continuous" | "both ends continuous" | null;
+  /** Edges treated as discontinuous (Pinned) for the 8.3.1.2.1 note. */
+  discontinuousEdges: SlabEdge[];
+  formula: string;
+  ok: boolean;
+}
+/**
+ * Minimum slab thickness for which calculated deflection may be waived.
+ * One-way: ACI 318-19 Table 7.3.1.1 with 7.3.1.1.1 fy modifier, ℓ = c/c span;
+ * Fixed edge = continuous end, Pinned = simple support.
+ * Two-way edge-supported panels: Table 8.3.1.2 with αfm > 2.0 assumed
+ * (rigid beam/wall edges), ℓn = clear long span = long span − support width.
+ * Normal-weight concrete only (schema limits unit weight to 20–26 kN/m³).
+ */
+export function slabMinimumThickness(i: SlabInput): SlabMinimumThickness {
+  const short = Math.min(i.lx, i.ly) * 1000,
+    long = Math.max(i.lx, i.ly) * 1000,
+    shortAxisX = i.lx <= i.ly;
+  const discontinuousEdges = (
+    ["west", "east", "south", "north"] as const
+  ).filter((e) => i.supports[e] === "Pinned");
+  if (long / short >= 2) {
+    const fixed = (
+      shortAxisX ? (["west", "east"] as const) : (["south", "north"] as const)
+    ).filter((e) => i.supports[e] === "Fixed").length;
+    const divisor = [20, 24, 28][fixed];
+    const fyFactor = i.fy === 420 ? 1 : 0.4 + i.fy / 700;
+    const hmin = (short / divisor) * fyFactor;
+    return {
+      system: "one-way",
+      hmin,
+      span: short,
+      beta: null,
+      continuity: (
+        [
+          "simply supported",
+          "one end continuous",
+          "both ends continuous",
+        ] as const
+      )[fixed],
+      discontinuousEdges,
+      formula: `hmin = ℓ/${divisor} x (0.4 + fy/700) = ${short.toFixed(0)}/${divisor} x ${fyFactor.toFixed(3)} = ${hmin.toFixed(1)} mm`,
+      ok: i.h >= hmin - 1e-9,
+    };
+  }
+  const ln = long - i.supportWidth,
+    lnShort = short - i.supportWidth,
+    beta = ln / lnShort;
+  const eq = (ln * (0.8 + i.fy / 1400)) / (36 + 9 * beta),
+    hmin = Math.max(eq, 90);
+  return {
+    system: "two-way",
+    hmin,
+    span: ln,
+    beta,
+    continuity: null,
+    discontinuousEdges,
+    formula: `hmin = max[ℓn(0.8 + fy/1400)/(36 + 9β), 90] = max[${ln.toFixed(0)} x ${(0.8 + i.fy / 1400).toFixed(3)}/(36 + 9 x ${beta.toFixed(3)}) = ${eq.toFixed(1)}, 90] = ${hmin.toFixed(1)} mm`,
+    ok: i.h >= hmin - 1e-9,
+  };
+}
+export interface SlabCrackedSection {
+  ec: number;
+  n: number;
+  fr: number;
+  /** Gross, cracked-transformed and effective inertia per metre strip, mm⁴. */
+  ig: number;
+  icr: number;
+  /** Neutral axis depth of the cracked transformed section, mm. */
+  x: number;
+  /** Cracking moment, kN·m/m. */
+  mcr: number;
+}
+/**
+ * Cracked transformed section of a 1000 mm strip, tension steel only
+ * (compression steel conservatively neglected). Ec = 4700√f'c (19.2.2.1),
+ * fr = 0.62λ√f'c with λ = 1 (19.2.3.1), yt = h/2.
+ */
+export function slabCrackedSection(
+  i: Pick<SlabInput, "fc" | "es" | "h">,
+  as: number,
+  d: number,
+): SlabCrackedSection {
+  const b = 1000,
+    ec = 4700 * Math.sqrt(i.fc),
+    n = i.es / ec,
+    fr = 0.62 * Math.sqrt(i.fc),
+    ig = (b * i.h ** 3) / 12;
+  const nas = n * Math.max(0, as);
+  // b x²/2 = n As (d − x)
+  const x = nas > 0 ? (-nas + Math.sqrt(nas ** 2 + 2 * b * nas * d)) / b : 0;
+  const icr = nas > 0 ? (b * x ** 3) / 3 + nas * (d - x) ** 2 : 0;
+  return { ec, n, fr, ig, icr, x, mcr: (fr * ig) / (i.h / 2) / 1e6 };
+}
+/** ACI 318-19 Table 24.2.3.5: Ie = Ig if Ma ≤ (2/3)Mcr, else Icr / [1 − ((2/3)Mcr/Ma)²(1 − Icr/Ig)]. */
+export function slabEffectiveInertia(
+  s: Pick<SlabCrackedSection, "ig" | "icr" | "mcr">,
+  ma: number,
+): number {
+  if (ma <= (2 / 3) * s.mcr) return s.ig;
+  return Math.min(
+    s.ig,
+    s.icr / (1 - (((2 / 3) * s.mcr) / ma) ** 2 * (1 - s.icr / s.ig)),
   );
 }
 const edgeDirection = (i: SlabInput, edge: SlabEdge): SlabDirection =>
@@ -933,6 +1064,70 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
       combination = l.id;
     }
   }
+  // Cracked immediate deflection, short-direction strip (ACI 318-19 24.2.3).
+  const minimumThickness = slabMinimumThickness(i);
+  const sectionAt = (face: SlabFace, position: number) => {
+    const set = bars.filter(
+      (b) =>
+        b.direction === "short" &&
+        b.face === face &&
+        (b.group === "main" || slabExtraActive(i, b.layer, position)),
+    );
+    const as = set.reduce((s, b) => s + b.as, 0);
+    return slabCrackedSection(
+      i,
+      as,
+      as > 0 ? set.reduce((s, b) => s + b.as * b.d, 0) / as : 0,
+    );
+  };
+  const midSection = sectionAt("bottom", 0.5);
+  const ends = (
+    [
+      [near, 0],
+      [far, 1],
+    ] as const
+  )
+    .filter(([edge]) => i.supports[edge] === "Fixed")
+    .map(([edge, t]) => ({ edge, section: sectionAt("top", t) }));
+  let crackedImmediate = 0,
+    crackedCombination = "",
+    governingMa = 0,
+    governingIe = midSection.ig,
+    governingIeMid = midSection.ig,
+    governingIeAvg: number | null = null;
+  for (const l of activeLoads) {
+    const ws = dead + l.serviceLiveFactor * i.live;
+    const delta = ((coefficients.beta * ws * shortSpan ** 4) / rigidity) * 1000;
+    const maMid = Math.max(0, coefficients.shortPositive) * ws * shortSpan ** 2;
+    const ieMid = slabEffectiveInertia(midSection, maMid);
+    // 24.2.3.6: average of positive- and negative-moment sections; 24.2.3.7:
+    // midspan value permitted for prismatic members. Use the lesser (conservative).
+    const ieNeg = ends.length
+      ? ends.reduce(
+          (s, e) =>
+            s +
+            slabEffectiveInertia(
+              e.section,
+              Math.abs(coefficients[`${e.edge}Negative`]) * ws * shortSpan ** 2,
+            ),
+          0,
+        ) / ends.length
+      : null;
+    const ieAvg = ieNeg === null ? null : (ieMid + ieNeg) / 2;
+    const ie = Math.min(ieMid, ieAvg ?? Infinity);
+    const deltaCr = ie > 0 ? (delta * midSection.ig) / ie : Infinity;
+    if (deltaCr >= crackedImmediate) {
+      crackedImmediate = deltaCr;
+      crackedCombination = l.id;
+      governingMa = maMid;
+      governingIe = ie;
+      governingIeMid = ieMid;
+      governingIeAvg = ieAvg;
+    }
+  }
+  const deflectionLimit = (shortSpan * 1000) / i.deflectionDivisor;
+  const crackedDeflectionOk = crackedImmediate <= deflectionLimit + 1e-9;
+  const deflectionOk = minimumThickness.ok || crackedDeflectionOk;
   const development: SlabResult["detailing"]["development"] = [];
   for (const b of bars.filter((b) => b.group === "extra")) {
     const span = (b.direction === "short" ? shortSpan : longSpan) * 1000,
@@ -1033,13 +1228,24 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     : [];
   const warnings = [
     "Development pilot — independent engineering review required before design use.",
-    "Immediate deflection uses gross uncracked stiffness only; cracked, sustained-load and long-term deflection are not evaluated.",
+    "Deflection: h ≥ hmin (ACI 318-19 Table 7.3.1.1 / 8.3.1.2) waives calculation; otherwise immediate deflection uses cracked effective inertia Ie (Table 24.2.3.5, lesser of midspan and 24.2.3.6 average), compression steel neglected. Thickness tables assume no attached partitions likely to be damaged by large deflections. Sustained-load (long-term) deflection is not evaluated.",
     "Straight-bar development/cutoff screening is not a complete anchorage check. Support embedment, hooks, laps and curtailment beyond the theoretical cutoff require designer review.",
     "No openings, punching shear, column-supported slabs, concentrated loads, corner torsion reinforcement, redistribution or pattern live loading are evaluated.",
   ];
   if (type === "two-way")
     warnings.push(
       "Two-way moments use elastic Kirchhoff plate Ritz analysis, not ACI tabulated coefficients or the Direct Design Method. Local plate shear and corner effects require independent review.",
+    );
+  if (minimumThickness.ok && !crackedDeflectionOk)
+    warnings.push(
+      `Information: h = ${i.h} mm ≥ hmin = ${minimumThickness.hmin.toFixed(1)} mm, so calculated deflection is waived, but cracked immediate deflection ${crackedImmediate.toFixed(2)} mm exceeds L/${i.deflectionDivisor} = ${deflectionLimit.toFixed(2)} mm. Review where partitions or finishes are deflection-sensitive.`,
+    );
+  if (
+    minimumThickness.system === "two-way" &&
+    minimumThickness.discontinuousEdges.length
+  )
+    warnings.push(
+      `Minimum thickness assumes rigid edge supports (αfm > 2.0). Discontinuous (Pinned) edges ${minimumThickness.discontinuousEdges.join(", ")}: ACI 318-19 8.3.1.2.1 requires an edge beam with αf ≥ 0.80, or hmin increased by 10%.`,
     );
   if (i.code === "NSCP 2015")
     warnings.push(
@@ -1079,7 +1285,7 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     ) &&
     shear.every((r) => r.dcr <= i.dcrLimit) &&
     !messages.length &&
-    immediate <= (shortSpan * 1000) / i.deflectionDivisor
+    deflectionOk
       ? "SCREENING PASS"
       : "REVISE";
   return {
@@ -1097,9 +1303,21 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     shear,
     deflection: {
       immediate,
-      limit: (shortSpan * 1000) / i.deflectionDivisor,
+      limit: deflectionLimit,
       combination,
       cracked,
+      crackedImmediate,
+      crackedCombination,
+      ma: governingMa,
+      mcr: midSection.mcr,
+      ig: midSection.ig,
+      icr: midSection.icr,
+      ieMid: governingIeMid,
+      ieAvg: governingIeAvg,
+      ie: governingIe,
+      minimumThickness,
+      governedBy: minimumThickness.ok ? "thickness" : "calculation",
+      ok: deflectionOk,
     },
     recommendations,
     detailing: {
@@ -1111,7 +1329,7 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     warnings,
     dead,
     unit: "metric",
-    engineVersion: "slab-0.1.1",
+    engineVersion: "slab-0.2.0",
   };
 }
 export function parseSlabLoads(text: string): SlabInput["loads"] {

@@ -2,6 +2,7 @@ import {
   columnDesignChecks,
   slabDesignChecks,
   slabMinimumSteelRatio,
+  slabClauses,
   designCheckStatus,
   estimateColumnQuantity,
   estimateSlabQuantity,
@@ -76,7 +77,7 @@ const refSlab = section("Code References — ACI 318-19", [
   ["One-Way Shear", "Table 22.5.5.1"],
   [
     "Minimum Thickness / Deflection",
-    "7.3, 8.3, 24.2; immediate elastic screen only",
+    "Tables 7.3.1.1, 8.3.1.2, 24.2.3.5, 24.2.2; immediate only",
   ],
   ["Minimum Reinforcement / Spacing", "7.6, 8.6, 7.7.2, 8.7.2, 24.4, 25.2"],
   ["Cover / Development / Cutoffs", "20.5, 25.4, 7.7.3, 8.7.4"],
@@ -90,10 +91,11 @@ function checkTable(
     "DCR Design Checks And Engineering Remarks",
     checks.map((c) => [
       c.label,
+      c.clause,
       f(c.dcr, 3),
       status(c.dcr, policy, remarks[c.id]),
     ]),
-    ["Check", "DCR", "Status / Remarks"],
+    ["Check", "Code Reference", "DCR", "Status / Remarks"],
   );
 }
 export function columnReportData(
@@ -419,8 +421,10 @@ export function slabReportData(
         `${f(flex.mu)} kN·m/m (${flex.label}); ${f(shear?.vu)} kN/m (${shear?.combination ?? "—"}, ${shear?.edge ?? "—"})`,
       ],
       [
-        "Immediate Deflection",
-        `${f(r.deflection.immediate)} / Allowable ${f(r.deflection.limit)} mm; ${r.deflection.combination}`,
+        "Deflection Control",
+        r.deflection.governedBy === "thickness"
+          ? `h ${input.h} >= hmin ${f(r.deflection.minimumThickness.hmin, 1)} mm (waived); cracked ${f(r.deflection.crackedImmediate)} / ${f(r.deflection.limit)} mm`
+          : `h ${input.h} < hmin ${f(r.deflection.minimumThickness.hmin, 1)} mm; cracked ${f(r.deflection.crackedImmediate)} / ${f(r.deflection.limit)} mm`,
       ],
       ...grouped.flatMap(([label, list]) => {
         const check = [...list].sort(
@@ -485,7 +489,7 @@ export function slabReportData(
       r.regions.map((v) => [
         v.label,
         `Mu = ${f(v.mu)}; As = ${f(v.mainAs, 0)} + ${f(v.extraAs, 0)} = ${f(v.as, 0)} mm²/m; d = ${f(v.d)} mm; epsilon_t = ${f(v.strain, 5)}; phi = ${f(v.phi, 3)}; phiMn = ${f(v.phiMn)}; DCR = ${f(v.mu)}/${f(v.phiMn)} = ${f(v.dcr, 3)}`,
-        "22.2, 22.3, 21.2",
+        slabClauses.flexure(r.type),
       ]),
       ["Region", "Substitution / Result", "Reference"],
     ),
@@ -508,7 +512,7 @@ export function slabReportData(
       r.shear.map((v) => [
         v.edge,
         `lambda_s=${f(v.lambdaS, 3)}; rho_w=${f(v.rho, 5)}; d=${f(v.d)}; phiVc=0.75 min(0.66 lambda_s rho_w^(1/3),0.42) sqrt(fc) b d = ${f(v.phiVc)} kN/m; DCR=${f(v.vu)}/${f(v.phiVc)}=${f(v.dcr, 3)}`,
-        "Table 22.5.5.1",
+        slabClauses.shear(r.type),
       ]),
       ["Edge", "Equation / Substitution / Result", "Reference"],
     ),
@@ -516,14 +520,19 @@ export function slabReportData(
       "Serviceability And Detailing",
       [
         [
+          "Minimum Thickness",
+          `${r.deflection.minimumThickness.formula}${r.deflection.minimumThickness.continuity ? ` (${r.deflection.minimumThickness.continuity})` : ""}; h = ${input.h} mm ${r.deflection.minimumThickness.ok ? ">= hmin: calculated deflection waived" : "< hmin: deflection calculated"}`,
+          slabClauses.minimumThickness(r.deflection.minimumThickness.system),
+        ],
+        [
           "Immediate Deflection",
-          `Ec=4700 sqrt(${input.fc}) MPa; delta=beta ws Lshort^4 / elastic rigidity; ${f(r.deflection.immediate)} mm; limit=${f(r.shortSpan * 1000, 0)}/${input.deflectionDivisor}=${f(r.deflection.limit)} mm`,
-          "24.2 — elastic screen",
+          `Ec=4700 sqrt(${input.fc}) MPa; fr=0.62 sqrt(fc); Ig=${f(r.deflection.ig / 1e6, 1)}e6, Icr=${f(r.deflection.icr / 1e6, 1)}e6 mm⁴; Mcr=${f(r.deflection.mcr)}, Ma=${f(r.deflection.ma)} kN·m/m; Ie,mid=${f(r.deflection.ieMid / 1e6, 1)}e6${r.deflection.ieAvg === null ? "" : `, Ie,avg=${f(r.deflection.ieAvg / 1e6, 1)}e6`}, Ie=${f(r.deflection.ie / 1e6, 1)}e6 mm⁴; delta,g=${f(r.deflection.immediate)} mm; delta,cr=delta,g x Ig/Ie=${f(r.deflection.crackedImmediate)} mm; limit=${f(r.shortSpan * 1000, 0)}/${input.deflectionDivisor}=${f(r.deflection.limit)} mm`,
+          slabClauses.deflection(),
         ],
         [
           "Minimum Steel",
           `As,min=${slabMinimumSteelRatio(input.fy).toFixed(4)} x 1000 x ${input.h}=${f(slabMinimumSteelRatio(input.fy) * 1000 * input.h, 0)} mm²/m (fy=${input.fy} MPa: ${input.fy < 420 ? "0.0020Ag for fy < 420" : "max(0.0018x420/fy, 0.0014)Ag"}); continuous MAIN BARS checked separately from local MAIN + EXTRA strength`,
-          "Tables 7.6.1.1, 8.6.1.1; 24.4.3.2",
+          slabClauses.minimumSteel(r.type),
         ],
         ...r.regions.map((v) => [
           v.label + " Spacing",
@@ -533,12 +542,15 @@ export function slabReportData(
                 `${s.label}: clear ${f(s.minClear)} >= ${f(s.requiredClear)}; max pitch ${f(s.maxPitch)} <= ${f(s.maxSpacing)} mm`,
             )
             .join("; "),
-          "25.2; 7.7.2 / 8.7.2",
+          slabClauses.spacing(
+            r.type,
+            r.type === "one-way" && v.layer.startsWith("long"),
+          ),
         ]),
         ...r.detailing.development.map((v) => [
           v.layer + " Development",
           `ld=${f(v.ld)} mm; available=${f(v.extension)} mm; ${v.ok ? "Screen Satisfied" : "Review Required"}; cutoff allowance max(d,12db) also required`,
-          "25.4; 7.7.3 / 8.7.4",
+          slabClauses.development(r.type),
         ]),
       ],
       ["Check", "Equation / Substitution / Result", "Reference"],

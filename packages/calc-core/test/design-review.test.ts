@@ -39,8 +39,8 @@ describe("shared design review policy", () => {
   });
   it("requires nonblank remarks only for amber checks", () => {
     const checks = [
-      { id: "a", label: "A", dcr: 1.02 },
-      { id: "b", label: "B", dcr: 0.9 },
+      { id: "a", label: "A", dcr: 1.02, clause: "" },
+      { id: "b", label: "B", dcr: 0.9, clause: "" },
     ];
     expect(
       missingJudgmentRemarks(checks, defaultDesignCheckPolicy, { a: "  " }).map(
@@ -63,6 +63,7 @@ describe("shared design review policy", () => {
     expect(checks.some((c) => c.id === "deflection")).toBe(true);
     expect(checks.some((c) => c.id.startsWith("shear:"))).toBe(true);
     expect(checks.some((c) => c.id.startsWith("development:"))).toBe(true);
+    for (const c of checks) expect(c.clause).toMatch(/^ACI 318-19 \S/);
     const draft = slabDraftSchema.parse(
       JSON.parse(
         JSON.stringify({

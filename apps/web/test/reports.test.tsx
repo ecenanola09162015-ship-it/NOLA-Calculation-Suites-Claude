@@ -16,6 +16,25 @@ const prepared = () => {
   return models;
 };
 describe("shared PDF reports", () => {
+  it("prints a code clause beside every DCR check in both modules", async () => {
+    for (const data of Object.values(prepared())) {
+      expect(data.checks.columns).toEqual([
+        "Check",
+        "Code Reference",
+        "DCR",
+        "Status / Remarks",
+      ]);
+      expect(data.checks.rows.length).toBeGreaterThan(0);
+      for (const row of data.checks.rows)
+        expect(String(row[1])).toMatch(/^ACI 318-19 \S/);
+      const result = await generateCalculationPdf(data, {
+        type: "complete",
+        paper: "A4",
+        nolaLogo: png,
+      });
+      expect(result.pageCount).toBeGreaterThan(0);
+    }
+  });
   it.each(["A4", "Letter"] as const)(
     "keeps column and ordinary slab summaries to one page on %s",
     async (paper) => {

@@ -2,6 +2,7 @@ import { z } from "zod";
 import defaults from "./design-check-policy.json";
 import type { RectangularColumnResult } from "./modules/rectangular-column";
 import type { SlabInput, SlabResult } from "./modules/slab-design";
+import { columnClauses, slabClauses } from "./code-clauses";
 const band = z.object({
   label: z.string().trim().min(1).max(100),
   color: z.string().regex(/^#[0-9a-f]{6}$/i),
@@ -36,6 +37,8 @@ export type DesignCheck = {
   dcr: number | null;
   detail?: string;
   invalidLabel?: string;
+  /** Code clause basis printed beside the check (panel and PDF). */
+  clause: string;
 };
 export function designCheckStatus(
   dcr: number | null | undefined,
@@ -67,39 +70,47 @@ export function columnDesignChecks(r: RectangularColumnResult): DesignCheck[] {
         id: `${c.load.id}:axial`,
         label: `${c.load.id} · Axial`,
         dcr: c.axialRatio,
+        clause: columnClauses.axial(),
       },
       {
         id: `${c.load.id}:mx`,
         label: `${c.load.id} · Flexure X`,
         dcr: utilization(c.load.mx, c.capacityX),
+        clause: columnClauses.flexure(),
       },
       {
         id: `${c.load.id}:my`,
         label: `${c.load.id} · Flexure Y`,
         dcr: utilization(c.load.my, c.capacityY),
+        clause: columnClauses.flexure(),
       },
       {
         id: `${c.load.id}:interaction`,
         label: `${c.load.id} · Biaxial Interaction`,
         dcr: c.interaction ?? Infinity,
+        clause: columnClauses.interaction(),
       },
     ]);
 }
 export function slabDesignChecks(i: SlabInput, r: SlabResult): DesignCheck[] {
   const out: DesignCheck[] = [];
+  const system = r.type;
   for (const v of r.regions) {
+    const distribution = system === "one-way" && v.layer.startsWith("long");
     const main = r.bars.find((b) => b.group === "main" && b.layer === v.layer);
     out.push(
       {
         id: `${v.id}:flexure`,
         label: `${v.label} · Governing Flexure`,
         dcr: v.dcr,
+        clause: slabClauses.flexure(system),
         detail: `MAIN As ${v.mainAs.toFixed(0)} + EXTRA As ${v.extraAs.toFixed(0)} = Total As ${v.as.toFixed(0)} mm²/m At x/L = ${v.position.toFixed(3)}.`,
       },
       ...v.zones.map((zone) => ({
         id: `${v.id}:zone:${zone.id}:flexure`,
         label: `${v.label} · ${zone.label}`,
         dcr: zone.dcr,
+        clause: slabClauses.flexure(system),
       })),
       {
         id: `${v.id}:minimum`,
@@ -107,6 +118,7 @@ export function slabDesignChecks(i: SlabInput, r: SlabResult): DesignCheck[] {
         detail:
           "MAIN BARS Are Checked Across The Full Span; Cut-Off EXTRA BARS Contribute To Local Flexural Strength.",
         dcr: main && main.as > 0 ? v.minAs / main.as : Infinity,
+        clause: slabClauses.minimumSteel(system),
       },
       {
         id: `${v.id}:spacing`,
@@ -120,6 +132,7 @@ export function slabDesignChecks(i: SlabInput, r: SlabResult): DesignCheck[] {
           ),
         ),
         invalidLabel: "Bars Overlap / Invalid Clear Spacing",
+        clause: slabClauses.spacing(system, distribution),
         detail: v.spacingChecks
           .map(
             (s) =>
@@ -131,6 +144,7 @@ export function slabDesignChecks(i: SlabInput, r: SlabResult): DesignCheck[] {
         id: `${v.id}:strain`,
         label: `${v.label} · Tension-Controlled Strain`,
         dcr: v.strain > 0 ? (i.fy / i.es + 0.003) / v.strain : Infinity,
+        clause: slabClauses.strain(),
       },
     );
   }
@@ -139,15 +153,9 @@ export function slabDesignChecks(i: SlabInput, r: SlabResult): DesignCheck[] {
       id: `shear:${v.edge}`,
       label: `${v.edge} · Shear`,
       dcr: v.dcr,
+      clause: slabClauses.shear(system),
     })),
-    {
-      id: "deflection",
-      label: "Immediate Deflection",
-      dcr:
-        r.deflection.limit > 0
-          ? r.deflection.immediate / r.deflection.limit
-          : null,
-    },
+    deflectionCheck(i, r),
   );
   out.push(
     ...r.detailing.development.map((v) => {
@@ -159,10 +167,36 @@ export function slabDesignChecks(i: SlabInput, r: SlabResult): DesignCheck[] {
         id: `development:${v.layer}`,
         label: `${v.layer} · Development-Length Screen`,
         dcr: v.extension > 0 ? required / v.extension : Infinity,
+        clause: slabClauses.development(system),
       };
     }),
   );
   return out;
+}
+/**
+ * One deflection-control check, consistent with the engine status:
+ * h ≥ hmin → DCR = hmin/h (calculation waived, cracked Δ reported for information);
+ * h < hmin → DCR = Δcr/limit (cracked effective inertia governs).
+ */
+function deflectionCheck(i: SlabInput, r: SlabResult): DesignCheck {
+  const d = r.deflection,
+    t = d.minimumThickness;
+  const info = `Cracked Δ = ${d.crackedImmediate.toFixed(2)} mm (${d.crackedCombination}; Ma = ${d.ma.toFixed(2)}, Mcr = ${d.mcr.toFixed(2)} kN·m/m; Ie = ${(d.ie / 1e6).toFixed(1)}e6 of Ig ${(d.ig / 1e6).toFixed(1)}e6 mm⁴) vs L/${i.deflectionDivisor} = ${d.limit.toFixed(2)} mm.`;
+  if (d.governedBy === "thickness")
+    return {
+      id: "deflection",
+      label: "Deflection Control · Minimum Thickness",
+      dcr: i.h > 0 ? t.hmin / i.h : null,
+      clause: slabClauses.minimumThickness(t.system),
+      detail: `${t.formula} ≤ h = ${i.h} mm; calculated deflection waived. Information: ${info}`,
+    };
+  return {
+    id: "deflection",
+    label: "Deflection Control · Cracked Immediate Deflection",
+    dcr: d.limit > 0 ? d.crackedImmediate / d.limit : null,
+    clause: `${slabClauses.deflection()}; h < hmin per ${slabClauses.minimumThickness(t.system)}`,
+    detail: `h = ${i.h} mm < ${t.formula}; deflection calculated. ${info}`,
+  };
 }
 export function missingJudgmentRemarks(
   checks: DesignCheck[],

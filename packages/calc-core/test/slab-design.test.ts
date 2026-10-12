@@ -4,10 +4,14 @@ import {
   defaultSlabInput,
   parseSlabLoads,
   resolveSlabBars,
+  slabLayers,
   slabDraftSchema,
   slabDevelopmentLength,
   slabFlexuralStrength,
   slabMinimumSteelRatio,
+  slabMinimumThickness,
+  slabCrackedSection,
+  slabEffectiveInertia,
   slabTopBarFactor,
 } from "../src/modules/slab-design";
 import { solveSlabPlate } from "../src/modules/slab-plate";
@@ -379,5 +383,104 @@ describe("ACI 318-19 audit fixes (hand calculations)", () => {
     const std = analyzeSlab({ ...defaultSlabInput(), fy: 420 });
     for (const r of low.regions) expect(r.minAs).toBeCloseTo(300, 6);
     for (const r of std.regions) expect(r.minAs).toBeCloseTo(270, 6);
+  });
+});
+describe("ACI 318-19 deflection control (hand calculations)", () => {
+  const withSupports = (
+    lx: number,
+    ly: number,
+    s: Partial<ReturnType<typeof defaultSlabInput>["supports"]>,
+    extra: Partial<ReturnType<typeof defaultSlabInput>> = {},
+  ) => {
+    const i = { ...defaultSlabInput(), lx, ly, ...extra };
+    i.supports = { ...i.supports, ...s };
+    return i;
+  };
+  it("one-way minimum thickness, Table 7.3.1.1 with 7.3.1.1.1 fy modifier (ℓ = c/c)", () => {
+    // 3.0 x 7.0 m -> one-way, short span X between west and east edges
+    const pp = withSupports(3, 7, { west: "Pinned", east: "Pinned" });
+    expect(slabMinimumThickness(pp).hmin).toBeCloseTo(3000 / 20, 6); // 150.0
+    expect(slabMinimumThickness(pp).continuity).toBe("simply supported");
+    const fp = withSupports(3, 7, { west: "Fixed", east: "Pinned" });
+    expect(slabMinimumThickness(fp).hmin).toBeCloseTo(3000 / 24, 6); // 125.0
+    const ff = withSupports(3, 7, { west: "Fixed", east: "Fixed" });
+    expect(slabMinimumThickness(ff).hmin).toBeCloseTo(3000 / 28, 6); // 107.1
+    // fy = 275: 150 x (0.4 + 275/700) = 150 x 0.79286 = 118.93 mm
+    const low = withSupports(
+      3,
+      7,
+      { west: "Pinned", east: "Pinned" },
+      { fy: 275 },
+    );
+    expect(slabMinimumThickness(low).hmin).toBeCloseTo(118.93, 2);
+  });
+  it("two-way minimum thickness, Table 8.3.1.2 (αfm > 2.0) with 90 mm floor", () => {
+    // Default 4.3 x 2.5, 300 supports: ℓn = 4000, β = 4000/2200 = 1.818
+    // 4000 x 1.1 / (36 + 16.364) = 84.03 -> 90 mm governs
+    const d = slabMinimumThickness(defaultSlabInput());
+    expect(d.system).toBe("two-way");
+    expect(d.beta).toBeCloseTo(4000 / 2200, 6);
+    expect(d.hmin).toBe(90);
+    // 8 x 6: ℓn = 7700, β = 7700/5700 = 1.3509; 8470 / 48.158 = 175.88 mm
+    const big = slabMinimumThickness({ ...defaultSlabInput(), lx: 8, ly: 6 });
+    expect(big.hmin).toBeCloseTo(175.88, 2);
+  });
+  it("cracked section and effective inertia, Table 24.2.3.5", () => {
+    // h 150, Ø12 @ 150 (As = 753.98 mm²/m), d = 124, f'c 28, Es 200000
+    // Ec = 24870.1, n = 8.0418, x = 33.186, Icr = 62.19e6, Ig = 281.25e6
+    // fr = 3.2807, Mcr = 3.2807 x 281.25e6 / 75 / 1e6 = 12.303 kN·m/m
+    const as = (Math.PI * 12 ** 2) / 4 / 0.15;
+    const s = slabCrackedSection({ fc: 28, es: 200000, h: 150 }, as, 124);
+    expect(s.ec).toBeCloseTo(24870.06, 1);
+    expect(s.x).toBeCloseTo(33.186, 2);
+    expect(s.icr / 1e6).toBeCloseTo(62.188, 2);
+    expect(s.ig).toBe(281.25e6);
+    expect(s.mcr).toBeCloseTo(12.303, 2);
+    // Ma = 15 > (2/3)Mcr = 8.20: Ie = 62.19 / [1 - (8.202/15)² x (1 - 62.19/281.25)] = 81.07e6
+    expect(slabEffectiveInertia(s, 15) / 1e6).toBeCloseTo(81.066, 2);
+    // Ma = 8.0 <= (2/3)Mcr: Ie = Ig
+    expect(slabEffectiveInertia(s, 8)).toBe(s.ig);
+  });
+  it("cracked deflection governs status when h < hmin (gross stiffness would pass)", () => {
+    // 8 x 6 two-way, h 130 < hmin 175.9, Ø12 @ 150 all layers, limit L/480 = 12.5 mm
+    const i = {
+      ...defaultSlabInput(),
+      lx: 8,
+      ly: 6,
+      h: 130,
+      deflectionDivisor: 480,
+    };
+    for (const l of slabLayers) i.main[l].spacing = 150;
+    const r = analyzeSlab(i);
+    const d = r.deflection;
+    expect(d.governedBy).toBe("calculation");
+    expect(d.immediate).toBeLessThan(d.limit); // gross 4.27 mm: old engine passed
+    expect(d.crackedImmediate).toBeGreaterThan(d.limit); // cracked 14.2 mm
+    // Δcr = Δg x Ig / Ie
+    expect(d.crackedImmediate).toBeCloseTo((d.immediate * d.ig) / d.ie, 6);
+    expect(r.regions.every((v) => v.dcr <= 1)).toBe(true);
+    expect(r.shear.every((v) => v.dcr <= 1)).toBe(true);
+    expect(d.ok).toBe(false);
+    expect(r.status).toBe("REVISE");
+  });
+  it("h >= hmin waives calculated deflection; exceedance is information only", () => {
+    // 6 x 6 two-way: ℓn = 5700, β = 1: 5700 x 1.1 / 45 = 139.33 -> h = 140 mm
+    const i = {
+      ...defaultSlabInput(),
+      lx: 6,
+      ly: 6,
+      h: 140,
+      live: 10,
+      deflectionDivisor: 500,
+    };
+    const r = analyzeSlab(i);
+    const d = r.deflection;
+    expect(d.minimumThickness.hmin).toBeCloseTo(139.33, 2);
+    expect(d.governedBy).toBe("thickness");
+    expect(d.crackedImmediate).toBeGreaterThan(d.limit);
+    expect(d.ok).toBe(true);
+    expect(
+      r.warnings.some((w) => w.startsWith("Information: h = 140 mm")),
+    ).toBe(true);
   });
 });
