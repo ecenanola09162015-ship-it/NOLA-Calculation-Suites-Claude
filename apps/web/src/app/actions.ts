@@ -1,7 +1,12 @@
 "use server";
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
-import { createProject, saveCalculationDraft } from "@/lib/projects";
+import {
+  createProject,
+  saveCalculationDraft,
+  updateProject,
+} from "@/lib/projects";
+import { designCheckPolicySchema } from "@nola/calc-core";
 import { uiCatalogue } from "@/lib/ui-catalogue";
 export async function createProjectAction(formData: FormData) {
   const { userId } = await auth();
@@ -47,4 +52,47 @@ export async function createInterfaceDraftAction(
   });
   revalidatePath("/launcher");
   return draft;
+}
+
+export async function updateProjectAction(id: string, formData: FormData) {
+  const { userId } = await auth();
+  if (!userId) throw Error("Please sign in again.");
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+  )
+    throw Error("Invalid project.");
+  const field = (key: string) => {
+    const value = String(formData.get(key) ?? "").trim();
+    if (!value || value.length > 100)
+      throw Error("Complete all six fields using 1–100 characters each.");
+    return value;
+  };
+  let policy;
+  try {
+    policy = designCheckPolicySchema.parse(
+      JSON.parse(String(formData.get("designCheckPolicy"))),
+    );
+  } catch {
+    throw Error(
+      "Check status thresholds, labels and colors. Thresholds must be strictly increasing.",
+    );
+  }
+  const input = {
+    name: field("name"),
+    buildingName: field("buildingName"),
+    location: field("location"),
+    preparedBy: field("preparedBy"),
+    checkedBy: field("checkedBy"),
+    approvedBy: field("approvedBy"),
+    designCheckPolicy: policy,
+  };
+  try {
+    const project = await updateProject(userId, id, input);
+    revalidatePath("/launcher");
+    return project;
+  } catch {
+    throw Error(
+      "Project changes could not be saved for this account. Your form remains open.",
+    );
+  }
 }

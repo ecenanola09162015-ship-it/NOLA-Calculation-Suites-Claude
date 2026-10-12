@@ -2,6 +2,10 @@
 import { useMemo, useRef, useState } from "react";
 import {
   analyzeSlab,
+  defaultDesignCheckPolicy,
+  slabDesignChecks,
+  missingJudgmentRemarks,
+  type DesignRemarks,
   defaultSlabQuantity,
   type SlabQuantityInput,
   defaultSlabInput,
@@ -14,6 +18,7 @@ import {
   type SlabLayer,
   type SlabResult,
 } from "@nola/calc-core";
+import { DesignReviewPanel, DesignStatus } from "./design-review-panel";
 import type { ProjectRecord, CalculationDraftRecord } from "@/lib/projects";
 import { SlabQuantityPanel } from "./slab-quantity-panel";
 import { SlabPlan, SlabSection } from "./slab-diagrams";
@@ -77,6 +82,21 @@ export function SlabWorkspace({
       ? (restored.data.quantity ??
         defaultSlabQuantity(restored.data.input.supportWidth))
       : defaultSlabQuantity(),
+  );
+  const policy =
+    project?.designCheckPolicy ??
+    (restored.success ? restored.data.designPolicy : undefined) ??
+    defaultDesignCheckPolicy;
+  const policyKey = JSON.stringify(policy);
+  const livePolicy = useRef(policyKey);
+  livePolicy.current = policyKey;
+  const [savedPolicy, setSavedPolicy] = useState(
+    restored.success
+      ? JSON.stringify(restored.data.designPolicy ?? defaultDesignCheckPolicy)
+      : policyKey,
+  );
+  const [remarks, setRemarks] = useState<DesignRemarks>(
+    restored.success ? (restored.data.remarks ?? {}) : {},
   );
   const [title, setTitle] = useState(draft?.title ?? "Slab Design — SL-01");
   const [id, setId] = useState<string | undefined>(
@@ -276,11 +296,20 @@ export function SlabWorkspace({
         version: 1,
         input,
         quantity,
+        designPolicy: policy,
+        remarks,
+        reviewCompleted: !!r,
       });
       if (!parsed.success || !title.trim())
         throw new Error(
           "Complete valid inputs and a calculation title before saving.",
         );
+      if (
+        r &&
+        missingJudgmentRemarks(slabDesignChecks(input, r), policy, remarks)
+          .length
+      )
+        throw Error("Add Remarks For Each Amber Design Check Before Saving.");
       const response = await fetch("/api/calculations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -295,7 +324,10 @@ export function SlabWorkspace({
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "Save failed.");
       setId(body.draft.id);
-      setSaved(version === editVersion.current);
+      setSaved(
+        version === editVersion.current && livePolicy.current === policyKey,
+      );
+      setSavedPolicy(policyKey);
       onSaved(body.draft);
       setMessage(
         version === editVersion.current
@@ -337,26 +369,11 @@ export function SlabWorkspace({
     setMessage("Load combinations imported. Results updated.");
   }
   const maxDcr = r
-    ? Math.max(...r.regions.map((v) => v.dcr), ...r.shear.map((v) => v.dcr))
+    ? Math.max(...slabDesignChecks(input, r).map((c) => c.dcr ?? Infinity))
     : null;
   return (
     <section className="slabWorkspace">
       <div className="slabToolbar">
-        <label className="cqQuickToggle">
-          <input
-            type="checkbox"
-            checked={quantity.enabled}
-            onChange={(e) => {
-              editVersion.current++;
-              setSaved(false);
-              setQuantity({ ...quantity, enabled: e.target.checked });
-            }}
-          />
-          Enable Quantity Estimate
-        </label>
-        <a className="suiteSecondary cqJump" href="#slab-quantity">
-          Open Estimate ↓
-        </a>
         <label>
           Calculation Title
           <input
@@ -388,7 +405,11 @@ export function SlabWorkspace({
           onClick={save}
           disabled={busy || !project || !cloudReady || !r}
         >
-          {busy ? "Saving…" : saved ? "Saved" : "Save slab"}
+          {busy
+            ? "Saving…"
+            : saved && savedPolicy === policyKey
+              ? "Saved"
+              : "Save slab"}
         </button>
         <button
           className="suiteSecondary"
@@ -879,13 +900,9 @@ export function SlabWorkspace({
         </div>
         <aside className="slabPanel slabSummary">
           <h2>Design Checks</h2>
-          <div
-            className={`slabStatus ${r?.status === "REVISE" ? "slabBad" : ""}`}
-          >
-            <strong>{r?.status ?? "CHECK INPUTS"}</strong>
-            <span>
-              Governing DCR {fmt(maxDcr, 3)} / {fmt(input.dcrLimit)}
-            </span>
+          <div className="slabStatus">
+            <DesignStatus dcr={maxDcr} policy={policy} />
+            <span>Governing Strength DCR {fmt(maxDcr, 3)}</span>
           </div>
           {r && (
             <>
@@ -893,13 +910,17 @@ export function SlabWorkspace({
                 <div>
                   <dt>Minimum steel</dt>
                   <dd>
-                    {r.regions.every((v) => v.minimumOk) ? "OK" : "REVISE"}
+                    {r.regions.every((v) => v.minimumOk)
+                      ? "OK"
+                      : "Detailing Review Required"}
                   </dd>
                 </div>
                 <div>
                   <dt>Spacing</dt>
                   <dd>
-                    {r.regions.every((v) => v.spacingOk) ? "OK" : "REVISE"}
+                    {r.regions.every((v) => v.spacingOk)
+                      ? "OK"
+                      : "Detailing Review Required"}
                   </dd>
                 </div>
                 <div>
@@ -907,12 +928,14 @@ export function SlabWorkspace({
                   <dd>
                     {r.regions.every((v) => v.tensionControlled)
                       ? "OK"
-                      : "REVISE"}
+                      : "Detailing Review Required"}
                   </dd>
                 </div>
                 <div>
                   <dt>Layer fit / cutoffs</dt>
-                  <dd>{r.detailing.ok ? "SCREEN OK" : "REVISE"}</dd>
+                  <dd>
+                    {r.detailing.ok ? "SCREEN OK" : "Detailing Review Required"}
+                  </dd>
                 </div>
                 <div>
                   <dt>Immediate δ</dt>
@@ -983,7 +1006,14 @@ export function SlabWorkspace({
               {project?.approvedBy ?? "—"}
             </p>
             <p>
-              {input.code} · {r.method} · {r.engineVersion} · {r.status}
+              {input.code} · {r.method} · {r.engineVersion}
+              {" · "}
+              <DesignStatus
+                dcr={Math.max(
+                  ...slabDesignChecks(input, r).map((c) => c.dcr ?? Infinity),
+                )}
+                policy={policy}
+              />
             </p>
           </header>
           <h3>Resolved Reinforcement Schedule</h3>
@@ -1063,10 +1093,16 @@ export function SlabWorkspace({
                     <td>{fmt(v.phi, 3)}</td>
                     <td>{fmt(v.strain, 5)}</td>
                     <td>{fmt(v.phiMn)}</td>
-                    <td className={v.dcr > input.dcrLimit ? "slabBad" : ""}>
+                    <td>
                       {fmt(v.dcr, 3)}
+                      <br />
+                      <DesignStatus dcr={v.dcr} policy={policy} />
                     </td>
-                    <td>{v.spacingOk && v.minimumOk ? "OK" : "REVISE"}</td>
+                    <td>
+                      {v.spacingOk && v.minimumOk
+                        ? "OK"
+                        : "Detailing Review Required"}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1106,7 +1142,11 @@ export function SlabWorkspace({
                     <td>{fmt(v.rho, 5)}</td>
                     <td>{fmt(v.lambdaS, 3)}</td>
                     <td>{fmt(v.phiVc)}</td>
-                    <td>{fmt(v.dcr, 3)}</td>
+                    <td>
+                      {fmt(v.dcr, 3)}
+                      <br />
+                      <DesignStatus dcr={v.dcr} policy={policy} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1141,7 +1181,7 @@ export function SlabWorkspace({
                     <th>{layerLabel(v.layer)}</th>
                     <td>{fmt(v.ld, 0)}</td>
                     <td>{fmt(v.extension, 0)}</td>
-                    <td>{v.ok ? "SCREEN OK" : "REVISE"}</td>
+                    <td>{v.ok ? "SCREEN OK" : "Detailing Review Required"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1161,28 +1201,42 @@ export function SlabWorkspace({
           </ul>
         </section>
       )}
-      <SlabQuantityPanel
-        input={input}
-        value={quantity}
-        onChange={(q) => {
-          editVersion.current++;
-          setSaved(false);
-          setQuantity(q);
-        }}
-        onResetCutoffs={() =>
-          update({
-            ...input,
-            cutoffs: {
-              bottomStart: 0.25,
-              bottomEnd: 0.75,
-              west: 1 / 3,
-              east: 1 / 3,
-              south: 1 / 3,
-              north: 1 / 3,
-            },
-          })
-        }
-      />
+      {r ? (
+        <DesignReviewPanel
+          checks={slabDesignChecks(input, r)}
+          policy={policy}
+          remarks={remarks}
+          onChange={(next) => {
+            editVersion.current++;
+            setSaved(false);
+            setRemarks(next);
+          }}
+        />
+      ) : null}
+      {r ? (
+        <SlabQuantityPanel
+          input={input}
+          value={quantity}
+          onChange={(q) => {
+            editVersion.current++;
+            setSaved(false);
+            setQuantity(q);
+          }}
+          onResetCutoffs={() =>
+            update({
+              ...input,
+              cutoffs: {
+                bottomStart: 0.25,
+                bottomEnd: 0.75,
+                west: 1 / 3,
+                east: 1 / 3,
+                south: 1 / 3,
+                north: 1 / 3,
+              },
+            })
+          }
+        />
+      ) : null}
     </section>
   );
 }

@@ -1,0 +1,14 @@
+{
+  "optimizeBelow": 0.8,
+  "passThrough": 1,
+  "judgmentThrough": 1.05,
+  "bands": {
+    "optimize": { "label": "Pass – Can Be Optimized", "color": "#2468AE" },
+    "pass": { "label": "Pass", "color": "#16734A" },
+    "judgment": {
+      "label": "Acceptable – Subject to Engineering Judgment",
+      "color": "#9A6300"
+    },
+    "improve": { "label": "Design Needs Improvement", "color": "#B42318" }
+  }
+}

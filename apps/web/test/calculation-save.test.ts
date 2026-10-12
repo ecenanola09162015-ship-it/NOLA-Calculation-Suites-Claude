@@ -212,3 +212,83 @@ describe("slab estimate draft API", () => {
     ).toBe(400);
   });
 });
+
+describe("engineering judgment traceability", () => {
+  it.each(["rc-column", "slab"])(
+    "requires and persists amber remarks for %s",
+    async (moduleSlug) => {
+      const {
+        defaultDesignCheckPolicy,
+        analyzeSlab,
+        analyzeRectangularColumn,
+        slabDesignChecks,
+        columnDesignChecks,
+        designCheckStatus,
+      } = await import("@nola/calc-core");
+      const designPolicy = {
+        ...defaultDesignCheckPolicy,
+        optimizeBelow: 0.000001,
+        passThrough: 0.000002,
+        judgmentThrough: 1000000,
+      };
+      const payload =
+        moduleSlug === "slab"
+          ? {
+              kind: "slab",
+              version: 1,
+              input: defaultSlabInput(),
+              designPolicy,
+              reviewCompleted: true,
+              remarks: {},
+            }
+          : {
+              ...body.payload,
+              designPolicy,
+              reviewCompleted: true,
+              remarks: {},
+            };
+      const data = { projectId, moduleSlug, title: "Reviewed", payload };
+      expect((await POST(request(data))).status).toBe(400);
+      expect(saveCalculationDraft).not.toHaveBeenCalled();
+      const checks =
+        moduleSlug === "slab"
+          ? slabDesignChecks(
+              defaultSlabInput(),
+              analyzeSlab(defaultSlabInput(), false),
+            )
+          : columnDesignChecks(
+              analyzeRectangularColumn(
+                body.payload.input as Parameters<
+                  typeof analyzeRectangularColumn
+                >[0],
+              ),
+            );
+      payload.remarks = Object.fromEntries(
+        checks
+          .filter(
+            (c) => designCheckStatus(c.dcr, designPolicy).id === "judgment",
+          )
+          .map((c) => [c.id, "Reviewed load assumptions and capacity."]),
+      );
+      vi.mocked(saveCalculationDraft).mockResolvedValue({
+        id: projectId,
+        projectId,
+        moduleSlug,
+        title: "Reviewed",
+        payload,
+        verificationStatus: "verification-required",
+        updatedAt: "2026-10-12",
+      });
+      expect((await POST(request(data))).status).toBe(201);
+      expect(saveCalculationDraft).toHaveBeenCalledWith(
+        "owner",
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            remarks: payload.remarks,
+            designPolicy,
+          }),
+        }),
+      );
+    },
+  );
+});

@@ -1,6 +1,16 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
-import { columnDraftSchema, slabDraftSchema, getModule } from "@nola/calc-core";
+import {
+  columnDraftSchema,
+  slabDraftSchema,
+  getModule,
+  analyzeRectangularColumn,
+  analyzeSlab,
+  columnDesignChecks,
+  slabDesignChecks,
+  missingJudgmentRemarks,
+  defaultDesignCheckPolicy,
+} from "@nola/calc-core";
 import { isDatabaseConfigured } from "@/lib/env";
 import { saveCalculationDraft } from "@/lib/projects";
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -79,6 +89,34 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     body.payload = parsed.data;
+  }
+  try {
+    if (body.payload.reviewCompleted) {
+      const policy = body.payload.designPolicy ?? defaultDesignCheckPolicy;
+      const remarks = body.payload.remarks ?? {};
+      const checks =
+        body.moduleSlug === "rc-column"
+          ? columnDesignChecks(analyzeRectangularColumn(body.payload.input))
+          : body.moduleSlug === "slab"
+            ? slabDesignChecks(
+                body.payload.input,
+                analyzeSlab(body.payload.input, false),
+              )
+            : [];
+      if (missingJudgmentRemarks(checks, policy, remarks).length)
+        return NextResponse.json(
+          { error: "Add Remarks For Each Amber Design Check Before Saving." },
+          { status: 400 },
+        );
+    }
+  } catch {
+    return NextResponse.json(
+      {
+        error:
+          "Complete valid design inputs before saving a reviewed calculation.",
+      },
+      { status: 400 },
+    );
   }
   try {
     const draft = await saveCalculationDraft(userId, {

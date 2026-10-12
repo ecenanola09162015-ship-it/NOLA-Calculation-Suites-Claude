@@ -14,3 +14,5 @@ export * from "./modules/slab-design";
 export * from "./modules/column-quantity";
 
 export * from "./modules/slab-quantity";
+
+export * from "./design-review";

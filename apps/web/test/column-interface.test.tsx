@@ -20,6 +20,7 @@ describe("column interface server render", () => {
     expect(html).toContain("Calculate section");
     expect(html).toContain("I have assessed slenderness");
     expect(html).not.toContain("Combination screening");
+    expect(html).not.toContain("Enable Quantity Estimate");
   });
   it("restores an NSCP draft with the explicit ACI calculation basis", () => {
     const html = renderToStaticMarkup(

@@ -1,3 +1,8 @@
+import {
+  defaultDesignCheckPolicy,
+  designCheckPolicySchema,
+  type DesignCheckPolicy,
+} from "@nola/calc-core";
 import { sql } from "drizzle-orm";
 
 import { getDb } from "./db";
@@ -12,6 +17,7 @@ export interface ProjectRecord {
   approvedBy: string;
   location: string;
   updatedAt: string;
+  designCheckPolicy?: DesignCheckPolicy;
 }
 
 export interface CalculationDraftRecord {
@@ -53,6 +59,9 @@ async function ensureSchema() {
       await db.execute(
         sql`alter table nola_projects add column if not exists approved_by text not null default ''`,
       );
+      await db.execute(
+        sql`alter table nola_projects add column if not exists design_check_policy jsonb`,
+      );
       await db.execute(sql`
         create index if not exists nola_projects_owner_idx
         on nola_projects (owner_id, updated_at desc)
@@ -85,7 +94,7 @@ async function ensureSchema() {
 export async function listProjects(ownerId: string): Promise<ProjectRecord[]> {
   await ensureSchema();
   const result = await getDb().execute(sql`
-    select id, name, project_number, building_name, prepared_by, checked_by, approved_by, location, updated_at
+    select id, name, project_number, building_name, prepared_by, checked_by, approved_by, location, design_check_policy, updated_at
     from nola_projects
     where owner_id = ${ownerId}
     order by updated_at desc
@@ -98,6 +107,11 @@ export async function listProjects(ownerId: string): Promise<ProjectRecord[]> {
     preparedBy: String(row.prepared_by),
     checkedBy: String(row.checked_by),
     approvedBy: String(row.approved_by),
+    designCheckPolicy: designCheckPolicySchema.safeParse(
+      row.design_check_policy,
+    ).success
+      ? designCheckPolicySchema.parse(row.design_check_policy)
+      : defaultDesignCheckPolicy,
     location: String(row.location),
     updatedAt: new Date(String(row.updated_at)).toISOString(),
   }));
@@ -120,7 +134,7 @@ export async function createProject(
   const result = await getDb().execute(sql`
     insert into nola_projects (id, owner_id, name, project_number, location, building_name, prepared_by, checked_by, approved_by)
     values (${id}, ${ownerId}, ${input.name}, ${input.projectNumber}, ${input.location}, ${input.buildingName}, ${input.preparedBy}, ${input.checkedBy}, ${input.approvedBy})
-    returning id, name, project_number, building_name, prepared_by, checked_by, approved_by, location, updated_at
+    returning id, name, project_number, building_name, prepared_by, checked_by, approved_by, location, design_check_policy, updated_at
   `);
   const row = result.rows[0];
   if (!row) throw new Error("Project creation did not return a record.");
@@ -132,6 +146,11 @@ export async function createProject(
     preparedBy: String(row.prepared_by),
     checkedBy: String(row.checked_by),
     approvedBy: String(row.approved_by),
+    designCheckPolicy: designCheckPolicySchema.safeParse(
+      row.design_check_policy,
+    ).success
+      ? designCheckPolicySchema.parse(row.design_check_policy)
+      : defaultDesignCheckPolicy,
     location: String(row.location),
     updatedAt: new Date(String(row.updated_at)).toISOString(),
   };
@@ -218,4 +237,40 @@ export async function listCalculationDrafts(
         : "interface-only",
     updatedAt: new Date(String(row.updated_at)).toISOString(),
   }));
+}
+
+export async function updateProject(
+  ownerId: string,
+  id: string,
+  input: {
+    name: string;
+    buildingName: string;
+    location: string;
+    preparedBy: string;
+    checkedBy: string;
+    approvedBy: string;
+    designCheckPolicy: DesignCheckPolicy;
+  },
+): Promise<ProjectRecord> {
+  await ensureSchema();
+  const policy = JSON.stringify(
+    designCheckPolicySchema.parse(input.designCheckPolicy),
+  );
+  const result = await getDb().execute(
+    sql`update nola_projects set name=${input.name},building_name=${input.buildingName},location=${input.location},prepared_by=${input.preparedBy},checked_by=${input.checkedBy},approved_by=${input.approvedBy},design_check_policy=${policy}::jsonb,updated_at=now() where id=${id}::uuid and owner_id=${ownerId} returning id,name,project_number,building_name,location,prepared_by,checked_by,approved_by,design_check_policy,updated_at`,
+  );
+  const row = result.rows[0];
+  if (!row) throw Error("Project unavailable for this account.");
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    projectNumber: String(row.project_number),
+    buildingName: String(row.building_name),
+    location: String(row.location),
+    preparedBy: String(row.prepared_by),
+    checkedBy: String(row.checked_by),
+    approvedBy: String(row.approved_by),
+    designCheckPolicy: designCheckPolicySchema.parse(row.design_check_policy),
+    updatedAt: new Date(String(row.updated_at)).toISOString(),
+  };
 }

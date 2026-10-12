@@ -13,8 +13,13 @@ const SlabWorkspace = dynamic(
   () => import("./slab-workspace").then((m) => m.SlabWorkspace),
   { loading: () => <p>Opening slab workspace…</p> },
 );
+import { ProjectContext, ProjectEditor } from "./project-context";
 import { BrandMark } from "./brand-mark";
-import { createProjectAction, createInterfaceDraftAction } from "@/app/actions";
+import {
+  createProjectAction,
+  createInterfaceDraftAction,
+  updateProjectAction,
+} from "@/app/actions";
 import type { ProjectRecord, CalculationDraftRecord } from "@/lib/projects";
 import { uiCatalogue, type UiModule } from "@/lib/ui-catalogue";
 const projectFields = [
@@ -42,6 +47,9 @@ export function SuiteWorkspace({
   const [drafts, setDrafts] = useState(initialDrafts);
   const [projectId, setProjectId] = useState(initialProjects[0]?.id ?? "");
   const [newProject, setNewProject] = useState(false);
+  const [editingProject, setEditingProject] = useState<ProjectRecord | null>(
+    null,
+  );
   const [explorer, setExplorer] = useState(false);
   const [search, setSearch] = useState("");
   const [module, setModule] = useState<UiModule | null>(
@@ -80,6 +88,27 @@ export function SuiteWorkspace({
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "Project could not be saved.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function editProject(form: FormData) {
+    if (!editingProject) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const item = await updateProjectAction(editingProject.id, form);
+      setProjects((previous) =>
+        previous.map((p) => (p.id === item.id ? item : p)),
+      );
+      setEditingProject(null);
+      setMessage("Project Information Updated And Saved.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Project changes could not be saved.",
       );
     } finally {
       setBusy(false);
@@ -254,15 +283,23 @@ export function SuiteWorkspace({
           </div>
         </aside>
         <section className="suiteMain">
+          <ProjectContext
+            project={project}
+            moduleName={module?.name ?? "Calculation Modules"}
+            onEdit={() => {
+              if (project) {
+                setNewProject(false);
+                setMessage("");
+                setEditingProject(project);
+              }
+            }}
+          />
           <button
             className="suiteSecondary mobileOnly"
             onClick={() => setExplorer(true)}
           >
             ☰ Project explorer
           </button>
-          <p className="suiteBreadcrumb">
-            Projects / {project?.name ?? "Your workspace"}
-          </p>
           <div className="suiteHeading">
             <div>
               <h1>{module?.name ?? "Calculation modules"}</h1>
@@ -293,25 +330,6 @@ export function SuiteWorkspace({
           </p>
           {!module ? (
             <>
-              <details className="suiteProjectInfo">
-                <summary>
-                  Project information{project ? ` · ${project.name}` : ""}
-                </summary>
-                {project ? (
-                  <dl>
-                    {projectFields.map(([key, label]) => (
-                      <div key={key}>
-                        <dt>{label}</dt>
-                        <dd>{project[key] || "Not set"}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                ) : (
-                  <p>
-                    Create a project to save building and reviewer information.
-                  </p>
-                )}
-              </details>
               <section
                 aria-labelledby="structural-heading"
                 className="suiteTrade"
@@ -422,6 +440,20 @@ export function SuiteWorkspace({
             </section>
           )}
         </section>
+        {editingProject ? (
+          <ProjectEditor
+            key={editingProject.id}
+            project={editingProject}
+            busy={busy}
+            cloudReady={cloudReady}
+            message={message}
+            onSave={editProject}
+            onCancel={() => {
+              setEditingProject(null);
+              setMessage("");
+            }}
+          />
+        ) : null}
         {newProject && (
           <aside className="suiteDrawer" aria-labelledby="new-project-title">
             <div className="suiteDrawerHeading">

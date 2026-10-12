@@ -1,3 +1,4 @@
+import { designCheckPolicySchema, designRemarksSchema } from "../design-review";
 import { z } from "zod";
 import { slabQuantitySchema } from "./slab-quantity-schema";
 import { solveSlabPlate } from "./slab-plate";
@@ -82,6 +83,9 @@ export const slabDraftSchema = z.object({
   version: z.literal(1),
   input: slabInputSchema,
   quantity: slabQuantitySchema.optional(),
+  designPolicy: designCheckPolicySchema.optional(),
+  remarks: designRemarksSchema.optional(),
+  reviewCompleted: z.boolean().optional(),
 });
 export type SlabInput = z.infer<typeof slabInputSchema>;
 export type SlabBar = z.infer<typeof barSchema>;

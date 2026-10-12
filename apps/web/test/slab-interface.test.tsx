@@ -22,6 +22,10 @@ describe("slab workspace and diagrams", () => {
     expect(html).toContain("REVIEW REQUIRED");
     expect(html).not.toContain("NaN");
     expect(html).not.toContain("Infinity");
+    expect(html.indexOf("Enable Quantity Estimate")).toBeGreaterThan(
+      html.indexOf("DCR-Based Design Checks"),
+    );
+    expect(html).not.toContain("REVISE");
   });
   it("draws limited-length extra bars across the full width, preserves continuous main bars and correct A/B direction labels", () => {
     const i = defaultSlabInput();

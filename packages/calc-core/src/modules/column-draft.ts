@@ -1,3 +1,4 @@
+import { designCheckPolicySchema, designRemarksSchema } from "../design-review";
 import { z } from "zod";
 import { columnQuantitySchema } from "./column-quantity";
 export const columnInputSchema = z
@@ -45,4 +46,7 @@ export const columnDraftSchema = z.object({
   input: columnInputSchema,
   scopeConfirmed: z.boolean(),
   quantity: columnQuantitySchema.optional(),
+  designPolicy: designCheckPolicySchema.optional(),
+  remarks: designRemarksSchema.optional(),
+  reviewCompleted: z.boolean().optional(),
 });

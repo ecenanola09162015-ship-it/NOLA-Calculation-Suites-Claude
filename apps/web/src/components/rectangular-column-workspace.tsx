@@ -2,6 +2,10 @@
 import { useRef, useState } from "react";
 import {
   analyzeRectangularColumn,
+  defaultDesignCheckPolicy,
+  columnDesignChecks,
+  missingJudgmentRemarks,
+  type DesignRemarks,
   parseColumnLoads,
   columnDraftSchema,
   defaultColumnQuantity,
@@ -10,6 +14,7 @@ import {
   type RectangularColumnResult,
   type ColumnLoad,
 } from "@nola/calc-core";
+import { DesignReviewPanel, DesignStatus } from "./design-review-panel";
 import type { ProjectRecord, CalculationDraftRecord } from "@/lib/projects";
 import {
   ColumnSection,
@@ -148,6 +153,21 @@ export function RectangularColumnWorkspace({
   );
   const [scope, setScope] = useState(
     restored.success ? restored.data.scopeConfirmed : false,
+  );
+  const policy =
+    project?.designCheckPolicy ??
+    (restored.success ? restored.data.designPolicy : undefined) ??
+    defaultDesignCheckPolicy;
+  const policyKey = JSON.stringify(policy);
+  const livePolicy = useRef(policyKey);
+  livePolicy.current = policyKey;
+  const [savedPolicy, setSavedPolicy] = useState(
+    restored.success
+      ? JSON.stringify(restored.data.designPolicy ?? defaultDesignCheckPolicy)
+      : policyKey,
+  );
+  const [remarks, setRemarks] = useState<DesignRemarks>(
+    restored.success ? (restored.data.remarks ?? {}) : {},
   );
   const [title, setTitle] = useState(draft?.title ?? "C1 · Ground floor");
   const [id, setId] = useState(draft?.id);
@@ -290,12 +310,21 @@ export function RectangularColumnWorkspace({
         input,
         scopeConfirmed: scope,
         quantity,
+        designPolicy: policy,
+        remarks,
+        reviewCompleted: !!result,
       };
       const parsed = columnDraftSchema.safeParse(payload);
       if (!parsed.success)
         throw new Error(
           "Complete valid numerical inputs and unique combination labels before saving.",
         );
+      if (
+        result &&
+        missingJudgmentRemarks(columnDesignChecks(result), policy, remarks)
+          .length
+      )
+        throw Error("Add Remarks For Each Amber Design Check Before Saving.");
       const response = await fetch("/api/calculations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -311,7 +340,10 @@ export function RectangularColumnWorkspace({
       if (!response.ok)
         throw new Error(body.error ?? "Could not save calculation.");
       setId(body.draft.id);
-      setSaved(editVersion.current === saveVersion);
+      setSaved(
+        editVersion.current === saveVersion && livePolicy.current === policyKey,
+      );
+      setSavedPolicy(policyKey);
       onSaved(body.draft);
       setMessage(
         editVersion.current === saveVersion
@@ -340,30 +372,11 @@ export function RectangularColumnWorkspace({
             }}
           />
         </label>
-        <label className="cqQuickToggle">
-          <input
-            type="checkbox"
-            checked={quantity.enabled}
-            onChange={(e) => {
-              editVersion.current++;
-              setQuantity({ ...quantity, enabled: e.target.checked });
-              setSaved(false);
-            }}
-          />{" "}
-          <span>
-            <strong>Enable Quantity Estimate</strong>
-            <small>
-              {quantity.enabled
-                ? "ON · Steel & concrete quantities"
-                : "OFF · Optional steel & concrete quantities"}
-            </small>
-          </span>
-        </label>
-        <a className="suiteSecondary cqJump" href="#column-quantity">
-          Open estimate ↓
-        </a>
-        <span className="suiteBadge isPilot">Rectangular · Tied · SI</span>
-        <span>{saved ? "Saved inputs" : "Unsaved inputs"}</span>
+        <span>
+          {saved && savedPolicy === policyKey
+            ? "Saved inputs"
+            : "Unsaved inputs"}
+        </span>
         <button
           className="suiteSecondary"
           disabled={!project || !cloudReady || busy || !title.trim()}
@@ -727,15 +740,6 @@ export function RectangularColumnWorkspace({
           not included in this build.
         </p>
       </section>
-      <ColumnQuantityPanel
-        section={input}
-        value={quantity}
-        onChange={(next) => {
-          editVersion.current++;
-          setQuantity(next);
-          setSaved(false);
-        }}
-      />
       {result ? (
         <section className="rcResults">
           <div className="rcReportHeader">
@@ -756,6 +760,16 @@ export function RectangularColumnWorkspace({
               Independent review pending
             </p>
           </div>
+          <DesignReviewPanel
+            checks={columnDesignChecks(result)}
+            policy={policy}
+            remarks={remarks}
+            onChange={(next) => {
+              editVersion.current++;
+              setSaved(false);
+              setRemarks(next);
+            }}
+          />
           <div className="rcStats">
             {[
               ["Gross area Ag", `${fmt(result.grossArea, 0)} mm²`],
@@ -834,18 +848,18 @@ export function RectangularColumnWorkspace({
                       <td>{fmt(c.capacityY)}</td>
                       <td>{c.load.included ? fmt(c.axialRatio, 3) : "—"}</td>
                       <td>{fmt(c.interaction, 3)}</td>
-                      <td
-                        className={
-                          c.outcome === "outside-screening-envelope"
-                            ? "rcOutside"
-                            : ""
-                        }
-                      >
-                        {c.outcome === "not-checked"
-                          ? "Excluded"
-                          : c.outcome === "outside-screening-envelope"
-                            ? "Outside envelope"
-                            : "Within envelope"}
+                      <td>
+                        {c.load.included ? (
+                          <DesignStatus
+                            dcr={Math.max(
+                              c.axialRatio,
+                              c.interaction ?? Infinity,
+                            )}
+                            policy={policy}
+                          />
+                        ) : (
+                          "Excluded"
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -913,6 +927,17 @@ export function RectangularColumnWorkspace({
           </p>
         </section>
       )}
+      {result ? (
+        <ColumnQuantityPanel
+          section={input}
+          value={quantity}
+          onChange={(next) => {
+            editVersion.current++;
+            setQuantity(next);
+            setSaved(false);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
