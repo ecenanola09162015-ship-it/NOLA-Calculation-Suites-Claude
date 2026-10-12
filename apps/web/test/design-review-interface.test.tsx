@@ -76,4 +76,26 @@ describe("project context and review reporting", () => {
     expect(html).toContain("Reviewed load envelope.");
     expect(html).not.toContain("Revise");
   });
+  it("explains invalid spacing without calling it missing flexural capacity", () => {
+    const html = renderToStaticMarkup(
+      <DesignReviewPanel
+        checks={[
+          {
+            id: "spacing",
+            label: "Reinforcement Spacing",
+            dcr: Infinity,
+            invalidLabel: "Bars Overlap / Invalid Clear Spacing",
+            detail: "MAIN + EXTRA BARS: Clear -12 mm.",
+          },
+        ]}
+        policy={defaultDesignCheckPolicy}
+        remarks={{}}
+        onChange={() => {}}
+      />,
+    );
+    expect(html).toContain("Bars Overlap / Invalid Clear Spacing");
+    expect(html).toContain("MAIN + EXTRA BARS: Clear -12 mm.");
+    expect(html).not.toContain("No Available Capacity");
+    expect(html).toContain("Design Needs Improvement");
+  });
 });

@@ -179,6 +179,81 @@ describe("slab reinforcement and load model", () => {
     expect(b.positions[0]).toBeLessThan(200);
     expect(b.positions.at(-1)!).toBeGreaterThan(4500);
   });
+  it.each([200, 400])(
+    "staggered extras at %s do not coincide with MAIN bars",
+    (spacing) => {
+      const input = defaultSlabInput();
+      input.main["short-bottom"].spacing = 100;
+      input.extra["short-bottom"].enabled = true;
+      input.extra["short-bottom"].spacing = spacing;
+      const result = analyzeSlab(input, false);
+      const main = result.bars.find(
+        (b) => b.layer === "short-bottom" && b.group === "main",
+      )!;
+      const extra = result.bars.find(
+        (b) => b.layer === "short-bottom" && b.group === "extra",
+      )!;
+      for (const p of extra.positions)
+        expect(
+          Math.min(...main.positions.map((q) => Math.abs(p - q))),
+        ).toBeGreaterThan(40);
+      expect(result.regions[0].spacingOk).toBe(true);
+      expect(input.extra["short-bottom"].spacing).toBe(spacing);
+    },
+  );
+  it("combines MAIN and EXTRA area and strength at supports and midspan, with MAIN alone outside cutoffs", () => {
+    const input = defaultSlabInput();
+    input.lx = 2;
+    input.ly = 5;
+    input.extra["short-bottom"].enabled = true;
+    input.extra["short-top"].enabled = true;
+    const result = analyzeSlab(input, false);
+    for (const layer of ["short-bottom", "short-top"] as const) {
+      const region = result.regions.find((v) => v.layer === layer)!;
+      const main = result.bars.find(
+        (b) => b.layer === layer && b.group === "main",
+      )!;
+      const extra = result.bars.find(
+        (b) => b.layer === layer && b.group === "extra",
+      )!;
+      const active = region.zones.filter((v) => v.extraAs > 0);
+      expect(active.length).toBe(layer.endsWith("top") ? 2 : 1);
+      for (const zone of active) {
+        expect(zone.as).toBeCloseTo(main.as + extra.as, 8);
+        expect(zone.extraAs).toBeCloseTo(extra.as, 8);
+        expect(zone.phiMn).toBeCloseTo(
+          slabFlexuralStrength(input, [main, extra]).phiMn,
+          8,
+        );
+        const totalAs = main.as + extra.as;
+        const a = (totalAs * input.fy) / (0.85 * input.fc * 1000);
+        expect(zone.phiMn).toBeCloseTo(
+          (0.9 * totalAs * input.fy * (main.d - a / 2)) / 1e6,
+          8,
+        );
+      }
+      for (const zone of region.zones.filter((v) => v.extraAs === 0)) {
+        expect(zone.as).toBeCloseTo(main.as, 8);
+        expect(zone.phiMn).toBeCloseTo(
+          slabFlexuralStrength(input, [main]).phiMn,
+          8,
+        );
+      }
+      expect(Math.max(...region.zones.map((z) => z.dcr))).toBeCloseTo(
+        region.dcr,
+        10,
+      );
+    }
+  });
+  it("continues to report genuinely congested reinforcement", () => {
+    const input = defaultSlabInput();
+    input.h = 250;
+    input.main["short-bottom"].spacing = 40;
+    input.extra["short-bottom"].enabled = true;
+    input.extra["short-bottom"].spacing = 40;
+    const congested = analyzeSlab(input, false).regions[0];
+    expect(congested.spacingOk).toBe(false);
+  });
   it("restricts one-way extras to short direction and retains distribution steel", () => {
     const i = { ...defaultSlabInput(), lx: 5, ly: 2 };
     i.extra["long-bottom"].enabled = true;

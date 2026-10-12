@@ -75,4 +75,37 @@ describe("slab workspace and diagrams", () => {
     expect(html).toContain('value="32"');
     expect(html).toContain("SL-02");
   });
+  it("shows combined reinforcement at supports and midspan without a false capacity warning", () => {
+    const input = defaultSlabInput();
+    for (const layer of Object.keys(
+      input.extra,
+    ) as (keyof typeof input.extra)[])
+      input.extra[layer].enabled = true;
+    const html = renderToStaticMarkup(
+      <SlabWorkspace
+        cloudReady={false}
+        onSaved={() => {}}
+        draft={{
+          id: "saved",
+          projectId: "project",
+          moduleSlug: "slab",
+          title: "Combined Slab",
+          verificationStatus: "verification-required",
+          updatedAt: "2026-10-12",
+          payload: { kind: "slab", version: 1, input },
+        }}
+      />,
+    );
+    for (const text of [
+      "Combined Reinforcement By Location",
+      "MAIN As mm²/m",
+      "EXTRA As Used mm²/m",
+      "Total Active As mm²/m",
+      "Midspan · MAIN + EXTRA BARS",
+      "Support · MAIN + EXTRA BARS",
+      "Outside Bottom Cutoff",
+    ])
+      expect(html).toContain(text);
+    expect(html).not.toContain("No Available Capacity");
+  });
 });

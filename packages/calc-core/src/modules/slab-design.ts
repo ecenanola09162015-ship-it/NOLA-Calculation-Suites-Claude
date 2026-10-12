@@ -121,12 +121,34 @@ export interface SlabRegion extends SlabStrength {
   minClear: number;
   spacingOk: boolean;
   minimumOk: boolean;
+  mainAs: number;
+  extraAs: number;
+  position: number;
+  extraActive: boolean;
+  spacingChecks: {
+    label: string;
+    minClear: number;
+    requiredClear: number;
+    maxPitch: number;
+    maxSpacing: number;
+  }[];
+  zones: SlabFlexuralZone[];
   samples: {
     mu: number;
     extra: boolean;
     combination: string;
     position: number;
   }[];
+}
+export interface SlabFlexuralZone extends SlabStrength {
+  id: string;
+  label: string;
+  mainAs: number;
+  extraAs: number;
+  mu: number;
+  dcr: number;
+  combination: string;
+  position: number;
 }
 export interface SlabResult {
   type: "one-way" | "two-way";
@@ -349,7 +371,7 @@ export function resolveSlabBars(i: SlabInput): SlabResolvedBar[] {
               i.sideCover,
               gridDiameter,
               extraPitch,
-              extraPitch / 2,
+              Math.min(mainPitch, extraPitch) / 2,
             );
       const effectiveSpacing = group === "main" ? mainPitch : extraPitch;
       out.push({
@@ -482,6 +504,9 @@ function layerSpacing(
   );
   return {
     minClear,
+    requiredClear: min,
+    maxPitch,
+    maxSpacing: max,
     ok:
       minClear >= min - 1e-6 &&
       maxPitch <= max + 1e-6 &&
@@ -707,6 +732,58 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
       slabFlexuralStrength(i, select(false)),
       slabFlexuralStrength(i, select(true)),
     ];
+    const mainAs = select(false).reduce((sum, b) => sum + b.as, 0);
+    const extraAs = select(true)
+      .filter((b) => b.group === "extra")
+      .reduce((sum, b) => sum + b.as, 0);
+    const zoneMap = new Map<string, SlabFlexuralZone>();
+    const nearEdge = isLong ? (shortAxis === "X" ? "south" : "west") : near;
+    const farEdge = isLong ? (shortAxis === "X" ? "north" : "east") : far;
+    for (const sample of samples) {
+      const active = sample.extra && extraAs > 0;
+      const zoneId =
+        extraAs <= 0
+          ? "full-span"
+          : active
+            ? isTop
+              ? sample.position < 0.5
+                ? "near-support"
+                : "far-support"
+              : "extra-midspan"
+            : isTop
+              ? "interior"
+              : sample.position < i.cutoffs.bottomStart
+                ? "outside-near"
+                : "outside-far";
+      const zoneLabel =
+        zoneId === "full-span"
+          ? "Full Span · MAIN BARS Only"
+          : zoneId === "extra-midspan"
+            ? "Midspan · MAIN + EXTRA BARS"
+            : zoneId === "near-support"
+              ? `${nearEdge} Support · MAIN + EXTRA BARS`
+              : zoneId === "far-support"
+                ? `${farEdge} Support · MAIN + EXTRA BARS`
+                : zoneId === "interior"
+                  ? "Interior Beyond Top Cutoffs · MAIN BARS Only"
+                  : `Outside Bottom Cutoff · ${zoneId === "outside-near" ? nearEdge : farEdge} Side · MAIN BARS Only`;
+      const capacity = strengths[active ? 1 : 0];
+      const utilization =
+        capacity.phiMn > 0 ? sample.mu / capacity.phiMn : Infinity;
+      const previous = zoneMap.get(zoneId);
+      if (!previous || utilization > previous.dcr)
+        zoneMap.set(zoneId, {
+          ...capacity,
+          id: zoneId,
+          label: zoneLabel,
+          mainAs,
+          extraAs: active ? extraAs : 0,
+          mu: sample.mu,
+          dcr: utilization,
+          combination: sample.combination,
+          position: sample.position,
+        });
+    }
     let worst = samples[0],
       dcr = -1;
     for (const s of samples) {
@@ -749,6 +826,17 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
       minClear: Math.min(spacingBase.minClear, spacingExtra.minClear),
       spacingOk: spacingBase.ok && spacingExtra.ok,
       minimumOk: strengths[0].as >= minAs - 1e-8,
+      mainAs,
+      extraAs: worst.extra ? extraAs : 0,
+      extraActive: worst.extra && extraAs > 0,
+      position: worst.position,
+      spacingChecks: [
+        { label: "MAIN BARS Only", ...spacingBase },
+        ...(extraAs > 0
+          ? [{ label: "MAIN + EXTRA BARS", ...spacingExtra }]
+          : []),
+      ],
+      zones: [...zoneMap.values()],
       samples,
     };
   });

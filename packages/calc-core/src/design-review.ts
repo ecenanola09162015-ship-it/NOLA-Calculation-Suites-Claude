@@ -30,7 +30,13 @@ export const designRemarksSchema = z.record(
   z.string().max(2000),
 );
 export type DesignRemarks = z.infer<typeof designRemarksSchema>;
-export type DesignCheck = { id: string; label: string; dcr: number | null };
+export type DesignCheck = {
+  id: string;
+  label: string;
+  dcr: number | null;
+  detail?: string;
+  invalidLabel?: string;
+};
 export function designCheckStatus(
   dcr: number | null | undefined,
   policy: DesignCheckPolicy = defaultDesignCheckPolicy,
@@ -83,31 +89,43 @@ export function slabDesignChecks(i: SlabInput, r: SlabResult): DesignCheck[] {
   const out: DesignCheck[] = [];
   for (const v of r.regions) {
     const main = r.bars.find((b) => b.group === "main" && b.layer === v.layer);
-    const pitch =
-      main && main.positions.length >= 2
-        ? Math.max(
-            ...main.positions.slice(1).map((p, k) => p - main.positions[k]),
-          )
-        : Infinity;
-    const minimumClear = Math.max(
-      25,
-      (4 * i.aggregate) / 3,
-      ...r.bars.filter((b) => b.layer === v.layer).map((b) => b.diameter),
-    );
     out.push(
-      { id: `${v.id}:flexure`, label: `${v.label} · Flexure`, dcr: v.dcr },
+      {
+        id: `${v.id}:flexure`,
+        label: `${v.label} · Governing Flexure`,
+        dcr: v.dcr,
+        detail: `MAIN As ${v.mainAs.toFixed(0)} + EXTRA As ${v.extraAs.toFixed(0)} = Total As ${v.as.toFixed(0)} mm²/m At x/L = ${v.position.toFixed(3)}.`,
+      },
+      ...v.zones.map((zone) => ({
+        id: `${v.id}:zone:${zone.id}:flexure`,
+        label: `${v.label} · ${zone.label}`,
+        dcr: zone.dcr,
+      })),
       {
         id: `${v.id}:minimum`,
-        label: `${v.label} · Minimum Reinforcement`,
+        label: `${v.label} · Continuous MAIN Minimum Reinforcement`,
+        detail:
+          "MAIN BARS Are Checked Across The Full Span; Cut-Off EXTRA BARS Contribute To Local Flexural Strength.",
         dcr: main && main.as > 0 ? v.minAs / main.as : Infinity,
       },
       {
         id: `${v.id}:spacing`,
         label: `${v.label} · Reinforcement Spacing`,
         dcr: Math.max(
-          pitch / v.maxSpacing,
-          v.minClear > 0 ? minimumClear / v.minClear : Infinity,
+          ...v.spacingChecks.map((s) =>
+            Math.max(
+              s.maxPitch / s.maxSpacing,
+              s.minClear > 0 ? s.requiredClear / s.minClear : Infinity,
+            ),
+          ),
         ),
+        invalidLabel: "Bars Overlap / Invalid Clear Spacing",
+        detail: v.spacingChecks
+          .map(
+            (s) =>
+              `${s.label}: Clear ${s.minClear.toFixed(1)} mm (Min ${s.requiredClear.toFixed(1)}); Pitch ${s.maxPitch.toFixed(1)} mm (Max ${s.maxSpacing.toFixed(1)}).`,
+          )
+          .join(" "),
       },
       {
         id: `${v.id}:strain`,

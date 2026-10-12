@@ -59,13 +59,16 @@ export function DesignReviewPanel({
           <tbody>
             {checks.map((c) => (
               <tr key={c.id}>
-                <th scope="row">{c.label}</th>
+                <th scope="row">
+                  {c.label}
+                  {c.detail ? <p className="slabMuted">{c.detail}</p> : null}
+                </th>
                 <td>
                   {c.dcr === null
                     ? "—"
                     : Number.isFinite(c.dcr)
                       ? c.dcr.toFixed(3)
-                      : "No Available Capacity"}
+                      : (c.invalidLabel ?? "No Available Capacity")}
                 </td>
                 <td>
                   <DesignStatus dcr={c.dcr} policy={policy} />

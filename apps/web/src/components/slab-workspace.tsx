@@ -1063,16 +1063,24 @@ export function SlabWorkspace({
             Top extra groups repeat at each eligible fixed edge. Detailed
             lengths, hooks and wastage are not scheduled.
           </p>
-          <h3>Flexural Checks · One-Metre Strips</h3>
+          <h3>Governing Flexural Checks · One-Metre Strips</h3>
+          <p className="slabMuted">
+            MAIN BARS And EXTRA BARS Work Together Where EXTRA BARS Are Present.
+            Combined Strength Uses Each Group’s Actual Elevation. Beyond The
+            Cutoffs, Only Continuous MAIN BARS Are Credited.
+          </p>
           <div className="slabTableWrap">
             <table>
               <thead>
                 <tr>
                   <th>Region</th>
                   <th>Combo</th>
+                  <th>Location x/L</th>
                   <th>Mu kN·m/m</th>
                   <th>As required* mm²/m</th>
-                  <th>As active mm²/m</th>
+                  <th className="slabMainLabel">MAIN As mm²/m</th>
+                  <th className="slabExtraLabel">EXTRA As Used mm²/m</th>
+                  <th>Total Active As mm²/m</th>
                   <th>d mm</th>
                   <th>ϕ</th>
                   <th>εt</th>
@@ -1086,8 +1094,15 @@ export function SlabWorkspace({
                   <tr key={v.id}>
                     <th>{v.label}</th>
                     <td>{v.combination}</td>
+                    <td>
+                      {fmt(v.position, 3)}
+                      <br />
+                      {v.extraActive ? "MAIN + EXTRA" : "MAIN Only"}
+                    </td>
                     <td>{fmt(v.mu)}</td>
                     <td>{fmt(v.requiredAs, 0)}</td>
+                    <td className="slabMainLabel">{fmt(v.mainAs, 0)}</td>
+                    <td className="slabExtraLabel">{fmt(v.extraAs, 0)}</td>
                     <td>{fmt(v.as, 0)}</td>
                     <td>{fmt(v.d, 1)}</td>
                     <td>{fmt(v.phi, 3)}</td>
@@ -1117,6 +1132,56 @@ export function SlabWorkspace({
             distribution: min(5h,450). Minimum clear spacing:
             max(25,db,4dagg/3).
           </p>
+          <h3>Combined Reinforcement By Location</h3>
+          <p className="slabMuted">
+            Each Row Shows The Governing Demand Within That Zone. x/L Is
+            Measured From The West Or South Edge Along The Reinforcement
+            Direction. MAIN And EXTRA Capacities Are Not Added Separately.
+          </p>
+          <div className="slabTableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Region / Location</th>
+                  <th>Combo / x/L</th>
+                  <th className="slabMainLabel">MAIN As mm²/m</th>
+                  <th className="slabExtraLabel">EXTRA As Used mm²/m</th>
+                  <th>Total Active As mm²/m</th>
+                  <th>Mu kN·m/m</th>
+                  <th>Combined ϕMn kN·m/m</th>
+                  <th>DCR / Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {r.regions.flatMap((region) =>
+                  region.zones.map((zone) => (
+                    <tr key={`${region.id}-${zone.id}`}>
+                      <th scope="row">
+                        {region.label}
+                        <br />
+                        {zone.label}
+                      </th>
+                      <td>
+                        {zone.combination}
+                        <br />
+                        {fmt(zone.position, 3)}
+                      </td>
+                      <td className="slabMainLabel">{fmt(zone.mainAs, 0)}</td>
+                      <td className="slabExtraLabel">{fmt(zone.extraAs, 0)}</td>
+                      <td>{fmt(zone.as, 0)}</td>
+                      <td>{fmt(zone.mu)}</td>
+                      <td>{fmt(zone.phiMn)}</td>
+                      <td>
+                        {fmt(zone.dcr, 3)}
+                        <br />
+                        <DesignStatus dcr={zone.dcr} policy={policy} />
+                      </td>
+                    </tr>
+                  )),
+                )}
+              </tbody>
+            </table>
+          </div>
           <h3>One-Way Shear Checks At d From Idealized Support Line</h3>
           <div className="slabTableWrap">
             <table>
