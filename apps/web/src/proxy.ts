@@ -1,7 +1,12 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest } from "next/server";
 
-const isPublicRoute = createRouteMatcher(["/", "/login(.*)", "/register(.*)"]);
+const isPublicRoute = createRouteMatcher([
+  "/",
+  "/login(.*)",
+  "/register(.*)",
+  "/brand/nola-logo.png",
+]);
 const authConfigured = Boolean(
   process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY,
 );
