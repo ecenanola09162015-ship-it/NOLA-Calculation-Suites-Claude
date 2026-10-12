@@ -132,11 +132,17 @@ export function slabDesignChecks(i: SlabInput, r: SlabResult): DesignCheck[] {
     },
   );
   out.push(
-    ...r.detailing.development.map((v) => ({
-      id: `development:${v.layer}`,
-      label: `${v.layer} · Development-Length Screen`,
-      dcr: v.extension > 0 ? v.ld / v.extension : Infinity,
-    })),
+    ...r.detailing.development.map((v) => {
+      const bar = r.bars.find(
+        (b) => b.group === "extra" && b.layer === v.layer,
+      );
+      const required = v.ld + (bar ? Math.max(bar.d, 12 * bar.diameter) : 0);
+      return {
+        id: `development:${v.layer}`,
+        label: `${v.layer} · Development-Length Screen`,
+        dcr: v.extension > 0 ? required / v.extension : Infinity,
+      };
+    }),
   );
   return out;
 }
