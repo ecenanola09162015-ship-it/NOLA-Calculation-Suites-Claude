@@ -1,6 +1,7 @@
 import { z } from "zod";
 import defaults from "./design-check-policy.json";
 import type { RectangularColumnResult } from "./modules/rectangular-column";
+import type { TransverseResult } from "./modules/column-transverse";
 import type { SlabInput, SlabResult } from "./modules/slab-design";
 import { columnClauses, slabClauses } from "./code-clauses";
 const band = z.object({
@@ -114,6 +115,18 @@ export function columnDesignChecks(r: RectangularColumnResult): DesignCheck[] {
             });
       return rows;
     });
+}
+/** Shear / tie / confinement checks for the Design Review (ids prefixed "tie:"). */
+export function columnTransverseChecks(
+  t: TransverseResult | null | undefined,
+): DesignCheck[] {
+  return (t?.checks ?? []).map((c) => ({
+    id: `tie:${c.id}`,
+    label: c.label,
+    dcr: c.dcr,
+    detail: c.detail,
+    clause: c.clause,
+  }));
 }
 export function slabDesignChecks(i: SlabInput, r: SlabResult): DesignCheck[] {
   const out: DesignCheck[] = [];

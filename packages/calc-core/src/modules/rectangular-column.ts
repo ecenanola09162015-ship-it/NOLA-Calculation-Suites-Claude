@@ -28,6 +28,9 @@ export interface ColumnLoad {
   /** Smaller end moments for Cm (same diagram sign as Mu ⇒ single curvature). */
   m1x?: number | null;
   m1y?: number | null;
+  /** Factored shears (kN): Vux along x, Vuy along y. */
+  vx?: number | null;
+  vy?: number | null;
 }
 export interface RectangularColumnInput {
   code: ColumnCode;
@@ -197,11 +200,11 @@ export function validateRectangularColumn(input: RectangularColumnInput) {
       );
   for (const load of input.loads)
     if (
-      [load.m1x, load.m1y].some(
+      [load.m1x, load.m1y, load.vx, load.vy].some(
         (v) => v !== null && v !== undefined && !Number.isFinite(v),
       )
     )
-      throw new Error(`${load.id}: end moments M1 must be finite or blank.`);
+      throw new Error(`${load.id}: M1 and Vu values must be finite or blank.`);
   if (input.slenderness) {
     const parsed = columnSlendernessSchema.safeParse(input.slenderness);
     if (!parsed.success)
