@@ -6,7 +6,6 @@ const isPublicRoute = createRouteMatcher([
   "/login(.*)",
   "/register(.*)",
   "/brand/nola-logo.png",
-  "/api/auth-debug",
 ]);
 const authConfigured = Boolean(
   process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY,
