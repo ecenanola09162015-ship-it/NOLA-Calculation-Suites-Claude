@@ -1253,8 +1253,8 @@ export function SlabWorkspace({
           <p className="slabMuted">
             Normal-weight concrete, no shear reinforcement or axial load. ACI
             318-19 Table 22.5.5.1(c): Vc = 0.66λsρw^(1/3)√f′c bwd, limited to
-            0.42√f′c bwd; ϕ = 0.75. Only main steel is credited in ρw. λs =
-            min(1,√[2/(1+0.004d)]).
+            0.42√f′c bwd; √f′c ≤ 8.3 MPa (22.5.3.1); ϕ = 0.75. Only main steel
+            is credited in ρw. λs = min(1,√[2/(1+0.004d)]).
           </p>
           <h3>Detailing & Serviceability Review</h3>
           <p>

@@ -457,6 +457,15 @@ export function slabFlexuralStrength(
     d: bars.reduce((s, b) => s + b.as * b.d, 0) / as,
   };
 }
+/**
+ * √f'c for shear (ACI 318-19 22.5.3.1) and development length (25.4.1.4),
+ * limited to 8.3 MPa. Not applied to Ec (19.2.2.1) or fr (19.2.3.1).
+ * 22.5.3.2 (minimum shear reinforcement) does not apply: slabs here carry none.
+ */
+export const SLAB_SQRT_FC_LIMIT = 8.3;
+export function slabSqrtFc(fc: number) {
+  return Math.min(Math.sqrt(fc), SLAB_SQRT_FC_LIMIT);
+}
 /** ACI 318-19 Table 25.4.2.5 casting-position factor psi_t (z from soffit, mm). */
 export function slabTopBarFactor(b: Pick<SlabResolvedBar, "face" | "z">) {
   return b.face === "top" && b.z > 300 ? 1.3 : 1;
@@ -481,7 +490,7 @@ export function slabDevelopmentLength(i: SlabInput, b: SlabResolvedBar) {
   const psiSize = b.diameter <= 19 ? 0.8 : 1;
   return Math.max(
     300,
-    (((i.fy / (1.1 * Math.sqrt(i.fc))) * psiTop * psiSize) /
+    (((i.fy / (1.1 * slabSqrtFc(i.fc))) * psiTop * psiSize) /
       Math.min(2.5, cb / b.diameter)) *
       b.diameter,
   );
@@ -999,7 +1008,7 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     const phiVc =
       (0.75 *
         Math.min(0.66 * lambdaS * Math.cbrt(rho), 0.42) *
-        Math.sqrt(i.fc) *
+        slabSqrtFc(i.fc) *
         1000 *
         b.d) /
       1000;
@@ -1329,7 +1338,7 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     warnings,
     dead,
     unit: "metric",
-    engineVersion: "slab-0.2.0",
+    engineVersion: "slab-0.2.1",
   };
 }
 export function parseSlabLoads(text: string): SlabInput["loads"] {

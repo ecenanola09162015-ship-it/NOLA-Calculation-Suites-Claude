@@ -511,7 +511,7 @@ export function slabReportData(
       "One-Way Shear",
       r.shear.map((v) => [
         v.edge,
-        `lambda_s=${f(v.lambdaS, 3)}; rho_w=${f(v.rho, 5)}; d=${f(v.d)}; phiVc=0.75 min(0.66 lambda_s rho_w^(1/3),0.42) sqrt(fc) b d = ${f(v.phiVc)} kN/m; DCR=${f(v.vu)}/${f(v.phiVc)}=${f(v.dcr, 3)}`,
+        `lambda_s=${f(v.lambdaS, 3)}; rho_w=${f(v.rho, 5)}; d=${f(v.d)}; phiVc=0.75 min(0.66 lambda_s rho_w^(1/3),0.42) min(sqrt(fc),8.3)=${f(Math.min(Math.sqrt(input.fc), 8.3), 3)} b d = ${f(v.phiVc)} kN/m; DCR=${f(v.vu)}/${f(v.phiVc)}=${f(v.dcr, 3)}`,
         slabClauses.shear(r.type),
       ]),
       ["Edge", "Equation / Substitution / Result", "Reference"],

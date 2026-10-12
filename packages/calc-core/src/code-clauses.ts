@@ -30,6 +30,7 @@ export const slabClauses = {
     ref(
       bySystem(s, "7.5.3.1", "8.5.3.1.1"),
       "Table 22.5.5.1",
+      "√f′c ≤ 8.3 MPa 22.5.3.1",
       "φ Table 21.2.1",
     ),
   minimumThickness: (s: SlabSystem) =>
@@ -50,6 +51,7 @@ export const slabClauses = {
   development: (s: SlabSystem) =>
     ref(
       "25.4.2.1, 25.4.2.4",
+      "√f′c ≤ 8.3 MPa 25.4.1.4",
       "Table 25.4.2.5",
       bySystem(s, "cutoff 7.7.3.3", "cutoff 8.7.4"),
     ),

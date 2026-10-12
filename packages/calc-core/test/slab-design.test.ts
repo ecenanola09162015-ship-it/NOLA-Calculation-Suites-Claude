@@ -10,6 +10,7 @@ import {
   slabFlexuralStrength,
   slabMinimumSteelRatio,
   slabMinimumThickness,
+  slabSqrtFc,
   slabCrackedSection,
   slabEffectiveInertia,
   slabTopBarFactor,
@@ -482,5 +483,42 @@ describe("ACI 318-19 deflection control (hand calculations)", () => {
     expect(
       r.warnings.some((w) => w.startsWith("Information: h = 140 mm")),
     ).toBe(true);
+  });
+});
+describe("ACI 318-19 √f′c ≤ 8.3 MPa limit (22.5.3.1, 25.4.1.4)", () => {
+  it("caps √f′c only above f′c = 68.89 MPa", () => {
+    expect(slabSqrtFc(28)).toBeCloseTo(Math.sqrt(28), 12);
+    expect(slabSqrtFc(68)).toBeCloseTo(Math.sqrt(68), 12); // 8.246
+    expect(slabSqrtFc(70)).toBe(8.3); // √70 = 8.367 -> 8.3
+  });
+  it("one-way shear uses the capped value (f'c 70 MPa)", () => {
+    const r = analyzeSlab({ ...defaultSlabInput(), fc: 70 });
+    for (const v of r.shear) {
+      // phiVc = 0.75 min(0.66 λs ρw^(1/3), 0.42) x 8.3 x 1000 d / 1000
+      const hand =
+        (0.75 *
+          Math.min(0.66 * v.lambdaS * Math.cbrt(v.rho), 0.42) *
+          8.3 *
+          1000 *
+          v.d) /
+        1000;
+      expect(v.phiVc).toBeCloseTo(hand, 9);
+    }
+    // f'c 69 and 70 both exceed the limit -> identical shear capacity
+    const r69 = analyzeSlab({ ...defaultSlabInput(), fc: 69 });
+    expect(r69.shear.map((v) => v.phiVc)).toEqual(r.shear.map((v) => v.phiVc));
+  });
+  it("development length uses the capped value (f'c 70, Ø20 top bar, h 400)", () => {
+    // z = 400 - 20 - 10 = 370 > 300 -> ψt = 1.3; Ø20 -> ψs = 1.0
+    // cb = min(20 + 10, 150/2) = 30; cb/db = 1.5
+    // ld = 420 / (1.1 x 8.3) x 1.3 / 1.5 x 20 = 797.37 mm (uncapped √70 would give 791.0)
+    const i = { ...defaultSlabInput(), fc: 70, h: 400 };
+    i.main["short-top"].diameter = 20;
+    i.main["short-top"].spacing = 150;
+    const bar = resolveSlabBars(i).find(
+      (b) => b.group === "main" && b.layer === "short-top",
+    )!;
+    expect(bar.z).toBeCloseTo(370, 6);
+    expect(slabDevelopmentLength(i, bar)).toBeCloseTo(797.37, 1);
   });
 });
