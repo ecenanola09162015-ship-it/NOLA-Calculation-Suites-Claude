@@ -19,10 +19,15 @@ import type { ProjectRecord, CalculationDraftRecord } from "@/lib/projects";
 import {
   ColumnSection,
   ColumnPMPlot,
-  ColumnBiaxialPlot,
+  ColumnBiaxialContourPlot,
 } from "./column-diagrams";
 import { ReportExportControls } from "./report-export-controls";
 import { ColumnQuantityPanel } from "./column-quantity-panel";
+import { NumberField, fmt } from "./column-ui";
+import {
+  ColumnSlendernessInputs,
+  ColumnSlendernessResults,
+} from "./column-slenderness-panel";
 const initial: RectangularColumnInput = {
   code: "ACI 318-19",
   width: 600,
@@ -98,39 +103,6 @@ const fields = [
   ["cover", "Clear cover to ties", "mm"],
   ["tieDiameter", "Tie diameter", "mm"],
 ] as const;
-const fmt = (n: number | null, places = 2) =>
-  n === null || !Number.isFinite(n)
-    ? "—"
-    : n.toLocaleString("en-US", {
-        maximumFractionDigits: places,
-        minimumFractionDigits: places,
-      });
-function NumberField({
-  label,
-  value,
-  onChange,
-  unit,
-}: {
-  label: string;
-  value: number;
-  onChange: (value: number) => void;
-  unit?: string;
-}) {
-  return (
-    <label>
-      {label}
-      {unit && <span className="rcUnit">{unit}</span>}
-      <input
-        type="number"
-        step="any"
-        value={Number.isFinite(value) ? value : ""}
-        onChange={(e) =>
-          onChange(e.target.value === "" ? NaN : Number(e.target.value))
-        }
-      />
-    </label>
-  );
-}
 export function RectangularColumnWorkspace({
   project,
   draft,
@@ -271,7 +243,9 @@ export function RectangularColumnWorkspace({
     try {
       if (!scope)
         throw new Error(
-          "Confirm that demands are suitable for a section-strength check. Slenderness and second-order effects are not calculated here.",
+          input.slenderness?.enabled
+            ? "Confirm that the entered demands are factored analysis results for this column."
+            : "Confirm that demands are suitable for a section-strength check, or turn on slenderness in panel 04.",
         );
       const parsed = columnDraftSchema.safeParse({
         kind: "rc-column",
@@ -476,8 +450,9 @@ export function RectangularColumnWorkspace({
               }}
             />
             <span>
-              I have assessed slenderness and second-order effects separately.
-              Entered demands are suitable for a section-strength check.
+              {input.slenderness?.enabled
+                ? "Entered demands are factored analysis results for this column; slenderness is checked in panel 04."
+                : "I have assessed slenderness and second-order effects separately. Entered demands are suitable for a section-strength check."}
             </span>
           </label>
           <p className="rcMuted">
@@ -692,6 +667,12 @@ export function RectangularColumnWorkspace({
                 <th>Pu (kN)</th>
                 <th>Mux (kN·m)</th>
                 <th>Muy (kN·m)</th>
+                {input.slenderness?.enabled ? (
+                  <>
+                    <th>M1x (kN·m)</th>
+                    <th>M1y (kN·m)</th>
+                  </>
+                ) : null}
                 <th>Remove</th>
               </tr>
             </thead>
@@ -737,6 +718,40 @@ export function RectangularColumnWorkspace({
                       />
                     </td>
                   ))}
+                  {input.slenderness?.enabled
+                    ? (["m1x", "m1y"] as const).map((key) => (
+                        <td key={key}>
+                          <input
+                            type="number"
+                            step="any"
+                            aria-label={`Combination ${i + 1} ${key}`}
+                            placeholder="blank"
+                            value={
+                              typeof load[key] === "number" &&
+                              Number.isFinite(load[key])
+                                ? (load[key] as number)
+                                : ""
+                            }
+                            onChange={(e) =>
+                              update({
+                                ...input,
+                                loads: input.loads.map((l, j) =>
+                                  j === i
+                                    ? {
+                                        ...l,
+                                        [key]:
+                                          e.target.value === ""
+                                            ? null
+                                            : Number(e.target.value),
+                                      }
+                                    : l,
+                                ),
+                              })
+                            }
+                          />
+                        </td>
+                      ))
+                    : null}
                   <td>
                     <button
                       aria-label={`Remove combination ${i + 1}`}
@@ -761,6 +776,7 @@ export function RectangularColumnWorkspace({
           not included in this build.
         </p>
       </section>
+      <ColumnSlendernessInputs input={input} onChange={update} />
       {result ? (
         <section className="rcResults">
           <div className="rcReportHeader">
@@ -841,11 +857,19 @@ export function RectangularColumnWorkspace({
                     <th>Pu (kN)</th>
                     <th>Mux (kN·m)</th>
                     <th>Muy (kN·m)</th>
+                    {result.checks.some((c) => c.slenderness) ? (
+                      <>
+                        <th>Mcx (kN·m)</th>
+                        <th>Mcy (kN·m)</th>
+                      </>
+                    ) : null}
                     <th>φMnx (kN·m)</th>
                     <th>φMny (kN·m)</th>
-                    <th>Axial ratio</th>
-                    <th>Linear interaction</th>
-                    <th>Screening result</th>
+                    <th>Axial DCR</th>
+                    <th>Biaxial 3D DCR</th>
+                    <th>Bresler DCR</th>
+                    <th>Linear screen</th>
+                    <th>Result</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -865,16 +889,30 @@ export function RectangularColumnWorkspace({
                       <td>{fmt(c.load.pu)}</td>
                       <td>{fmt(c.load.mx)}</td>
                       <td>{fmt(c.load.my)}</td>
+                      {c.slenderness ? (
+                        <>
+                          <td>{fmt(c.mux)}</td>
+                          <td>{fmt(c.muy)}</td>
+                        </>
+                      ) : null}
                       <td>{fmt(c.capacityX)}</td>
                       <td>{fmt(c.capacityY)}</td>
                       <td>{c.load.included ? fmt(c.axialRatio, 3) : "—"}</td>
+                      <td>{fmt(c.biaxialRatio, 3)}</td>
+                      <td>
+                        {c.bresler.applicable
+                          ? fmt(c.bresler.ratio, 3)
+                          : c.load.included
+                            ? "n/a"
+                            : "—"}
+                      </td>
                       <td>{fmt(c.interaction, 3)}</td>
                       <td>
                         {c.load.included ? (
                           <DesignStatus
                             dcr={Math.max(
                               c.axialRatio,
-                              c.interaction ?? Infinity,
+                              c.biaxialRatio ?? Infinity,
                             )}
                             policy={policy}
                           />
@@ -888,18 +926,58 @@ export function RectangularColumnWorkspace({
               </table>
             </div>
             <p className="rcMuted">
-              Within envelope does not confirm code compliance. “—” indicates no
+              Result uses the axial DCR and the 3D biaxial DCR (governing).
+              Bresler and the linear screen are references. “—” indicates no
               available capacity or an excluded combination.
             </p>
           </section>
           <div className="rcGrid">
             <section className="rcPanel">
-              <h3>Linear Biaxial Screen · {selected}</h3>
+              <h3>Biaxial Check · {selected}</h3>
               <p>
-                At Pu = {fmt(check?.load.pu ?? null)} kN, use capacities from
-                the applicable signed branches.
+                φMnx–φMny contour at Pu = {fmt(check?.load.pu ?? null)} kN by 3D
+                strain compatibility (rotated neutral axis).
               </p>
-              <ColumnBiaxialPlot check={check} />
+              <ColumnBiaxialContourPlot
+                input={input}
+                result={result}
+                check={check}
+              />
+              {check && check.load.included ? (
+                <dl className="rcBasis">
+                  <div>
+                    <dt>3D: |Mu| / φMn on load ray</dt>
+                    <dd>
+                      {fmt(Math.hypot(check.mux, check.muy))} /{" "}
+                      {fmt(check.biaxial?.capacity ?? null)} ={" "}
+                      <strong>{fmt(check.biaxialRatio, 3)}</strong>
+                      {check.biaxial
+                        ? ` · c = ${fmt(check.biaxial.c, 0)} mm, φ = ${fmt(check.biaxial.phi, 3)}`
+                        : ""}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Bresler: Pu / φPni</dt>
+                    <dd>
+                      {check.bresler.applicable ? (
+                        <>
+                          φPnx {fmt(check.bresler.pnx, 0)}, φPny{" "}
+                          {fmt(check.bresler.pny, 0)}, φPo{" "}
+                          {fmt(check.bresler.po, 0)} → φPni{" "}
+                          {fmt(check.bresler.pni, 0)} kN; DCR{" "}
+                          <strong>{fmt(check.bresler.ratio, 3)}</strong>
+                        </>
+                      ) : (
+                        check.bresler.note
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Linear screen (reference)</dt>
+                    <dd>{fmt(check.interaction, 3)}</dd>
+                  </div>
+                </dl>
+              ) : null}
             </section>
             <section className="rcPanel">
               <h3>Calculation Basis · {result.calculationBasis}</h3>
@@ -925,18 +1003,27 @@ export function RectangularColumnWorkspace({
                   <dd>0.80 × 0.65 × P₀</dd>
                 </div>
                 <div>
-                  <dt>Linear screen</dt>
+                  <dt>Biaxial (governing)</dt>
+                  <dd>3D strain compatibility, radial at constant Pu</dd>
+                </div>
+                <div>
+                  <dt>Bresler (reference)</dt>
+                  <dd>1/φPni = 1/φPnx + 1/φPny − 1/φPo</dd>
+                </div>
+                <div>
+                  <dt>Linear screen (reference)</dt>
                   <dd>|Mux| / φMnx(Pu) + |Muy| / φMny(Pu) ≤ 1</dd>
                 </div>
               </dl>
               <p className="rcMuted">
-                ACI 318-19: 22.2.2 (section assumptions), Table 22.2.2.4.3 (β₁),
-                Table 21.2.2 (φ), Table 22.4.2.1 (axial cap). Linear biaxial
-                screening follows your workbook and is not represented as a
-                complete ACI biaxial design check.
+                ACI 318-19: 22.2.1–22.2.2 (section assumptions, rotated neutral
+                axis), Table 22.2.2.4.3 (β₁), Table 21.2.2 (φ), Table 22.4.2.1
+                (axial cap). Verified against StructurePoint ACI 318-19 biaxial
+                examples. Slenderness: 6.2.5 and 6.6.4.
               </p>
             </section>
           </div>
+          <ColumnSlendernessResults check={check} />
         </section>
       ) : (
         <section className="rcPanel rcEmptyResult">
