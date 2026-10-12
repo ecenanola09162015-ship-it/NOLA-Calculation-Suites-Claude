@@ -6,7 +6,10 @@ import {
   saveCalculationDraft,
   updateProject,
 } from "@/lib/projects";
-import { designCheckPolicySchema } from "@nola/calc-core";
+import {
+  designCheckPolicySchema,
+  projectReportSettingsSchema,
+} from "@nola/calc-core";
 import { uiCatalogue } from "@/lib/ui-catalogue";
 export async function createProjectAction(formData: FormData) {
   const { userId } = await auth();
@@ -77,7 +80,16 @@ export async function updateProjectAction(id: string, formData: FormData) {
       "Check status thresholds, labels and colors. Thresholds must be strictly increasing.",
     );
   }
+  let reportSettings;
+  try {
+    reportSettings = projectReportSettingsSchema.parse(
+      JSON.parse(String(formData.get("reportSettings") ?? "{}")),
+    );
+  } catch {
+    throw Error("Check report settings, project fields and logo file sizes.");
+  }
   const input = {
+    reportSettings,
     name: field("name"),
     buildingName: field("buildingName"),
     location: field("location"),

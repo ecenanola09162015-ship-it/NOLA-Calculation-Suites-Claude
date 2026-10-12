@@ -20,6 +20,7 @@ import {
 } from "@nola/calc-core";
 import { DesignReviewPanel, DesignStatus } from "./design-review-panel";
 import type { ProjectRecord, CalculationDraftRecord } from "@/lib/projects";
+import { ReportExportControls } from "./report-export-controls";
 import { SlabQuantityPanel } from "./slab-quantity-panel";
 import { SlabPlan, SlabSection } from "./slab-diagrams";
 const fmt = (n: number | null | undefined, p = 2) =>
@@ -411,13 +412,33 @@ export function SlabWorkspace({
               ? "Saved"
               : "Save slab"}
         </button>
-        <button
-          className="suiteSecondary"
+        <ReportExportControls
+          moduleName="Slab Design"
           disabled={!r}
-          onClick={() => window.print()}
-        >
-          Print / PDF report
-        </button>
+          onData={async () => {
+            if (!r) throw Error("Complete Valid Slab Inputs First.");
+            if (
+              missingJudgmentRemarks(
+                slabDesignChecks(input, r),
+                policy,
+                remarks,
+              ).length
+            )
+              throw Error(
+                "Record Engineering Judgment Remarks Before Exporting.",
+              );
+            const { slabReportData } = await import("../lib/reports/data");
+            return slabReportData(
+              project,
+              title,
+              input,
+              r,
+              quantity,
+              policy,
+              remarks,
+            );
+          }}
+        />
       </div>
       <p className="slabPilot">
         Development pilot ·{" "}

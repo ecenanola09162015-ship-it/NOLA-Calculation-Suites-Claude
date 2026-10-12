@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { defaultDesignCheckPolicy } from "@nola/calc-core";
+import {
+  defaultDesignCheckPolicy,
+  defaultProjectReportSettings,
+} from "@nola/calc-core";
 vi.mock("@clerk/nextjs/server", () => ({ auth: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/projects", () => ({
@@ -24,6 +27,16 @@ function form() {
   ])
     f.set(key, " Updated " + key + " ");
   f.set("designCheckPolicy", JSON.stringify(defaultDesignCheckPolicy));
+  f.set(
+    "reportSettings",
+    JSON.stringify({
+      ...defaultProjectReportSettings,
+      ownerClient: "Brittany",
+      buildingDescription: "Two-Storey Duplex",
+      revision: "02",
+      companyName: "Test Company",
+    }),
+  );
   return f;
 }
 beforeEach(() => {
@@ -45,6 +58,11 @@ describe("project edit action", () => {
       expect.objectContaining({
         name: "Updated name",
         designCheckPolicy: defaultDesignCheckPolicy,
+        reportSettings: expect.objectContaining({
+          ownerClient: "Brittany",
+          revision: "02",
+          companyName: "Test Company",
+        }),
       }),
     );
     expect(revalidatePath).toHaveBeenCalledWith("/launcher");

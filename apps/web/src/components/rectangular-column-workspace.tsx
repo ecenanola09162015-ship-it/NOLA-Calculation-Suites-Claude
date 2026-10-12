@@ -21,6 +21,7 @@ import {
   ColumnPMPlot,
   ColumnBiaxialPlot,
 } from "./column-diagrams";
+import { ReportExportControls } from "./report-export-controls";
 import { ColumnQuantityPanel } from "./column-quantity-panel";
 const initial: RectangularColumnInput = {
   code: "ACI 318-19",
@@ -387,13 +388,33 @@ export function RectangularColumnWorkspace({
         <button className="suitePrimary" onClick={calculate}>
           Calculate section
         </button>
-        <button
-          className="suiteSecondary"
+        <ReportExportControls
+          moduleName="RC Column"
           disabled={!result}
-          onClick={() => window.print()}
-        >
-          Print / PDF
-        </button>
+          onData={async () => {
+            if (!result) throw Error("Calculate The Column First.");
+            if (
+              missingJudgmentRemarks(
+                columnDesignChecks(result),
+                policy,
+                remarks,
+              ).length
+            )
+              throw Error(
+                "Record Engineering Judgment Remarks Before Exporting.",
+              );
+            const { columnReportData } = await import("../lib/reports/data");
+            return columnReportData(
+              project,
+              title,
+              input,
+              result,
+              quantity,
+              policy,
+              remarks,
+            );
+          }}
+        />
       </div>
       {!project && (
         <p className="rcAlert">

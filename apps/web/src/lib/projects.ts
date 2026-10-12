@@ -2,6 +2,9 @@ import {
   defaultDesignCheckPolicy,
   designCheckPolicySchema,
   type DesignCheckPolicy,
+  projectReportSettingsSchema,
+  defaultProjectReportSettings,
+  type ProjectReportSettings,
 } from "@nola/calc-core";
 import { sql } from "drizzle-orm";
 
@@ -18,6 +21,7 @@ export interface ProjectRecord {
   location: string;
   updatedAt: string;
   designCheckPolicy?: DesignCheckPolicy;
+  reportSettings?: ProjectReportSettings;
 }
 
 export interface CalculationDraftRecord {
@@ -62,6 +66,9 @@ async function ensureSchema() {
       await db.execute(
         sql`alter table nola_projects add column if not exists design_check_policy jsonb`,
       );
+      await db.execute(
+        sql`alter table nola_projects add column if not exists report_settings jsonb`,
+      );
       await db.execute(sql`
         create index if not exists nola_projects_owner_idx
         on nola_projects (owner_id, updated_at desc)
@@ -94,7 +101,7 @@ async function ensureSchema() {
 export async function listProjects(ownerId: string): Promise<ProjectRecord[]> {
   await ensureSchema();
   const result = await getDb().execute(sql`
-    select id, name, project_number, building_name, prepared_by, checked_by, approved_by, location, design_check_policy, updated_at
+    select id, name, project_number, building_name, prepared_by, checked_by, approved_by, location, design_check_policy, report_settings, updated_at
     from nola_projects
     where owner_id = ${ownerId}
     order by updated_at desc
@@ -112,6 +119,10 @@ export async function listProjects(ownerId: string): Promise<ProjectRecord[]> {
     ).success
       ? designCheckPolicySchema.parse(row.design_check_policy)
       : defaultDesignCheckPolicy,
+    reportSettings: projectReportSettingsSchema.safeParse(row.report_settings)
+      .success
+      ? projectReportSettingsSchema.parse(row.report_settings)
+      : defaultProjectReportSettings,
     location: String(row.location),
     updatedAt: new Date(String(row.updated_at)).toISOString(),
   }));
@@ -134,7 +145,7 @@ export async function createProject(
   const result = await getDb().execute(sql`
     insert into nola_projects (id, owner_id, name, project_number, location, building_name, prepared_by, checked_by, approved_by)
     values (${id}, ${ownerId}, ${input.name}, ${input.projectNumber}, ${input.location}, ${input.buildingName}, ${input.preparedBy}, ${input.checkedBy}, ${input.approvedBy})
-    returning id, name, project_number, building_name, prepared_by, checked_by, approved_by, location, design_check_policy, updated_at
+    returning id, name, project_number, building_name, prepared_by, checked_by, approved_by, location, design_check_policy, report_settings, updated_at
   `);
   const row = result.rows[0];
   if (!row) throw new Error("Project creation did not return a record.");
@@ -151,6 +162,10 @@ export async function createProject(
     ).success
       ? designCheckPolicySchema.parse(row.design_check_policy)
       : defaultDesignCheckPolicy,
+    reportSettings: projectReportSettingsSchema.safeParse(row.report_settings)
+      .success
+      ? projectReportSettingsSchema.parse(row.report_settings)
+      : defaultProjectReportSettings,
     location: String(row.location),
     updatedAt: new Date(String(row.updated_at)).toISOString(),
   };
@@ -250,14 +265,20 @@ export async function updateProject(
     checkedBy: string;
     approvedBy: string;
     designCheckPolicy: DesignCheckPolicy;
+    reportSettings?: ProjectReportSettings;
   },
 ): Promise<ProjectRecord> {
   await ensureSchema();
   const policy = JSON.stringify(
     designCheckPolicySchema.parse(input.designCheckPolicy),
   );
+  const reportSettings = JSON.stringify(
+    projectReportSettingsSchema.parse(
+      input.reportSettings ?? defaultProjectReportSettings,
+    ),
+  );
   const result = await getDb().execute(
-    sql`update nola_projects set name=${input.name},building_name=${input.buildingName},location=${input.location},prepared_by=${input.preparedBy},checked_by=${input.checkedBy},approved_by=${input.approvedBy},design_check_policy=${policy}::jsonb,updated_at=now() where id=${id}::uuid and owner_id=${ownerId} returning id,name,project_number,building_name,location,prepared_by,checked_by,approved_by,design_check_policy,updated_at`,
+    sql`update nola_projects set name=${input.name},building_name=${input.buildingName},location=${input.location},prepared_by=${input.preparedBy},checked_by=${input.checkedBy},approved_by=${input.approvedBy},design_check_policy=${policy}::jsonb,report_settings=${reportSettings}::jsonb,updated_at=now() where id=${id}::uuid and owner_id=${ownerId} returning id,name,project_number,building_name,location,prepared_by,checked_by,approved_by,design_check_policy,report_settings,updated_at`,
   );
   const row = result.rows[0];
   if (!row) throw Error("Project unavailable for this account.");
@@ -266,6 +287,10 @@ export async function updateProject(
     name: String(row.name),
     projectNumber: String(row.project_number),
     buildingName: String(row.building_name),
+    reportSettings: projectReportSettingsSchema.safeParse(row.report_settings)
+      .success
+      ? projectReportSettingsSchema.parse(row.report_settings)
+      : defaultProjectReportSettings,
     location: String(row.location),
     preparedBy: String(row.prepared_by),
     checkedBy: String(row.checked_by),

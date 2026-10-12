@@ -3,7 +3,10 @@ import { useState } from "react";
 import {
   defaultDesignCheckPolicy,
   type DesignCheckPolicy,
+  defaultProjectReportSettings,
+  type ProjectReportSettings,
 } from "@nola/calc-core";
+import { ReportSettingsEditor } from "./report-settings-editor";
 import type { ProjectRecord } from "@/lib/projects";
 export const projectInformationFields = [
   ["name", "Project Name"],
@@ -43,6 +46,20 @@ export function ProjectContext({
             <dt>Module Type:</dt>
             <dd>{moduleName}</dd>
           </div>
+          <div>
+            <dt>Owner / Client:</dt>
+            <dd>{project?.reportSettings?.ownerClient || "Not Set"}</dd>
+          </div>
+          {project?.reportSettings?.buildingDescription ? (
+            <div>
+              <dt>Building Description:</dt>
+              <dd>{project.reportSettings.buildingDescription}</dd>
+            </div>
+          ) : null}
+          <div>
+            <dt>Revision No.:</dt>
+            <dd>{project?.reportSettings?.revision ?? "00"}</dd>
+          </div>
         </dl>
         {project ? (
           <button
@@ -76,6 +93,11 @@ export function ProjectEditor({
   const [policy, setPolicy] = useState<DesignCheckPolicy>(
     project.designCheckPolicy ?? defaultDesignCheckPolicy,
   );
+  const [reportSettings, setReportSettings] = useState<ProjectReportSettings>(
+    project.reportSettings ?? defaultProjectReportSettings,
+  );
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
   return (
     <aside
       className="suiteDrawer projectEditor"
@@ -99,6 +121,14 @@ export function ProjectEditor({
           type="hidden"
           value={JSON.stringify(policy)}
         />
+        <ReportSettingsEditor
+          busy={busy || uploading}
+          value={reportSettings}
+          onChange={setReportSettings}
+          onWorking={setUploading}
+          onError={setUploadError}
+        />
+        {uploadError ? <p role="alert">{uploadError}</p> : null}
         <details>
           <summary>Design Check Status Settings</summary>
           <p>
@@ -167,14 +197,14 @@ export function ProjectEditor({
         <button
           type="submit"
           className="suitePrimary"
-          disabled={busy || !cloudReady}
+          disabled={busy || uploading || !cloudReady}
         >
           {busy ? "Saving…" : "Save"}
         </button>
         <button
           type="button"
           className="suiteSecondary"
-          disabled={busy}
+          disabled={busy || uploading}
           onClick={onCancel}
         >
           Cancel

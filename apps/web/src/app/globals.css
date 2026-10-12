@@ -2711,3 +2711,34 @@ select {
     break-inside: avoid;
   }
 }
+
+.reportExportControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+  border-left: 3px solid #1fa59a;
+  padding-left: 12px;
+}
+.reportExportControls label {
+  min-width: 110px;
+  font-size: 12px;
+}
+.reportExportControls p {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  max-width: 420px;
+}
+.reportExportControls select {
+  width: 100%;
+  padding: 7px;
+  border: 1px solid #cbdbe4;
+  border-radius: 5px;
+  background: white;
+}
+@media print {
+  .reportExportControls {
+    display: none;
+  }
+}

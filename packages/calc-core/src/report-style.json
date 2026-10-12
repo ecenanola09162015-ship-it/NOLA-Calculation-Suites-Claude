@@ -1,0 +1,32 @@
+{
+  "version": "0.1.0",
+  "fontFamily": "Century Gothic",
+  "pdfFallbackFont": "Helvetica",
+  "simpleFontSize": 8,
+  "completeFontSize": 8.5,
+  "minimumFontSize": 6.5,
+  "labelFontSize": 8,
+  "footerFontSize": 6.5,
+  "marginMm": 10,
+  "gapPt": 6,
+  "headerHeightPt": 58,
+  "footerHeightPt": 30,
+  "footerTitle": "Structural Analysis and Design Calculation Report",
+  "colors": {
+    "primary": "#3B5BA9",
+    "teal": "#1FA59A",
+    "tint": "#E6F4F2",
+    "text": "#1F2937",
+    "white": "#FFFFFF",
+    "border": "#D3E5E3",
+    "gold": "#F2B33D",
+    "extra": "#E87916"
+  },
+  "sectionTitleFontSize": 8,
+  "tableHeaderFontSize": 7,
+  "headerValueFontSize": 7,
+  "descriptionFontSize": 6.5,
+  "diagramFontSize": 10,
+  "lineGapPt": 2,
+  "tablePaddingPt": 3
+}
