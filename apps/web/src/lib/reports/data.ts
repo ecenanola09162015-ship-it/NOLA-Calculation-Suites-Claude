@@ -1,6 +1,7 @@
 import {
   columnDesignChecks,
   slabDesignChecks,
+  slabMinimumSteelRatio,
   designCheckStatus,
   estimateColumnQuantity,
   estimateSlabQuantity,
@@ -521,8 +522,8 @@ export function slabReportData(
         ],
         [
           "Minimum Steel",
-          `As,min=0.0018 x 1000 x ${input.h}=${f(0.0018 * 1000 * input.h, 0)} mm²/m; continuous MAIN BARS checked separately from local MAIN + EXTRA strength`,
-          "7.6, 8.6, 24.4",
+          `As,min=${slabMinimumSteelRatio(input.fy).toFixed(4)} x 1000 x ${input.h}=${f(slabMinimumSteelRatio(input.fy) * 1000 * input.h, 0)} mm²/m (fy=${input.fy} MPa: ${input.fy < 420 ? "0.0020Ag for fy < 420" : "max(0.0018x420/fy, 0.0014)Ag"}); continuous MAIN BARS checked separately from local MAIN + EXTRA strength`,
+          "Tables 7.6.1.1, 8.6.1.1; 24.4.3.2",
         ],
         ...r.regions.map((v) => [
           v.label + " Spacing",

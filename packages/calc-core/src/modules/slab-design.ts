@@ -441,13 +441,27 @@ export function slabFlexuralStrength(
     d: bars.reduce((s, b) => s + b.as * b.d, 0) / as,
   };
 }
+/** ACI 318-19 Table 25.4.2.5 casting-position factor psi_t (z from soffit, mm). */
+export function slabTopBarFactor(b: Pick<SlabResolvedBar, "face" | "z">) {
+  return b.face === "top" && b.z > 300 ? 1.3 : 1;
+}
+/**
+ * Minimum flexural / shrinkage-temperature steel ratio on gross area,
+ * ACI 318-19 Table 7.6.1.1 (one-way), 8.6.1.1 (two-way) and 24.4.3.2:
+ * deformed bars fy < 420 MPa -> 0.0020; fy >= 420 MPa -> max(0.0018*420/fy, 0.0014).
+ */
+export function slabMinimumSteelRatio(fy: number) {
+  return fy < 420 ? 0.002 : Math.max((0.0018 * 420) / fy, 0.0014);
+}
 export function slabDevelopmentLength(i: SlabInput, b: SlabResolvedBar) {
   const cb = Math.min(
     (b.face === "bottom" ? i.bottomCover : i.topCover) + b.diameter / 2,
     b.spacing / 2,
   );
-  // Normal-weight, uncoated, no transverse confinement, fy <= 420 MPa, top cast depth <300 mm only.
-  const psiTop = b.face === "top" && i.h - b.z > 300 ? 1.3 : 1;
+  // ACI 318-19 25.4.2.4(a), Ktr = 0: normal-weight, uncoated, fy <= 420 MPa.
+  // Table 25.4.2.5 psi_t = 1.3 when more than 300 mm of fresh concrete is placed
+  // below the bar. z is measured from the slab soffit, so concrete below = z.
+  const psiTop = slabTopBarFactor(b);
   const psiSize = b.diameter <= 19 ? 0.8 : 1;
   return Math.max(
     300,
@@ -637,7 +651,7 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
         beta: beamBeta,
       };
   const dead = (i.h / 1000) * i.unitWeight + i.sdl + i.partition;
-  const minAs = 0.0018 * 1000 * i.h;
+  const minAs = slabMinimumSteelRatio(i.fy) * 1000 * i.h;
   const specs: { id: string; label: string; layer: SlabLayer }[] = [
     {
       id: "short-positive",
@@ -1097,7 +1111,7 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     warnings,
     dead,
     unit: "metric",
-    engineVersion: "slab-0.1.0",
+    engineVersion: "slab-0.1.1",
   };
 }
 export function parseSlabLoads(text: string): SlabInput["loads"] {

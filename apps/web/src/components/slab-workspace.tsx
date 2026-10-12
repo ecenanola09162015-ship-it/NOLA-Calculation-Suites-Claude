@@ -1146,11 +1146,12 @@ export function SlabWorkspace({
           </div>
           <p className="slabMuted">
             *Equivalent single-layer required area at the entered MAIN BARS
-            depth, including 0.0018 bh minimum. Capacity uses the active
-            main/extra layers and strain equilibrium at the governing location.
-            DCR checks include both sides of each cutoff. Maximum spacing at
-            critical two-way sections: min(2h,450); one-way main: min(3h,450);
-            distribution: min(5h,450). Minimum clear spacing:
+            depth, including the ACI 318-19 Table 7.6.1.1/8.6.1.1 minimum
+            (0.0020bh for fy &lt; 420 MPa; 0.0018bh at fy = 420 MPa). Capacity
+            uses the active main/extra layers and strain equilibrium at the
+            governing location. DCR checks include both sides of each cutoff.
+            Maximum spacing at critical two-way sections: min(2h,450); one-way
+            main: min(3h,450); distribution: min(5h,450). Minimum clear spacing:
             max(25,db,4dagg/3).
           </p>
           <h3>Combined Reinforcement By Location</h3>

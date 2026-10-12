@@ -5,7 +5,10 @@ import {
   parseSlabLoads,
   resolveSlabBars,
   slabDraftSchema,
+  slabDevelopmentLength,
   slabFlexuralStrength,
+  slabMinimumSteelRatio,
+  slabTopBarFactor,
 } from "../src/modules/slab-design";
 import { solveSlabPlate } from "../src/modules/slab-plate";
 const pinned = {
@@ -323,5 +326,58 @@ describe("slab reinforcement and load model", () => {
       0.75 * 0.66 * s.lambdaS * Math.cbrt(s.rho) * Math.sqrt(i.fc) * s.d,
       8,
     );
+  });
+});
+describe("ACI 318-19 audit fixes (hand calculations)", () => {
+  // f'c = 28 MPa, fy = 420 MPa, top cover 20 mm, db = 12 mm @ 150 mm, Ktr = 0.
+  // cb = min(20 + 12/2, 150/2) = 26 mm; cb/db = 2.1667 (< 2.5); psi_s = 0.8 (db <= 19).
+  // ld = [fy / (1.1 lambda sqrt(f'c))] psi_t psi_e psi_s psi_g / ((cb + Ktr)/db) * db
+  //    = 420 / (1.1 * 5.2915) * psi_t * 0.8 / 2.1667 * 12 = 319.71 * psi_t
+  const topBar = (h: number) => {
+    const i = { ...defaultSlabInput(), h };
+    const bar = resolveSlabBars(i).find(
+      (b) => b.group === "main" && b.layer === "short-top",
+    )!;
+    return { i, bar };
+  };
+  it("applies psi_t = 1.3 to a top bar with > 300 mm of concrete cast below it (Table 25.4.2.5)", () => {
+    const { i, bar } = topBar(400);
+    // z = 400 - 20 - 6 = 374 mm of fresh concrete below the bar > 300 mm
+    expect(bar.z).toBeCloseTo(374, 6);
+    expect(slabTopBarFactor(bar)).toBe(1.3);
+    const hand = ((420 / (1.1 * Math.sqrt(28))) * 1.3 * 0.8 * 12) / (26 / 12);
+    expect(hand).toBeCloseTo(415.62, 1);
+    expect(slabDevelopmentLength(i, bar)).toBeCloseTo(hand, 6);
+    // Inner long-direction top layer: z = 374 - 6 - 6 = 362 mm, also psi_t = 1.3
+    const long = resolveSlabBars(i).find(
+      (b) => b.group === "main" && b.layer === "long-top",
+    )!;
+    expect(long.z).toBeCloseTo(362, 6);
+    expect(slabTopBarFactor(long)).toBe(1.3);
+  });
+  it("keeps psi_t = 1.0 when concrete below the top bar is <= 300 mm, and for bottom bars", () => {
+    const { i, bar } = topBar(300);
+    // z = 300 - 20 - 6 = 274 mm <= 300 mm -> psi_t = 1.0; ld = 319.71 mm (> 300 mm floor)
+    expect(bar.z).toBeCloseTo(274, 6);
+    expect(slabTopBarFactor(bar)).toBe(1);
+    expect(slabDevelopmentLength(i, bar)).toBeCloseTo(319.71, 1);
+    const bottom = resolveSlabBars({ ...defaultSlabInput(), h: 1000 }).find(
+      (b) => b.group === "main" && b.layer === "short-bottom",
+    )!;
+    expect(slabTopBarFactor(bottom)).toBe(1);
+  });
+  it("uses the Table 7.6.1.1 / 8.6.1.1 minimum steel ratio by fy", () => {
+    expect(slabMinimumSteelRatio(275)).toBe(0.002); // fy < 420
+    expect(slabMinimumSteelRatio(414)).toBe(0.002);
+    expect(slabMinimumSteelRatio(420)).toBeCloseTo(0.0018, 10);
+    expect(slabMinimumSteelRatio(520)).toBeCloseTo((0.0018 * 420) / 520, 10); // 0.001454
+    expect(slabMinimumSteelRatio(600)).toBe(0.0014); // 0.00126 < 0.0014 floor
+  });
+  it("applies the fy-dependent As,min in the slab analysis", () => {
+    // h = 150 mm, b = 1000 mm: fy = 275 -> 0.0020 * 150000 = 300 mm2/m; fy = 420 -> 270 mm2/m
+    const low = analyzeSlab({ ...defaultSlabInput(), fy: 275 });
+    const std = analyzeSlab({ ...defaultSlabInput(), fy: 420 });
+    for (const r of low.regions) expect(r.minAs).toBeCloseTo(300, 6);
+    for (const r of std.regions) expect(r.minAs).toBeCloseTo(270, 6);
   });
 });
