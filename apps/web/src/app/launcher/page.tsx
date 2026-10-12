@@ -4,6 +4,10 @@ import { AccountControl } from "@/components/account-control";
 import { SuiteWorkspace } from "@/components/suite-workspace";
 import { isAuthConfigured, isDatabaseConfigured } from "@/lib/env";
 import { listProjects, listCalculationDrafts } from "@/lib/projects";
+// Always render per request: auth configuration and the session are runtime
+// facts. If a secret key is unavailable at build time, a static prerender would
+// bake in the redirect to /login and cause a sign-in loop.
+export const dynamic = "force-dynamic";
 export default async function LauncherPage({
   searchParams,
 }: {
