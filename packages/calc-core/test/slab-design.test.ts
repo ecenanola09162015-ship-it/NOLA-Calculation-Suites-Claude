@@ -15,6 +15,7 @@ import {
   slabEffectiveInertia,
   slabTopBarFactor,
   slabSupportLayout,
+  slabLoadPatch,
 } from "../src/modules/slab-design";
 import { solveSlabPlate } from "../src/modules/slab-plate";
 const pinned = {
@@ -571,7 +572,16 @@ describe("point (patch) loads and ACI 318-19 22.6 punching shear", () => {
         {
           ...base,
           pointLoads: [
-            { id: "P1", x: 2, y: 2, bx: 300, by: 300, dead: 100, live: 0 },
+            {
+              kind: "point" as const,
+              id: "P1",
+              x: 2,
+              y: 2,
+              bx: 300,
+              by: 300,
+              dead: 100,
+              live: 0,
+            },
           ],
         },
         false,
@@ -587,7 +597,7 @@ describe("point (patch) loads and ACI 318-19 22.6 punching shear", () => {
     const r = analyzeSlab(defaultSlabInput());
     expect(r.punching).toEqual([]);
     expect(r.shear.every((v) => !v.concentratedWithinD)).toBe(true);
-    expect(r.engineVersion).toBe("slab-0.4.0");
+    expect(r.engineVersion).toBe("slab-0.5.0");
   });
   it("interior punching, hand calculation (h 200, 300 × 300, PD 150 + PL 100)", () => {
     const r = analyzeSlab(
@@ -598,7 +608,16 @@ describe("point (patch) loads and ACI 318-19 22.6 punching shear", () => {
         h: 200,
         loads: lc1,
         pointLoads: [
-          { id: "P1", x: 2.5, y: 2.5, bx: 300, by: 300, dead: 150, live: 100 },
+          {
+            kind: "point" as const,
+            id: "P1",
+            x: 2.5,
+            y: 2.5,
+            bx: 300,
+            by: 300,
+            dead: 150,
+            live: 100,
+          },
         ],
       },
       false,
@@ -640,7 +659,16 @@ describe("point (patch) loads and ACI 318-19 22.6 punching shear", () => {
           north: "Pinned",
         },
         pointLoads: [
-          { id: "E1", x: 0.45, y: 4.5, bx: 400, by: 250, dead: 120, live: 80 },
+          {
+            kind: "point" as const,
+            id: "E1",
+            x: 0.45,
+            y: 4.5,
+            bx: 400,
+            by: 250,
+            dead: 120,
+            live: 80,
+          },
         ],
       },
       false,
@@ -673,7 +701,16 @@ describe("point (patch) loads and ACI 318-19 22.6 punching shear", () => {
         loads: lc1,
         pointLoads: [
           // Loaded area starts 0.25 m from the west line < d = 0.274 m
-          { id: "E1", x: 0.45, y: 4.5, bx: 400, by: 250, dead: 120, live: 80 },
+          {
+            kind: "point" as const,
+            id: "E1",
+            x: 0.45,
+            y: 4.5,
+            bx: 400,
+            by: 250,
+            dead: 120,
+            live: 80,
+          },
         ],
       },
       false,
@@ -712,7 +749,16 @@ describe("point (patch) loads and ACI 318-19 22.6 punching shear", () => {
         {
           ...base,
           pointLoads: [
-            { id: "P1", x: 1.2, y: 1.5, bx: 300, by: 300, dead: 40, live: 0 },
+            {
+              kind: "point" as const,
+              id: "P1",
+              x: 1.2,
+              y: 1.5,
+              bx: 300,
+              by: 300,
+              dead: 40,
+              live: 0,
+            },
           ],
         },
         false,
@@ -721,7 +767,16 @@ describe("point (patch) loads and ACI 318-19 22.6 punching shear", () => {
         {
           ...base,
           pointLoads: [
-            { id: "P1", x: 1.2, y: 1.5, bx: 300, by: 300, dead: 40, live: 60 },
+            {
+              kind: "point" as const,
+              id: "P1",
+              x: 1.2,
+              y: 1.5,
+              bx: 300,
+              by: 300,
+              dead: 40,
+              live: 60,
+            },
           ],
         },
         false,
@@ -749,7 +804,16 @@ describe("point (patch) loads and ACI 318-19 22.6 punching shear", () => {
         h: 250,
         loads: lc1,
         pointLoads: [
-          { id: "P1", x: 2.5, y: 2.5, bx: 150, by: 150, dead: 300, live: 200 },
+          {
+            kind: "point" as const,
+            id: "P1",
+            x: 2.5,
+            y: 2.5,
+            bx: 150,
+            by: 150,
+            dead: 300,
+            live: 200,
+          },
         ],
       },
       false,
@@ -762,7 +826,16 @@ describe("point (patch) loads and ACI 318-19 22.6 punching shear", () => {
       analyzeSlab({
         ...defaultSlabInput(),
         pointLoads: [
-          { id: "P1", x: 0.1, y: 1, bx: 300, by: 300, dead: 10, live: 0 },
+          {
+            kind: "point" as const,
+            id: "P1",
+            x: 0.1,
+            y: 1,
+            bx: 300,
+            by: 300,
+            dead: 10,
+            live: 0,
+          },
         ],
       }),
     ).toThrow(/within the slab panel/);
@@ -902,11 +975,38 @@ describe("cantilever slabs (one Fixed edge, three Free edges)", () => {
       cantilever("west", {
         pointLoads: [
           // 0.2 m from the tip: closed 4-sided fits but the 3-sided open perimeter governs
-          { id: "P1", x: 1.3, y: 3, bx: 200, by: 200, dead: 10, live: 5 },
+          {
+            kind: "point" as const,
+            id: "P1",
+            x: 1.3,
+            y: 3,
+            bx: 200,
+            by: 200,
+            dead: 10,
+            live: 5,
+          },
           // at the free corner
-          { id: "P2", x: 1.35, y: 0.2, bx: 150, by: 150, dead: 8, live: 0 },
+          {
+            kind: "point" as const,
+            id: "P2",
+            x: 1.35,
+            y: 0.2,
+            bx: 150,
+            by: 150,
+            dead: 8,
+            live: 0,
+          },
           // interior
-          { id: "P3", x: 0.75, y: 3, bx: 200, by: 200, dead: 10, live: 0 },
+          {
+            kind: "point" as const,
+            id: "P3",
+            x: 0.75,
+            y: 3,
+            bx: 200,
+            by: 200,
+            dead: 10,
+            live: 0,
+          },
         ],
       }),
       false,
@@ -935,5 +1035,333 @@ describe("cantilever slabs (one Fixed edge, three Free edges)", () => {
     expect(r.type).toBe("two-way");
     expect(r.deflection.ieAt).toBe("midspan");
     expect(r.detailing.anchorage).toBeNull();
+  });
+});
+describe("line and area loads", () => {
+  const lc1 = [
+    {
+      id: "LC1",
+      deadFactor: 1.2,
+      liveFactor: 1.6,
+      serviceLiveFactor: 1,
+      included: true,
+    },
+  ];
+  it("converts line and area loads to loaded rectangles and resultants", () => {
+    // Line along X from (1, 2), 3 m long, 200 mm thick: 5 kN/m x 3 = 15 kN
+    expect(
+      slabLoadPatch({
+        kind: "line",
+        id: "W1",
+        x: 1,
+        y: 2,
+        direction: "X",
+        length: 3,
+        thickness: 200,
+        dead: 5,
+        live: 1,
+      }),
+    ).toEqual({
+      id: "W1",
+      kind: "line",
+      x0: 1,
+      x1: 4,
+      y0: 1.9,
+      y1: 2.1,
+      dead: 15,
+      live: 3,
+    });
+    // Area 2000 x 1000 mm at (2, 2): 3 kPa x 2 m² = 6 kN
+    expect(
+      slabLoadPatch({
+        kind: "area",
+        id: "A1",
+        x: 2,
+        y: 2,
+        bx: 2000,
+        by: 1000,
+        dead: 3,
+        live: 2,
+      }),
+    ).toEqual({
+      id: "A1",
+      kind: "area",
+      x0: 1,
+      x1: 3,
+      y0: 1.5,
+      y1: 2.5,
+      dead: 6,
+      live: 4,
+    });
+  });
+  it("full-width line load matches the Navier plate solution (SS 3 x 8 m)", () => {
+    const pin = {
+      west: "Pinned",
+      east: "Pinned",
+      south: "Pinned",
+      north: "Pinned",
+    } as const;
+    const base = {
+      ...defaultSlabInput(),
+      lx: 3,
+      ly: 8,
+      h: 150,
+      loads: lc1,
+      supports: pin,
+    };
+    const r0 = analyzeSlab(base, false),
+      r1 = analyzeSlab(
+        {
+          ...base,
+          pointLoads: [
+            {
+              kind: "line",
+              id: "W1",
+              x: 1.5,
+              y: 0,
+              direction: "Y",
+              length: 8,
+              thickness: 150,
+              dead: 10,
+              live: 0,
+            },
+          ],
+        },
+        false,
+      );
+    // Navier mx at (1.5, 4) for P = 1 over 0.3 m (150 + h) x 8 m strip, ν = 0.2
+    let m = 0;
+    const pi = Math.PI,
+      a = 3,
+      b = 8,
+      u = 0.3,
+      q0 = 1 / (u * b);
+    for (let i = 1; i <= 400; i += 2)
+      for (let j = 1; j <= 400; j += 2) {
+        const qmn =
+          ((16 * q0) / (pi * pi * i * j)) *
+          Math.sin((i * pi * 1.5) / a) *
+          Math.sin((j * pi * 4) / b) *
+          Math.sin((i * pi * u) / (2 * a)) *
+          Math.sin((j * pi) / 2);
+        const k = (i / a) ** 2 + (j / b) ** 2;
+        m +=
+          (qmn / (pi ** 4 * k * k)) *
+          pi *
+          pi *
+          ((i / a) ** 2 + 0.2 * (j / b) ** 2) *
+          Math.sin((i * pi * 1.5) / a) *
+          Math.sin((j * pi * 4) / b);
+      }
+    // ≈ 0.0829 per kN: 6.9 % below the beam value wL/4 − wb/8 (short-edge restraint)
+    const delta = r1.regions[0].mu - r0.regions[0].mu,
+      expected = 1.2 * 10 * 8 * m;
+    expect(delta / expected).toBeGreaterThan(0.995);
+    expect(delta / expected).toBeLessThan(1.015);
+    expect(r1.punching).toEqual([]);
+  });
+  it("a full-panel area load equals the same kPa added to SDL (within 0.2 %)", () => {
+    const base = { ...defaultSlabInput(), lx: 5, ly: 6, h: 180, loads: lc1 };
+    const sdl = analyzeSlab({ ...base, sdl: base.sdl + 2 }, false),
+      area = analyzeSlab(
+        {
+          ...base,
+          pointLoads: [
+            {
+              kind: "area",
+              id: "A1",
+              x: 2.5,
+              y: 3,
+              bx: 5000,
+              by: 6000,
+              dead: 2,
+              live: 0,
+            },
+          ],
+        },
+        false,
+      );
+    area.regions.forEach((g, k) =>
+      expect(Math.abs(g.mu / sdl.regions[k].mu - 1)).toBeLessThan(0.002),
+    );
+  });
+  it("cantilever parapet line load: root moment = w x lever arm (dispersion keeps the centroid)", () => {
+    const r = (pl: ReturnType<typeof defaultSlabInput>["pointLoads"]) =>
+      analyzeSlab(
+        {
+          ...defaultSlabInput(),
+          lx: 1.5,
+          ly: 6,
+          h: 180,
+          loads: lc1,
+          supports: {
+            west: "Fixed",
+            east: "Free",
+            south: "Free",
+            north: "Free",
+          },
+          pointLoads: pl,
+        },
+        false,
+      ).regions.find((g) => g.id === "short-negative")!.mu;
+    // 200 mm parapet centred 0.1 m from the tip: lever arm 1.4 m, w = 4 kN/m -> 1.2 x 4 x 1.4 = 6.72 kN·m/m
+    const delta =
+      r([
+        {
+          kind: "line",
+          id: "PP",
+          x: 1.4,
+          y: 0,
+          direction: "Y",
+          length: 6,
+          thickness: 200,
+          dead: 4,
+          live: 0,
+        },
+      ]) - r([]);
+    expect(delta / (1.2 * 4 * 1.4)).toBeGreaterThan(0.99);
+    expect(delta / (1.2 * 4 * 1.4)).toBeLessThan(1.04);
+  });
+  it("punching is for point loads only; 7.4.3.2(c) applies to point and line loads, not area loads", () => {
+    const base = { ...defaultSlabInput(), lx: 3, ly: 9, h: 300, loads: lc1 };
+    const line = analyzeSlab(
+      {
+        ...base,
+        pointLoads: [
+          {
+            kind: "line",
+            id: "W1",
+            x: 0.2,
+            y: 2,
+            direction: "Y",
+            length: 5,
+            thickness: 150,
+            dead: 8,
+            live: 0,
+          },
+        ],
+      },
+      false,
+    );
+    expect(line.shear.find((v) => v.edge === "west")!.concentratedWithinD).toBe(
+      true,
+    );
+    const area = analyzeSlab(
+      {
+        ...base,
+        pointLoads: [
+          {
+            kind: "area",
+            id: "A1",
+            x: 0.3,
+            y: 4,
+            bx: 400,
+            by: 1000,
+            dead: 5,
+            live: 0,
+          },
+        ],
+      },
+      false,
+    );
+    expect(area.shear.find((v) => v.edge === "west")!.concentratedWithinD).toBe(
+      false,
+    );
+    const mixed = analyzeSlab(
+      {
+        ...base,
+        pointLoads: [
+          {
+            kind: "point",
+            id: "P1",
+            x: 1.5,
+            y: 6,
+            bx: 300,
+            by: 300,
+            dead: 20,
+            live: 0,
+          },
+          {
+            kind: "line",
+            id: "W1",
+            x: 0.2,
+            y: 2,
+            direction: "Y",
+            length: 5,
+            thickness: 150,
+            dead: 8,
+            live: 0,
+          },
+          {
+            kind: "area",
+            id: "A1",
+            x: 1.5,
+            y: 8,
+            bx: 1000,
+            by: 1000,
+            dead: 5,
+            live: 0,
+          },
+        ],
+      },
+      false,
+    );
+    expect(mixed.punching.map((p) => p.id)).toEqual(["P1"]);
+  });
+  it("warns about double counting walls in Partition, validates extents, keeps legacy point loads", () => {
+    const r = analyzeSlab(
+      {
+        ...defaultSlabInput(),
+        partition: 1,
+        pointLoads: [
+          {
+            kind: "line",
+            id: "W1",
+            x: 0.5,
+            y: 1,
+            direction: "X",
+            length: 2,
+            thickness: 150,
+            dead: 6,
+            live: 0,
+          },
+        ],
+      },
+      false,
+    );
+    expect(
+      r.warnings.some(
+        (w) => w.startsWith("Double counting") && w.includes("W1"),
+      ),
+    ).toBe(true);
+    expect(() =>
+      analyzeSlab({
+        ...defaultSlabInput(),
+        pointLoads: [
+          {
+            kind: "line",
+            id: "W1",
+            x: 3,
+            y: 1,
+            direction: "X",
+            length: 2,
+            thickness: 150,
+            dead: 6,
+            live: 0,
+          },
+        ],
+      }),
+    ).toThrow(/must lie within the slab panel/);
+    const parsed = slabDraftSchema.parse({
+      kind: "slab",
+      version: 1,
+      input: {
+        ...defaultSlabInput(),
+        pointLoads: [
+          { id: "P1", x: 2, y: 1, bx: 300, by: 300, dead: 10, live: 0 },
+        ],
+      },
+    });
+    expect(parsed.input.pointLoads[0].kind).toBe("point");
   });
 });

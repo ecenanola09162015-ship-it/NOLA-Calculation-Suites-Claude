@@ -2,6 +2,7 @@ import {
   biaxialContour,
   biaxialSection,
   defaultReportStyle,
+  slabLoadPatch,
   slabPrimaryAxisX,
   type ReportStyle,
   type TransverseResult,
@@ -14,6 +15,7 @@ import type {
   SlabResolvedBar,
 } from "@nola/calc-core";
 import type { ReportFigure } from "./data";
+import { loadStyles } from "@/lib/load-styles";
 const teal = defaultReportStyle.colors.teal;
 const svg = (
   body: string,
@@ -153,15 +155,56 @@ export function slabFigures(
                 0.65,
               );
     }
-    // Point loads, north up: loaded area outlined in red with its ID.
+    // Local loads, north up: point red square, line blue bar with end ticks,
+    // area green hatched rectangle (hatch drawn as clipped lines).
     for (const p of i.pointLoads ?? []) {
-      const pw = Math.max(2, (p.bx / 1000) * scale),
-        ph = Math.max(2, (p.by / 1000) * scale),
-        cx = x + p.x * scale,
-        cy = y + h - p.y * scale;
-      body += `<rect x="${cx - pw / 2}" y="${cy - ph / 2}" width="${pw}" height="${ph}" fill="#c0392b" fill-opacity="0.25" stroke="#c0392b" stroke-width="0.6"/>`;
-      body += text(cx + pw / 2 + 1.5, cy - ph / 2 + 3, p.id);
+      const r = slabLoadPatch(p),
+        st = loadStyles[r.kind],
+        x0 = x + r.x0 * scale,
+        x1 = x + r.x1 * scale,
+        y0 = y + h - r.y1 * scale,
+        y1 = y + h - r.y0 * scale;
+      if (r.kind === "line") {
+        const alongX = p.kind === "line" && p.direction === "X",
+          cx = (x0 + x1) / 2,
+          cy = (y0 + y1) / 2;
+        body += alongX
+          ? `<line x1="${x0}" y1="${cy}" x2="${x1}" y2="${cy}" stroke="${st.stroke}" stroke-width="2.2"/><line x1="${x0}" y1="${cy - 3}" x2="${x0}" y2="${cy + 3}" stroke="${st.stroke}" stroke-width="0.8"/><line x1="${x1}" y1="${cy - 3}" x2="${x1}" y2="${cy + 3}" stroke="${st.stroke}" stroke-width="0.8"/>`
+          : `<line x1="${cx}" y1="${y0}" x2="${cx}" y2="${y1}" stroke="${st.stroke}" stroke-width="2.2"/><line x1="${cx - 3}" y1="${y0}" x2="${cx + 3}" y2="${y0}" stroke="${st.stroke}" stroke-width="0.8"/><line x1="${cx - 3}" y1="${y1}" x2="${cx + 3}" y2="${y1}" stroke="${st.stroke}" stroke-width="0.8"/>`;
+        body += text(x1 + 1.5, y0 + 3, p.id);
+        continue;
+      }
+      const pw = Math.max(2, x1 - x0),
+        ph = Math.max(2, y1 - y0),
+        rx = (x0 + x1) / 2 - pw / 2,
+        ry = (y0 + y1) / 2 - ph / 2;
+      if (r.kind === "area") {
+        body += `<rect x="${rx}" y="${ry}" width="${pw}" height="${ph}" fill="${st.fill}" fill-opacity="0.12" stroke="${st.stroke}" stroke-width="0.6"/>`;
+        for (let c = 3; c < pw + ph; c += 3) {
+          const ax = rx + Math.min(c, pw),
+            ay = ry + Math.max(0, c - pw),
+            bx = rx + Math.max(0, c - ph),
+            by = ry + Math.min(c, ph);
+          body += `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" stroke="${st.stroke}" stroke-width="0.35"/>`;
+        }
+      } else
+        body += `<rect x="${rx}" y="${ry}" width="${pw}" height="${ph}" fill="${st.fill}" fill-opacity="0.85" stroke="${st.stroke}" stroke-width="0.6"/>`;
+      body += text(rx + pw + 1.5, ry + 3, p.id);
     }
+    const kinds = (["point", "line", "area"] as const).filter((k) =>
+      (i.pointLoads ?? []).some((p) => (p.kind ?? "point") === k),
+    );
+    if (kinds.length)
+      body += text(
+        150,
+        151,
+        kinds
+          .map(
+            (k) =>
+              `${loadStyles[k].label}: ${k === "point" ? "red square" : k === "line" ? "blue bar" : "green hatch"}`,
+          )
+          .join("; "),
+      );
     body +=
       text(
         6,

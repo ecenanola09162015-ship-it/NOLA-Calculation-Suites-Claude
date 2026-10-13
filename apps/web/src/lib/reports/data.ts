@@ -21,7 +21,9 @@ import {
   type SlabInput,
   type SlabResult,
   type SlabQuantityInput,
+  slabLoadPatch,
 } from "@nola/calc-core";
+import { loadStyles } from "@/lib/load-styles";
 import type { ProjectRecord } from "../projects";
 import {
   columnBiaxialFigure,
@@ -36,7 +38,13 @@ export type ReportSection = {
   columns: string[];
   rows: (string | Cell)[][];
 };
-export type ReportFigure = { title: string; svg: string; png?: string };
+export type ReportFigure = {
+  title: string;
+  svg: string;
+  png?: string;
+  /** Printed in the Complete report only (e.g. the 3D snapshot). */
+  completeOnly?: boolean;
+};
 export type ReportData = {
   module: string;
   title: string;
@@ -583,6 +591,8 @@ export function slabReportData(
   quantity: SlabQuantityInput,
   policy: DesignCheckPolicy,
   remarks: DesignRemarks,
+  /** PNG data URL of the 3D view (Complete report only). */
+  snapshot3d?: string | null,
 ): ReportData {
   const checks = slabDesignChecks(input, r),
     flex = [...r.regions].sort((a, b) => b.dcr - a.dcr)[0],
@@ -714,22 +724,30 @@ export function slabReportData(
     ...((input.pointLoads ?? []).length
       ? [
           section(
-            "Point Loads",
-            input.pointLoads.map((p) => [
-              p.id,
-              `${f(p.x, 3)}, ${f(p.y, 3)}`,
-              `${f(p.bx, 0)} x ${f(p.by, 0)}`,
-              `${f(p.bx + input.h, 0)} x ${f(p.by + input.h, 0)}`,
-              f(p.dead),
-              f(p.live),
-            ]),
+            "Local Loads",
+            input.pointLoads.map((p) => {
+              const r = slabLoadPatch(p),
+                unit = { point: "kN", line: "kN/m", area: "kPa" }[r.kind];
+              return [
+                p.id,
+                loadStyles[r.kind].label,
+                p.kind === "line"
+                  ? `start ${f(p.x, 3)}, ${f(p.y, 3)}; along ${p.direction} ${f(p.length, 3)} m`
+                  : `centre ${f(p.x, 3)}, ${f(p.y, 3)}`,
+                p.kind === "line"
+                  ? `t = ${f(p.thickness, 0)} mm`
+                  : `${f(p.bx, 0)} x ${f(p.by, 0)} mm`,
+                `${f(p.dead)} / ${f(p.live)} ${unit}`,
+                `${f(r.dead)} / ${f(r.live)}`,
+              ];
+            }),
             [
               "ID",
-              "Centre x, y m",
-              "Loaded Area mm",
-              "Dispersed to Mid-Plane mm",
-              "PD kN",
-              "PL kN",
+              "Type",
+              "Position m",
+              "Size",
+              "Dead / Live",
+              "Resultant D / L kN",
             ],
           ),
         ]
@@ -928,7 +946,19 @@ export function slabReportData(
     policy,
     remarks,
     summary,
-    figures: slabFigures(input, r, project?.reportSettings?.style),
+    figures: [
+      ...slabFigures(input, r, project?.reportSettings?.style),
+      ...(snapshot3d
+        ? [
+            {
+              title: "3D View With Supports And Loads (snapshot)",
+              svg: "",
+              png: snapshot3d,
+              completeOnly: true,
+            },
+          ]
+        : []),
+    ],
     checks: checkTable(checks, policy, remarks),
     sections: equations,
     references: refSlab,

@@ -94,11 +94,13 @@ const barSchema = z.object({
   enabled: z.boolean(),
 });
 /**
- * Concentrated (patch) load on the slab surface. Centre (x, y) in metres from
- * the south-west corner of the panel (x along lx, y along ly); loaded area
- * bx × by in mm; unfactored dead and live resultants in kN.
+ * Local loads on the slab surface (coordinates in metres from the south-west
+ * corner, x along lx, y along ly). Unfactored dead and live values.
+ * Point: centre (x, y), loaded area bx × by mm, resultants in kN.
+ * Saved drafts without `kind` are point loads.
  */
 export const slabPointLoadSchema = z.object({
+  kind: z.literal("point").default("point"),
   id: z.string().trim().min(1).max(40),
   x: z.number().min(0).max(30),
   y: z.number().min(0).max(30),
@@ -107,7 +109,78 @@ export const slabPointLoadSchema = z.object({
   dead: z.number().min(0).max(10000),
   live: z.number().min(0).max(10000),
 });
+/** Line (wall): start (x, y), running along X or Y for `length` m, `thickness` mm wide; kN/m. */
+export const slabLineLoadSchema = z.object({
+  kind: z.literal("line"),
+  id: z.string().trim().min(1).max(40),
+  x: z.number().min(0).max(30),
+  y: z.number().min(0).max(30),
+  direction: z.enum(["X", "Y"]),
+  length: z.number().min(0.05).max(30),
+  thickness: z.number().min(50).max(1000),
+  dead: z.number().min(0).max(1000),
+  live: z.number().min(0).max(1000),
+});
+/** Area (partial uniform): centre (x, y), extent bx × by mm; kPa. */
+export const slabAreaLoadSchema = z.object({
+  kind: z.literal("area"),
+  id: z.string().trim().min(1).max(40),
+  x: z.number().min(0).max(30),
+  y: z.number().min(0).max(30),
+  bx: z.number().min(50).max(30000),
+  by: z.number().min(50).max(30000),
+  dead: z.number().min(0).max(100),
+  live: z.number().min(0).max(100),
+});
+export const slabLocalLoadSchema = z.union([
+  slabLineLoadSchema,
+  slabAreaLoadSchema,
+  slabPointLoadSchema,
+]);
 export type SlabPointLoad = z.infer<typeof slabPointLoadSchema>;
+export type SlabLineLoad = z.infer<typeof slabLineLoadSchema>;
+export type SlabAreaLoad = z.infer<typeof slabAreaLoadSchema>;
+export type SlabLocalLoad = z.infer<typeof slabLocalLoadSchema>;
+export type SlabLocalLoadKind = SlabLocalLoad["kind"];
+/** Loaded rectangle (m) and unfactored resultants (kN) of a local load. */
+export interface SlabLoadPatch {
+  id: string;
+  kind: SlabLocalLoadKind;
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+  /** Resultant dead / live load, kN. */
+  dead: number;
+  live: number;
+}
+export function slabLoadPatch(p: SlabLocalLoad): SlabLoadPatch {
+  if (p.kind === "line") {
+    const t = p.thickness / 2000,
+      along = p.direction === "X";
+    return {
+      id: p.id,
+      kind: p.kind,
+      x0: along ? p.x : p.x - t,
+      x1: along ? p.x + p.length : p.x + t,
+      y0: along ? p.y - t : p.y,
+      y1: along ? p.y + t : p.y + p.length,
+      dead: p.dead * p.length,
+      live: p.live * p.length,
+    };
+  }
+  const area = p.kind === "area" ? (p.bx * p.by) / 1e6 : 1;
+  return {
+    id: p.id,
+    kind: p.kind,
+    x0: p.x - p.bx / 2000,
+    x1: p.x + p.bx / 2000,
+    y0: p.y - p.by / 2000,
+    y1: p.y + p.by / 2000,
+    dead: p.dead * area,
+    live: p.live * area,
+  };
+}
 const barsSchema = z.object({
   "short-bottom": barSchema,
   "long-bottom": barSchema,
@@ -165,7 +238,8 @@ export const slabInputSchema = z
       )
       .min(1)
       .max(100),
-    pointLoads: z.array(slabPointLoadSchema).max(20).default([]),
+    /** Local loads: point, line and area (field name kept for saved drafts). */
+    pointLoads: z.array(slabLocalLoadSchema).max(20).default([]),
   })
   .refine(
     (i) => new Set(i.loads.map((l) => l.id)).size === i.loads.length,
@@ -173,18 +247,20 @@ export const slabInputSchema = z
   )
   .refine(
     (i) => new Set(i.pointLoads.map((p) => p.id)).size === i.pointLoads.length,
-    "Point load labels must be unique.",
+    "Local load labels (point, line and area) must be unique.",
   )
   .refine(
     (i) =>
-      i.pointLoads.every(
-        (p) =>
-          p.x - p.bx / 2000 >= -1e-9 &&
-          p.x + p.bx / 2000 <= i.lx + 1e-9 &&
-          p.y - p.by / 2000 >= -1e-9 &&
-          p.y + p.by / 2000 <= i.ly + 1e-9,
-      ),
-    "Each point load's loaded area must lie within the slab panel (0 ≤ x ± bx/2 ≤ Lx, 0 ≤ y ± by/2 ≤ Ly).",
+      i.pointLoads.every((p) => {
+        const r = slabLoadPatch(p);
+        return (
+          r.x0 >= -1e-9 &&
+          r.x1 <= i.lx + 1e-9 &&
+          r.y0 >= -1e-9 &&
+          r.y1 <= i.ly + 1e-9
+        );
+      }),
+    "Each local load must lie within the slab panel: point/area 0 ≤ x ± bx/2 ≤ Lx and 0 ≤ y ± by/2 ≤ Ly; line from its start along X or Y for its length, ± thickness/2 across.",
   );
 export const slabDraftSchema = z.object({
   kind: z.literal("slab"),
@@ -673,112 +749,114 @@ export function slabPunching(
     lambdaS = Math.min(1, Math.sqrt(2 / (1 + 0.004 * d))),
     root = slabSqrtFc(i.fc);
   const freeEdges = allEdges.filter((e) => i.supports[e] === "Free");
-  return i.pointLoads.map((p) => {
-    const c1 = p.bx,
-      c2 = p.by,
-      beta = Math.max(c1, c2) / Math.min(c1, c2);
-    // Each Free edge: perimeter closed (must lie inside the slab) or opened
-    // to the free edge (that side dropped, 22.6.4.1). Least φVc governs.
-    let best: {
-      b0: number;
-      sides: number;
-      alphaS: number;
-      vcLimits: [number, number, number];
-      vc: number;
-      area: number;
-      phiVc: number;
-      openEdges: SlabEdge[];
-    } | null = null;
-    for (let mask = 0; mask < 1 << freeEdges.length; mask++) {
-      const open = freeEdges.filter((_, k) => mask & (1 << k));
-      let x0 = p.x * 1000 - c1 / 2 - d / 2,
-        x1 = p.x * 1000 + c1 / 2 + d / 2,
-        y0 = p.y * 1000 - c2 / 2 - d / 2,
-        y1 = p.y * 1000 + c2 / 2 + d / 2;
-      const side = (e: SlabEdge, inside: boolean) =>
-        i.supports[e] === "Free" ? !open.includes(e) : inside;
-      const west = side("west", x0 > face),
-        east = side("east", x1 < lx - face),
-        south = side("south", y0 > face),
-        north = side("north", y1 < ly - face);
-      // A closed side on a Free edge must lie inside the slab.
-      if (
-        (i.supports.west === "Free" && west && x0 <= 0) ||
-        (i.supports.east === "Free" && east && x1 >= lx) ||
-        (i.supports.south === "Free" && south && y0 <= 0) ||
-        (i.supports.north === "Free" && north && y1 >= ly)
-      )
-        continue;
-      // Opened sides extend the perpendicular sides to the free edge;
-      // supported edges clip at the support face.
-      const lo = (e: SlabEdge) => (i.supports[e] === "Free" ? 0 : face);
-      x0 = open.includes("west") ? 0 : Math.max(x0, lo("west"));
-      x1 = open.includes("east") ? lx : Math.min(x1, lx - lo("east"));
-      y0 = open.includes("south") ? 0 : Math.max(y0, lo("south"));
-      y1 = open.includes("north") ? ly : Math.min(y1, ly - lo("north"));
-      const wx = Math.max(0, x1 - x0),
-        wy = Math.max(0, y1 - y0),
-        b0 =
-          (west ? wy : 0) +
-          (east ? wy : 0) +
-          (south ? wx : 0) +
-          (north ? wx : 0),
-        sides = [west, east, south, north].filter(Boolean).length,
-        alphaS = sides >= 4 ? 40 : sides === 3 ? 30 : 20;
-      const vcLimits = [
-        0.33,
-        0.17 * (1 + 2 / beta),
-        0.083 * (2 + (alphaS * d) / b0),
-      ].map((k) => k * lambdaS * root) as [number, number, number];
-      const vc = Math.min(...vcLimits),
-        area = (wx * wy) / 1e6,
-        phiVc = b0 > 0 ? (0.75 * vc * b0 * d) / 1000 : 0;
-      const option = {
+  return i.pointLoads
+    .flatMap((p) => (p.kind === "point" ? [p] : []))
+    .map((p) => {
+      const c1 = p.bx,
+        c2 = p.by,
+        beta = Math.max(c1, c2) / Math.min(c1, c2);
+      // Each Free edge: perimeter closed (must lie inside the slab) or opened
+      // to the free edge (that side dropped, 22.6.4.1). Least φVc governs.
+      let best: {
+        b0: number;
+        sides: number;
+        alphaS: number;
+        vcLimits: [number, number, number];
+        vc: number;
+        area: number;
+        phiVc: number;
+        openEdges: SlabEdge[];
+      } | null = null;
+      for (let mask = 0; mask < 1 << freeEdges.length; mask++) {
+        const open = freeEdges.filter((_, k) => mask & (1 << k));
+        let x0 = p.x * 1000 - c1 / 2 - d / 2,
+          x1 = p.x * 1000 + c1 / 2 + d / 2,
+          y0 = p.y * 1000 - c2 / 2 - d / 2,
+          y1 = p.y * 1000 + c2 / 2 + d / 2;
+        const side = (e: SlabEdge, inside: boolean) =>
+          i.supports[e] === "Free" ? !open.includes(e) : inside;
+        const west = side("west", x0 > face),
+          east = side("east", x1 < lx - face),
+          south = side("south", y0 > face),
+          north = side("north", y1 < ly - face);
+        // A closed side on a Free edge must lie inside the slab.
+        if (
+          (i.supports.west === "Free" && west && x0 <= 0) ||
+          (i.supports.east === "Free" && east && x1 >= lx) ||
+          (i.supports.south === "Free" && south && y0 <= 0) ||
+          (i.supports.north === "Free" && north && y1 >= ly)
+        )
+          continue;
+        // Opened sides extend the perpendicular sides to the free edge;
+        // supported edges clip at the support face.
+        const lo = (e: SlabEdge) => (i.supports[e] === "Free" ? 0 : face);
+        x0 = open.includes("west") ? 0 : Math.max(x0, lo("west"));
+        x1 = open.includes("east") ? lx : Math.min(x1, lx - lo("east"));
+        y0 = open.includes("south") ? 0 : Math.max(y0, lo("south"));
+        y1 = open.includes("north") ? ly : Math.min(y1, ly - lo("north"));
+        const wx = Math.max(0, x1 - x0),
+          wy = Math.max(0, y1 - y0),
+          b0 =
+            (west ? wy : 0) +
+            (east ? wy : 0) +
+            (south ? wx : 0) +
+            (north ? wx : 0),
+          sides = [west, east, south, north].filter(Boolean).length,
+          alphaS = sides >= 4 ? 40 : sides === 3 ? 30 : 20;
+        const vcLimits = [
+          0.33,
+          0.17 * (1 + 2 / beta),
+          0.083 * (2 + (alphaS * d) / b0),
+        ].map((k) => k * lambdaS * root) as [number, number, number];
+        const vc = Math.min(...vcLimits),
+          area = (wx * wy) / 1e6,
+          phiVc = b0 > 0 ? (0.75 * vc * b0 * d) / 1000 : 0;
+        const option = {
+          b0,
+          sides,
+          alphaS,
+          vcLimits,
+          vc,
+          area,
+          phiVc,
+          openEdges: open,
+        };
+        if (!best || (b0 > 0 && (!(best.b0 > 0) || phiVc < best.phiVc)))
+          best = option;
+      }
+      const { b0, sides, alphaS, vcLimits, vc, area, phiVc, openEdges } = best!;
+      let vu = 0,
+        combination = "";
+      for (const l of loads) {
+        const v =
+          l.deadFactor * p.dead +
+          l.liveFactor * p.live +
+          (l.deadFactor * dead + l.liveFactor * i.live) * area;
+        if (v >= vu) {
+          vu = v;
+          combination = l.id;
+        }
+      }
+      return {
+        id: p.id,
+        c1,
+        c2,
+        d,
         b0,
         sides,
         alphaS,
+        beta,
+        lambdaS,
         vcLimits,
         vc,
         area,
         phiVc,
-        openEdges: open,
+        vu,
+        dcr: b0 > 0 ? vu / phiVc : NaN,
+        combination,
+        openEdges,
       };
-      if (!best || (b0 > 0 && (!(best.b0 > 0) || phiVc < best.phiVc)))
-        best = option;
-    }
-    const { b0, sides, alphaS, vcLimits, vc, area, phiVc, openEdges } = best!;
-    let vu = 0,
-      combination = "";
-    for (const l of loads) {
-      const v =
-        l.deadFactor * p.dead +
-        l.liveFactor * p.live +
-        (l.deadFactor * dead + l.liveFactor * i.live) * area;
-      if (v >= vu) {
-        vu = v;
-        combination = l.id;
-      }
-    }
-    return {
-      id: p.id,
-      c1,
-      c2,
-      d,
-      b0,
-      sides,
-      alphaS,
-      beta,
-      lambdaS,
-      vcLimits,
-      vc,
-      area,
-      phiVc,
-      vu,
-      dcr: b0 > 0 ? vu / phiVc : NaN,
-      combination,
-      openEdges,
-    };
-  });
+    });
 }
 export interface SlabMinimumThickness {
   system: "one-way" | "two-way" | "cantilever";
@@ -1136,17 +1214,30 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
   // supports, superposed on the uniform-load solution (linear elastic).
   // Flexure, one-way shear and deflection use the load dispersed at 45° to the
   // slab mid-plane (bx + h, by + h); punching uses the actual loaded area.
-  const pointLoads = i.pointLoads,
+  // Line and area loads use the same patch machinery (uniform intensity over
+  // their rectangle); punching applies to point loads only.
+  const pointLoads = i.pointLoads.map(slabLoadPatch),
     hasPatches = pointLoads.length > 0;
-  const dispersed = pointLoads.map((p) => {
-    const hx = (p.bx + i.h) / 2000,
-      hy = (p.by + i.h) / 2000;
-    return {
-      x0: Math.max(0, p.x - hx),
-      x1: Math.min(i.lx, p.x + hx),
-      y0: Math.max(0, p.y - hy),
-      y1: Math.min(i.ly, p.y + hy),
-    };
+  // Dispersion is limited equally on both sides near a slab edge, so the
+  // load centroid never moves (clipping one side would shift it inward,
+  // unconservative at a cantilever tip).
+  const dispersed = i.pointLoads.map((p, k) => {
+    const r = pointLoads[k],
+      e = i.h / 2000;
+    if (p.kind === "point") {
+      const hx = (p.bx + i.h) / 2000,
+        hy = (p.by + i.h) / 2000;
+      if (
+        p.x - hx >= 0 &&
+        p.x + hx <= i.lx &&
+        p.y - hy >= 0 &&
+        p.y + hy <= i.ly
+      )
+        return { x0: p.x - hx, x1: p.x + hx, y0: p.y - hy, y1: p.y + hy };
+    }
+    const ex = Math.max(0, Math.min(e, r.x0, i.lx - r.x1)),
+      ey = Math.max(0, Math.min(e, r.y0, i.ly - r.y1));
+    return { x0: r.x0 - ex, x1: r.x1 + ex, y0: r.y0 - ey, y1: r.y1 + ey };
   });
   // Cantilever: the uniform load is also solved by the plate FE (load 0 =
   // unit load over the whole panel) to capture root-moment concentration
@@ -1499,15 +1590,11 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
       span = direction === "short" ? shortSpan : longSpan;
     // ACI 318-19 7.4.3.2(c): with a concentrated load between the support and
     // the section at d, design for the shear at the support line instead.
+    // Concentrated loads only (point and line); area loads are distributed.
     const loadWithinD = pointLoads.some((p) => {
-      const lo =
-          edge === "west" || edge === "east"
-            ? p.x - p.bx / 2000
-            : p.y - p.by / 2000,
-        hi =
-          edge === "west" || edge === "east"
-            ? p.x + p.bx / 2000
-            : p.y + p.by / 2000,
+      if (p.kind === "area") return false;
+      const lo = edge === "west" || edge === "east" ? p.x0 : p.y0,
+        hi = edge === "west" || edge === "east" ? p.x1 : p.y1,
         length = edge === "west" || edge === "east" ? i.lx : i.ly;
       return nearSide ? lo < b.d / 1000 : length - hi < b.d / 1000;
     });
@@ -1929,6 +2016,16 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
       governingMa > (0.62 * Math.sqrt(i.fc) * 1000 * i.h ** 2) / 6 / 1e6);
   if (minDepth <= 0) messages.push("Bar effective depth must be positive.");
   const punching = slabPunching(i, bars, activeLoads, dead);
+  const lineLoads = i.pointLoads.filter((p) => p.kind === "line"),
+    areaLoads = i.pointLoads.filter((p) => p.kind === "area");
+  if (lineLoads.length || areaLoads.length)
+    warnings.push(
+      `Line and area loads: uniform intensity over their rectangle (line: length × thickness, kN/m × length; area: kPa × bx × by), analysed with the same plate FE and 45° dispersion to the mid-plane as point loads; live counted only where adverse. Punching applies to point loads only; line loads within d of a support move that edge's one-way shear section to the support line (7.4.3.2(c)).`,
+    );
+  if (lineLoads.length && i.partition > 0)
+    warnings.push(
+      `Double counting: ${lineLoads.length} line load(s) (${lineLoads.map((p) => p.id).join(", ")}) entered while uniform Partition = ${i.partition} kPa. Reduce Partition by the share of walls entered as line loads.`,
+    );
   if (hasPatches) {
     warnings.push(
       "Point loads: Kirchhoff plate FE (16-DOF Bogner–Fox–Schmit rectangles, graded mesh) on the actual panel and supports, superposed on the uniform-load solution. Flexure, shear and deflection use the load dispersed at 45° to the mid-plane (bx + h, by + h); punching uses the actual loaded area. Design moments are elastic peak values per metre without lateral redistribution or Wood–Armer torsion; live point loads are counted only where adverse.",
@@ -2012,7 +2109,7 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     warnings,
     dead,
     unit: "metric",
-    engineVersion: "slab-0.4.0",
+    engineVersion: "slab-0.5.0",
   };
 }
 export function parseSlabLoads(text: string): SlabInput["loads"] {

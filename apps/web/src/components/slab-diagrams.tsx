@@ -5,7 +5,12 @@ import type {
   SlabDirection,
   SlabEdge,
 } from "@nola/calc-core";
-import { slabExtraActive, slabPrimaryAxisX } from "@nola/calc-core";
+import {
+  slabExtraActive,
+  slabLoadPatch,
+  slabPrimaryAxisX,
+} from "@nola/calc-core";
+import { loadStyles } from "@/lib/load-styles";
 const colors = { main: "#145da0", extra: "#e87916" };
 function segments(i: SlabInput, b: SlabResolvedBar): [number, number][] {
   if (b.group === "main") return [[0, 1]];
@@ -130,29 +135,151 @@ export function SlabPlan({
         </g>
         {(i.pointLoads ?? []).length > 0 && (
           <g data-point-loads fontSize="11" textAnchor="middle">
+            <defs>
+              <pattern
+                id={`area-hatch-${face}`}
+                width="6"
+                height="6"
+                patternUnits="userSpaceOnUse"
+                patternTransform="rotate(45)"
+              >
+                <line
+                  x1="0"
+                  y1="0"
+                  x2="0"
+                  y2="6"
+                  stroke={loadStyles.area.stroke}
+                  strokeWidth="1.5"
+                />
+              </pattern>
+            </defs>
             {(i.pointLoads ?? []).map((p) => {
-              const pw = Math.max(4, (p.bx / 1000) * scale),
-                ph = Math.max(4, (p.by / 1000) * scale),
-                cx = x + p.x * scale,
-                cy = y + h - p.y * scale;
+              const r = slabLoadPatch(p),
+                st = loadStyles[r.kind],
+                x0 = x + r.x0 * scale,
+                x1 = x + r.x1 * scale,
+                y0 = y + h - r.y1 * scale,
+                y1 = y + h - r.y0 * scale;
+              const label = (
+                <text x={(x0 + x1) / 2} y={y0 - 4} fill={st.text}>
+                  {p.id}
+                </text>
+              );
+              if (r.kind === "line") {
+                const alongX = p.kind === "line" && p.direction === "X",
+                  cy = (y0 + y1) / 2,
+                  cx = (x0 + x1) / 2,
+                  t = 6;
+                return (
+                  <g
+                    key={p.id}
+                    data-load-kind="line"
+                    aria-label={`Line load ${p.id}`}
+                    stroke={st.stroke}
+                  >
+                    {alongX ? (
+                      <>
+                        <line x1={x0} y1={cy} x2={x1} y2={cy} strokeWidth="5" />
+                        <line
+                          x1={x0}
+                          y1={cy - t}
+                          x2={x0}
+                          y2={cy + t}
+                          strokeWidth="2"
+                        />
+                        <line
+                          x1={x1}
+                          y1={cy - t}
+                          x2={x1}
+                          y2={cy + t}
+                          strokeWidth="2"
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <line x1={cx} y1={y0} x2={cx} y2={y1} strokeWidth="5" />
+                        <line
+                          x1={cx - t}
+                          y1={y0}
+                          x2={cx + t}
+                          y2={y0}
+                          strokeWidth="2"
+                        />
+                        <line
+                          x1={cx - t}
+                          y1={y1}
+                          x2={cx + t}
+                          y2={y1}
+                          strokeWidth="2"
+                        />
+                      </>
+                    )}
+                    <g stroke="none">{label}</g>
+                  </g>
+                );
+              }
+              const pw = Math.max(4, x1 - x0),
+                ph = Math.max(4, y1 - y0),
+                mx = (x0 + x1) / 2,
+                my = (y0 + y1) / 2;
               return (
-                <g key={p.id} aria-label={`Point load ${p.id}`}>
+                <g
+                  key={p.id}
+                  data-load-kind={r.kind}
+                  aria-label={`${st.label} ${p.id}`}
+                >
                   <rect
-                    x={cx - pw / 2}
-                    y={cy - ph / 2}
+                    x={mx - pw / 2}
+                    y={my - ph / 2}
                     width={pw}
                     height={ph}
-                    fill="#c0392b"
-                    fillOpacity="0.25"
-                    stroke="#c0392b"
+                    fill={
+                      r.kind === "area" ? `url(#area-hatch-${face})` : st.fill
+                    }
+                    fillOpacity={r.kind === "area" ? 1 : 0.85}
+                    stroke={st.stroke}
                     strokeWidth="1.5"
                   />
-                  <text x={cx} y={cy - ph / 2 - 4} fill="#8e2a1f">
-                    {p.id}
-                  </text>
+                  {label}
                 </g>
               );
             })}
+            <g data-load-legend fontSize="10" textAnchor="start">
+              {(["point", "line", "area"] as const)
+                .filter((k) =>
+                  (i.pointLoads ?? []).some((p) => (p.kind ?? "point") === k),
+                )
+                .map((k, n) => (
+                  <g key={k} transform={`translate(${12 + n * 110}, 18)`}>
+                    {k === "line" ? (
+                      <line
+                        x1="0"
+                        y1="0"
+                        x2="14"
+                        y2="0"
+                        stroke={loadStyles[k].stroke}
+                        strokeWidth="4"
+                      />
+                    ) : (
+                      <rect
+                        x="0"
+                        y="-5"
+                        width="14"
+                        height="10"
+                        fill={
+                          k === "area"
+                            ? `url(#area-hatch-${face})`
+                            : loadStyles[k].fill
+                        }
+                        stroke={loadStyles[k].stroke}
+                      />
+                    )}
+                    <text x="18" y="4" fill={loadStyles[k].text}>
+                      {loadStyles[k].label}
+                    </text>
+                  </g>
+                ))}
+            </g>
           </g>
         )}
         <g fill="#263d4d" fontSize="12" textAnchor="middle">
