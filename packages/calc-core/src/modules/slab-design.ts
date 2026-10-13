@@ -2,6 +2,7 @@ import { designCheckPolicySchema, designRemarksSchema } from "../design-review";
 import { z } from "zod";
 import { slabQuantitySchema } from "./slab-quantity-schema";
 import { solveSlabPlate } from "./slab-plate";
+import { solvePatchLoads, type PatchFieldValue } from "./slab-patch-fe";
 export type SlabDirection = "short" | "long";
 export type SlabFace = "bottom" | "top";
 export type SlabEdge = "west" | "east" | "south" | "north";
@@ -18,6 +19,21 @@ const barSchema = z.object({
   elevation: z.number().min(0).max(2000).nullable(),
   enabled: z.boolean(),
 });
+/**
+ * Concentrated (patch) load on the slab surface. Centre (x, y) in metres from
+ * the south-west corner of the panel (x along lx, y along ly); loaded area
+ * bx × by in mm; unfactored dead and live resultants in kN.
+ */
+export const slabPointLoadSchema = z.object({
+  id: z.string().trim().min(1).max(40),
+  x: z.number().min(0).max(30),
+  y: z.number().min(0).max(30),
+  bx: z.number().min(50).max(5000),
+  by: z.number().min(50).max(5000),
+  dead: z.number().min(0).max(10000),
+  live: z.number().min(0).max(10000),
+});
+export type SlabPointLoad = z.infer<typeof slabPointLoadSchema>;
 const barsSchema = z.object({
   "short-bottom": barSchema,
   "long-bottom": barSchema,
@@ -73,10 +89,26 @@ export const slabInputSchema = z
       )
       .min(1)
       .max(100),
+    pointLoads: z.array(slabPointLoadSchema).max(20).default([]),
   })
   .refine(
     (i) => new Set(i.loads.map((l) => l.id)).size === i.loads.length,
     "Load combination labels must be unique.",
+  )
+  .refine(
+    (i) => new Set(i.pointLoads.map((p) => p.id)).size === i.pointLoads.length,
+    "Point load labels must be unique.",
+  )
+  .refine(
+    (i) =>
+      i.pointLoads.every(
+        (p) =>
+          p.x - p.bx / 2000 >= -1e-9 &&
+          p.x + p.bx / 2000 <= i.lx + 1e-9 &&
+          p.y - p.by / 2000 >= -1e-9 &&
+          p.y + p.by / 2000 <= i.ly + 1e-9,
+      ),
+    "Each point load's loaded area must lie within the slab panel (0 ≤ x ± bx/2 ≤ Lx, 0 ≤ y ± by/2 ≤ Ly).",
   );
 export const slabDraftSchema = z.object({
   kind: z.literal("slab"),
@@ -168,6 +200,8 @@ export interface SlabResult {
     beta: number;
   };
   regions: SlabRegion[];
+  /** Two-way (punching) shear at each point load, ACI 318-19 22.6. */
+  punching: SlabPunchingCheck[];
   shear: {
     edge: SlabEdge;
     vu: number;
@@ -177,6 +211,10 @@ export interface SlabResult {
     rho: number;
     lambdaS: number;
     combination: string;
+    /** Critical section distance from the idealized support line, mm. */
+    section: number;
+    /** A point load lies within d of the support: checked at the support line. */
+    concentratedWithinD: boolean;
   }[];
   deflection: {
     /** Uncracked (gross Ig) immediate deflection, mm. */
@@ -287,6 +325,7 @@ export function defaultSlabInput(): SlabInput {
         included: true,
       },
     ],
+    pointLoads: [],
   };
 }
 /** Positions along the transverse width in mm. Main spacing is a maximum; extras are staggered. */
@@ -495,6 +534,116 @@ export function slabDevelopmentLength(i: SlabInput, b: SlabResolvedBar) {
       b.diameter,
   );
 }
+export interface SlabPunchingCheck {
+  id: string;
+  /** Loaded area along x and y, mm. */
+  c1: number;
+  c2: number;
+  /** Average effective depth of the two bottom MAIN layers, mm (22.6.2.1). */
+  d: number;
+  /** Critical perimeter at d/2 from the loaded area, truncated at support faces, mm (22.6.4.1). */
+  b0: number;
+  /** Number of perimeter sides inside the panel (4 interior, 3 edge, 2 corner). */
+  sides: number;
+  alphaS: number;
+  /** Long / short side of the loaded area. */
+  beta: number;
+  lambdaS: number;
+  /** Table 22.6.5.2 (a), (b), (c) stress limits, MPa. */
+  vcLimits: [number, number, number];
+  vc: number;
+  /** Area enclosed by the critical section, m². */
+  area: number;
+  phiVc: number;
+  vu: number;
+  dcr: number;
+  combination: string;
+}
+/**
+ * Two-way (punching) shear at each point load, ACI 318-19 22.6, no shear
+ * reinforcement, normal-weight concrete (λ = 1), no moment transfer.
+ * Critical section at d/2 from the loaded area (22.6.4.1); sides beyond a
+ * support face (supportWidth/2 from the idealized support line) are dropped
+ * and αs = 40/30/20 for 4/3/2 remaining sides. vc = least of Table 22.6.5.2
+ * (a) 0.33, (b) 0.17(1 + 2/β), (c) 0.083(2 + αs d/b0), each × λs √f′c,
+ * λs per 22.5.5.1.3, √f′c ≤ 8.3 MPa (22.6.3.1), φ = 0.75.
+ * Vu = factored point load + factored uniform load inside the critical section.
+ */
+export function slabPunching(
+  i: SlabInput,
+  bars: SlabResolvedBar[],
+  loads: SlabInput["loads"],
+  dead: number,
+): SlabPunchingCheck[] {
+  const bottom = bars.filter((b) => b.group === "main" && b.face === "bottom");
+  const d = bottom.reduce((s, b) => s + b.d, 0) / Math.max(1, bottom.length),
+    face = i.supportWidth / 2,
+    lx = i.lx * 1000,
+    ly = i.ly * 1000,
+    lambdaS = Math.min(1, Math.sqrt(2 / (1 + 0.004 * d))),
+    root = slabSqrtFc(i.fc);
+  return i.pointLoads.map((p) => {
+    const c1 = p.bx,
+      c2 = p.by;
+    let x0 = p.x * 1000 - c1 / 2 - d / 2,
+      x1 = p.x * 1000 + c1 / 2 + d / 2,
+      y0 = p.y * 1000 - c2 / 2 - d / 2,
+      y1 = p.y * 1000 + c2 / 2 + d / 2;
+    const west = x0 > face,
+      east = x1 < lx - face,
+      south = y0 > face,
+      north = y1 < ly - face;
+    x0 = Math.max(x0, face);
+    x1 = Math.min(x1, lx - face);
+    y0 = Math.max(y0, face);
+    y1 = Math.min(y1, ly - face);
+    const wx = Math.max(0, x1 - x0),
+      wy = Math.max(0, y1 - y0),
+      b0 =
+        (west ? wy : 0) + (east ? wy : 0) + (south ? wx : 0) + (north ? wx : 0),
+      sides = [west, east, south, north].filter(Boolean).length,
+      alphaS = sides >= 4 ? 40 : sides === 3 ? 30 : 20,
+      beta = Math.max(c1, c2) / Math.min(c1, c2);
+    const vcLimits = [
+      0.33,
+      0.17 * (1 + 2 / beta),
+      0.083 * (2 + (alphaS * d) / b0),
+    ].map((k) => k * lambdaS * root) as [number, number, number];
+    const vc = Math.min(...vcLimits),
+      area = (wx * wy) / 1e6,
+      phiVc = b0 > 0 ? (0.75 * vc * b0 * d) / 1000 : 0;
+    let vu = 0,
+      combination = "";
+    for (const l of loads) {
+      const v =
+        l.deadFactor * p.dead +
+        l.liveFactor * p.live +
+        (l.deadFactor * dead + l.liveFactor * i.live) * area;
+      if (v >= vu) {
+        vu = v;
+        combination = l.id;
+      }
+    }
+    return {
+      id: p.id,
+      c1,
+      c2,
+      d,
+      b0,
+      sides,
+      alphaS,
+      beta,
+      lambdaS,
+      vcLimits,
+      vc,
+      area,
+      phiVc,
+      vu,
+      dcr: b0 > 0 ? vu / phiVc : NaN,
+      combination,
+    };
+  });
+}
 export interface SlabMinimumThickness {
   system: "one-way" | "two-way";
   /** Required minimum thickness, mm. */
@@ -610,6 +759,17 @@ export function slabEffectiveInertia(
     s.icr / (1 - (((2 / 3) * s.mcr) / ma) ** 2 * (1 - s.icr / s.ig)),
   );
 }
+interface PatchShortLong {
+  w: number;
+  mShort: number;
+  mLong: number;
+  qShort: number;
+  qLong: number;
+}
+const shortLong = (v: PatchFieldValue, shortAxis: "X" | "Y"): PatchShortLong =>
+  shortAxis === "X"
+    ? { w: v.w, mShort: v.mx, mLong: v.my, qShort: v.qx, qLong: v.qy }
+    : { w: v.w, mShort: v.my, mLong: v.mx, qShort: v.qy, qLong: v.qx };
 const edgeDirection = (i: SlabInput, edge: SlabEdge): SlabDirection =>
   (edge === "west" || edge === "east") === i.lx <= i.ly ? "short" : "long";
 export function slabExtraActive(
@@ -791,6 +951,88 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
         beta: beamBeta,
       };
   const dead = (i.h / 1000) * i.unitWeight + i.sdl + i.partition;
+  // Concentrated (patch) loads: Kirchhoff plate FE on the actual panel and
+  // supports, superposed on the uniform-load solution (linear elastic).
+  // Flexure, one-way shear and deflection use the load dispersed at 45° to the
+  // slab mid-plane (bx + h, by + h); punching uses the actual loaded area.
+  const pointLoads = i.pointLoads,
+    hasPatches = pointLoads.length > 0;
+  const dispersed = pointLoads.map((p) => {
+    const hx = (p.bx + i.h) / 2000,
+      hy = (p.by + i.h) / 2000;
+    return {
+      x0: Math.max(0, p.x - hx),
+      x1: Math.min(i.lx, p.x + hx),
+      y0: Math.max(0, p.y - hy),
+      y1: Math.min(i.ly, p.y + hy),
+    };
+  });
+  const patchFe = hasPatches
+    ? solvePatchLoads(
+        i.lx,
+        i.ly,
+        {
+          west: i.supports.west === "Fixed",
+          east: i.supports.east === "Fixed",
+          south: i.supports.south === "Fixed",
+          north: i.supports.north === "Fixed",
+        },
+        i.nu,
+        dispersed,
+      )
+    : null;
+  const range = (n: number) => Array.from({ length: n + 1 }, (_, k) => k / n);
+  /** Plate-normalised (tS, tL ∈ [0, 1]) → global metres. */
+  const toGlobal = (tS: number, tL: number): [number, number] =>
+    shortAxis === "X"
+      ? [tS * shortSpan, tL * longSpan]
+      : [tL * longSpan, tS * shortSpan];
+  /** Per-load field at (tS, tL) resolved into short/long components. */
+  const patchCache = new Map<string, PatchShortLong[]>();
+  const patchAt = (tS: number, tL: number): PatchShortLong[] => {
+    const key = `${tS}|${tL}`,
+      hit = patchCache.get(key);
+    if (hit) return hit;
+    const [x, y] = toGlobal(tS, tL);
+    const values = pointLoads.map((_, k) =>
+      shortLong(patchFe!.at(k, x, y), shortAxis),
+    );
+    patchCache.set(key, values);
+    return values;
+  };
+  /** Normalised lines through each dispersed patch (edges and centre). */
+  const patchLines = (axis: SlabDirection) =>
+    dispersed.flatMap((r) => {
+      const globalX = (axis === "short") === (shortAxis === "X"),
+        a = globalX ? r.x0 : r.y0,
+        b = globalX ? r.x1 : r.y1,
+        length = axis === "short" ? shortSpan : longSpan;
+      return [a, (a + b) / 2, b].map((v) =>
+        Math.min(1, Math.max(0, v / length)),
+      );
+    });
+  /**
+   * Factored point-load moment (kN·m/m) at (tS, tL) in the given sense
+   * (+1 sagging, −1 hogging). Dead always acts; live point loads only where
+   * adverse (ACI 318-19 6.4 pattern loading intent).
+   */
+  const patchMoment = (
+    l: SlabInput["loads"][number],
+    tS: number,
+    tL: number,
+    long: boolean,
+    sense: number,
+  ) => {
+    if (!hasPatches) return 0;
+    let total = 0;
+    patchAt(tS, tL).forEach((v, k) => {
+      const m = sense * (long ? v.mLong : v.mShort);
+      total +=
+        l.deadFactor * pointLoads[k].dead * m +
+        Math.max(0, l.liveFactor * pointLoads[k].live * m);
+    });
+    return total;
+  };
   const minAs = slabMinimumSteelRatio(i.fy) * 1000 * i.h;
   const specs: { id: string; label: string; layer: SlabLayer }[] = [
     {
@@ -822,36 +1064,45 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
       450,
     );
     const samples: SlabRegion["samples"] = [];
-    for (const l of activeLoads) {
+    const sense = isTop ? -1 : 1;
+    // Uniform-load moment coefficient (× wu·Lshort²) at plate-normalised (tS, tL).
+    const uniform = (tS: number, tL: number) => {
+      if (!plate) return isLong ? 0 : beamMoment(tS);
+      const m = plate.at(tS, tL * ratio);
+      return isLong ? m.my : m.mx;
+    };
+    const push = (
+      l: (typeof activeLoads)[number],
+      tS: number,
+      tL: number,
+      position: number,
+    ) => {
       const wu = l.deadFactor * dead + l.liveFactor * i.live;
-      if (!plate) {
-        for (let k = 0; k <= 100; k++) {
-          const t = k / 100,
-            m = isLong ? 0 : beamMoment(t);
-          samples.push({
-            mu: Math.max(0, isTop ? -m : m) * wu * shortSpan ** 2,
-            extra: slabExtraActive(i, spec.layer, t),
-            combination: l.id,
-            position: t,
-          });
-        }
-      } else {
-        for (let k = 0; k <= 30; k++)
-          for (let j = 0; j <= 30; j++) {
-            const x = k / 30,
-              y = j / 30,
-              m = plate.at(x, y * ratio);
-            const mu = isLong ? m.my : m.mx,
-              t = isLong ? y : x;
-            samples.push({
-              mu: Math.max(0, isTop ? -mu : mu) * wu * shortSpan ** 2,
-              extra: slabExtraActive(i, spec.layer, t),
-              combination: l.id,
-              position: t,
-            });
-          }
-      }
-    }
+      samples.push({
+        mu: Math.max(
+          0,
+          sense * uniform(tS, tL) * wu * shortSpan ** 2 +
+            patchMoment(l, tS, tL, isLong, sense),
+        ),
+        extra: slabExtraActive(i, spec.layer, position),
+        combination: l.id,
+        position,
+      });
+    };
+    const shortGrid = [
+        ...range(plate ? 30 : 100),
+        ...(hasPatches ? patchLines("short") : []),
+      ],
+      longGrid =
+        plate || hasPatches
+          ? [...range(30), ...(hasPatches ? patchLines("long") : [])]
+          : [0];
+    // One-way strip without point loads keeps the short-direction position for both layers.
+    const positionOf = (tS: number, tL: number) =>
+      isLong && (plate || hasPatches) ? tL : tS;
+    for (const l of activeLoads)
+      for (const tS of shortGrid)
+        for (const tL of longGrid) push(l, tS, tL, positionOf(tS, tL));
     // Include either side of cutoffs, so a mesh cannot credit unavailable extra steel.
     const cuts = isTop
       ? [
@@ -859,25 +1110,12 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
           1 - i.cutoffs[isLong ? (shortAxis === "X" ? "north" : "east") : far],
         ]
       : [i.cutoffs.bottomStart, i.cutoffs.bottomEnd];
+    const across = isLong ? shortGrid : longGrid;
     for (const t0 of cuts)
       for (const t of [Math.max(0, t0 - 0.00001), Math.min(1, t0 + 0.00001)])
         for (const l of activeLoads)
-          for (let k = 0; k <= (plate ? 30 : 0); k++) {
-            const p = plate?.at(
-              isLong ? k / 30 : t,
-              (isLong ? t : k / 30) * ratio,
-            );
-            const m = p ? (isLong ? p.my : p.mx) : isLong ? 0 : beamMoment(t);
-            samples.push({
-              mu:
-                Math.max(0, isTop ? -m : m) *
-                (l.deadFactor * dead + l.liveFactor * i.live) *
-                shortSpan ** 2,
-              extra: slabExtraActive(i, spec.layer, t),
-              combination: l.id,
-              position: t,
-            });
-          }
+          for (const u of plate || hasPatches ? across : [0])
+            push(l, isLong ? u : t, isLong ? t : u, t);
     const select = (extra: boolean) =>
       bars.filter(
         (b) => b.layer === spec.layer && (b.group === "main" || extra),
@@ -997,7 +1235,7 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
   const shear: SlabResult["shear"] = [];
   for (const edge of ["west", "east", "south", "north"] as const) {
     const direction = edgeDirection(i, edge);
-    if (type === "one-way" && direction === "long") continue;
+    if (type === "one-way" && direction === "long" && !hasPatches) continue;
     // Main steel only: no shear credit to curtailed extras until anchorage has independent review.
     const face: SlabFace = i.supports[edge] === "Fixed" ? "top" : "bottom",
       b = bars.find(
@@ -1012,32 +1250,74 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
         1000 *
         b.d) /
       1000;
+    const nearSide = edge === "west" || edge === "south",
+      span = direction === "short" ? shortSpan : longSpan;
+    // ACI 318-19 7.4.3.2(c): with a concentrated load between the support and
+    // the section at d, design for the shear at the support line instead.
+    const loadWithinD = pointLoads.some((p) => {
+      const lo =
+          edge === "west" || edge === "east"
+            ? p.x - p.bx / 2000
+            : p.y - p.by / 2000,
+        hi =
+          edge === "west" || edge === "east"
+            ? p.x + p.bx / 2000
+            : p.y + p.by / 2000,
+        length = edge === "west" || edge === "east" ? i.lx : i.ly;
+      return nearSide ? lo < b.d / 1000 : length - hi < b.d / 1000;
+    });
+    const offset = loadWithinD ? 0 : b.d / 1000,
+      fraction = nearSide ? offset / span : 1 - offset / span,
+      sign = nearSide ? 1 : -1;
+    const along = [
+      ...Array.from({ length: 39 }, (_, k) => (k + 1) / 40),
+      ...(hasPatches
+        ? patchLines(direction === "short" ? "long" : "short")
+        : []),
+    ];
+    const patchShear = (l: SlabInput["loads"][number], t: number) => {
+      if (!hasPatches) return 0;
+      let total = 0;
+      patchAt(
+        direction === "short" ? fraction : t,
+        direction === "long" ? fraction : t,
+      ).forEach((v, k) => {
+        const q = sign * (direction === "short" ? v.qShort : v.qLong);
+        total +=
+          l.deadFactor * pointLoads[k].dead * q +
+          Math.max(0, l.liveFactor * pointLoads[k].live * q);
+      });
+      return total;
+    };
     let vu = 0,
       combination = "";
     for (const l of activeLoads) {
       const wu = l.deadFactor * dead + l.liveFactor * i.live;
       let demand = 0;
-      if (!plate)
-        demand =
-          wu *
-          Math.max(
-            0,
-            (edge === near ? beam.reaction : 1 - beam.reaction) * shortSpan -
-              b.d / 1000,
-          );
-      else
-        for (let k = 1; k < 40; k++) {
-          const nearSide = edge === "west" || edge === "south",
-            fraction = nearSide
-              ? b.d / 1000 / (direction === "short" ? shortSpan : longSpan)
-              : 1 - b.d / 1000 / (direction === "short" ? shortSpan : longSpan);
+      if (!plate) {
+        const strip =
+          direction === "long"
+            ? 0
+            : wu *
+              Math.max(
+                0,
+                (edge === near ? beam.reaction : 1 - beam.reaction) *
+                  shortSpan -
+                  offset,
+              );
+        demand = hasPatches
+          ? Math.max(0, ...along.map((t) => strip + patchShear(l, t)))
+          : strip;
+      } else
+        for (const t of along) {
           const p = plate.at(
-            direction === "short" ? fraction : k / 40,
-            (direction === "long" ? fraction : k / 40) * ratio,
+            direction === "short" ? fraction : t,
+            (direction === "long" ? fraction : t) * ratio,
           );
           demand = Math.max(
             demand,
-            Math.abs(direction === "short" ? p.qx : p.qy) * wu * shortSpan,
+            Math.abs(direction === "short" ? p.qx : p.qy) * wu * shortSpan +
+              patchShear(l, t),
           );
         }
       if (demand >= vu) {
@@ -1054,6 +1334,8 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
       rho,
       lambdaS,
       combination,
+      section: offset * 1000,
+      concentratedWithinD: loadWithinD,
     });
   }
   let immediate = 0,
@@ -1061,13 +1343,68 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
   const ec = 4700 * Math.sqrt(i.fc),
     rigidity =
       (ec * 1000 * (i.h / 1000) ** 3) / 12 / (plate ? 1 - i.nu ** 2 : 1);
+  // Point loads: service field sampled on a grid through every patch.
+  const plateRigidity = (ec * 1000 * (i.h / 1000) ** 3) / 12 / (1 - i.nu ** 2),
+    serviceGrid = hasPatches
+      ? {
+          short: [...range(20), ...patchLines("short")],
+          long: [...range(20), ...patchLines("long")],
+        }
+      : null;
+  /** Service point-load effect: field(v) summed with PD + γL,service·PL. */
+  const servicePatch = (
+    l: SlabInput["loads"][number],
+    tS: number,
+    tL: number,
+    field: (v: PatchShortLong) => number,
+  ) =>
+    patchAt(tS, tL).reduce(
+      (s, v, k) =>
+        s +
+        (pointLoads[k].dead + l.serviceLiveFactor * pointLoads[k].live) *
+          field(v),
+      0,
+    );
+  /** Gross-section immediate deflection, mm (uniform + point loads). */
+  const grossDeflection = (l: SlabInput["loads"][number]) => {
+    const ws = dead + l.serviceLiveFactor * i.live;
+    if (!serviceGrid)
+      return ((coefficients.beta * ws * shortSpan ** 4) / rigidity) * 1000;
+    let max = 0;
+    for (const tS of serviceGrid.short)
+      for (const tL of serviceGrid.long) {
+        const shapeU = plate ? plate.at(tS, tL * ratio).w : beamW(tS);
+        max = Math.max(
+          max,
+          ((shapeU * ws * shortSpan ** 4) / rigidity +
+            servicePatch(l, tS, tL, (v) => v.w) / plateRigidity) *
+            1000,
+        );
+      }
+    return max;
+  };
+  /** Largest service short-direction moment with point loads (sense +1 sagging, −1 hogging along an edge line tS). */
+  const servicePatchMoment = (
+    l: SlabInput["loads"][number],
+    sense: number,
+    tSLine: number | null,
+  ) => {
+    if (!serviceGrid) return 0;
+    const ws = dead + l.serviceLiveFactor * i.live;
+    let max = 0;
+    for (const tS of tSLine === null ? serviceGrid.short : [tSLine])
+      for (const tL of serviceGrid.long) {
+        const mU = plate ? plate.at(tS, tL * ratio).mx : beamMoment(tS);
+        max = Math.max(
+          max,
+          sense * mU * ws * shortSpan ** 2 +
+            sense * servicePatch(l, tS, tL, (v) => v.mShort),
+        );
+      }
+    return max;
+  };
   for (const l of activeLoads) {
-    const delta =
-      ((coefficients.beta *
-        (dead + l.serviceLiveFactor * i.live) *
-        shortSpan ** 4) /
-        rigidity) *
-      1000;
+    const delta = grossDeflection(l);
     if (delta >= immediate) {
       immediate = delta;
       combination = l.id;
@@ -1106,8 +1443,11 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     governingIeAvg: number | null = null;
   for (const l of activeLoads) {
     const ws = dead + l.serviceLiveFactor * i.live;
-    const delta = ((coefficients.beta * ws * shortSpan ** 4) / rigidity) * 1000;
-    const maMid = Math.max(0, coefficients.shortPositive) * ws * shortSpan ** 2;
+    const delta = grossDeflection(l);
+    const maMid = Math.max(
+      Math.max(0, coefficients.shortPositive) * ws * shortSpan ** 2,
+      servicePatchMoment(l, 1, null),
+    );
     const ieMid = slabEffectiveInertia(midSection, maMid);
     // 24.2.3.6: average of positive- and negative-moment sections; 24.2.3.7:
     // midspan value permitted for prismatic members. Use the lesser (conservative).
@@ -1117,7 +1457,12 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
             s +
             slabEffectiveInertia(
               e.section,
-              Math.abs(coefficients[`${e.edge}Negative`]) * ws * shortSpan ** 2,
+              Math.max(
+                Math.abs(coefficients[`${e.edge}Negative`]) *
+                  ws *
+                  shortSpan ** 2,
+                servicePatchMoment(l, -1, e.edge === near ? 0 : 1),
+              ),
             ),
           0,
         ) / ends.length
@@ -1239,7 +1584,7 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     "Development pilot — independent engineering review required before design use.",
     "Deflection: h ≥ hmin (ACI 318-19 Table 7.3.1.1 / 8.3.1.2) waives calculation; otherwise immediate deflection uses cracked effective inertia Ie (Table 24.2.3.5, lesser of midspan and 24.2.3.6 average), compression steel neglected. Thickness tables assume no attached partitions likely to be damaged by large deflections. Sustained-load (long-term) deflection is not evaluated.",
     "Straight-bar development/cutoff screening is not a complete anchorage check. Support embedment, hooks, laps and curtailment beyond the theoretical cutoff require designer review.",
-    "No openings, punching shear, column-supported slabs, concentrated loads, corner torsion reinforcement, redistribution or pattern live loading are evaluated.",
+    "No openings, column-supported slabs, corner torsion steel, redistribution or pattern live loading are evaluated; punching only at entered point loads.",
   ];
   if (type === "two-way")
     warnings.push(
@@ -1282,8 +1627,30 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     ) *
       Math.max(...activeLoads.map((l) => dead + l.serviceLiveFactor * i.live)) *
       shortSpan ** 2 >
-    (0.62 * Math.sqrt(i.fc) * 1000 * i.h ** 2) / 6 / 1e6;
+      (0.62 * Math.sqrt(i.fc) * 1000 * i.h ** 2) / 6 / 1e6 ||
+    (hasPatches &&
+      governingMa > (0.62 * Math.sqrt(i.fc) * 1000 * i.h ** 2) / 6 / 1e6);
   if (minDepth <= 0) messages.push("Bar effective depth must be positive.");
+  const punching = slabPunching(i, bars, activeLoads, dead);
+  if (hasPatches) {
+    warnings.push(
+      "Point loads: Kirchhoff plate FE (16-DOF Bogner–Fox–Schmit rectangles, graded mesh) on the actual panel and supports, superposed on the uniform-load solution. Flexure, shear and deflection use the load dispersed at 45° to the mid-plane (bx + h, by + h); punching uses the actual loaded area. Design moments are elastic peak values per metre without lateral redistribution or Wood–Armer torsion; live point loads are counted only where adverse.",
+    );
+    for (const v of shear.filter((v) => v.concentratedWithinD))
+      warnings.push(
+        `${v.edge} edge: point load within d of the support; one-way shear checked at the support line (ACI 318-19 7.4.3.2(c)). Review direct load transfer to the support.`,
+      );
+    for (const v of punching) {
+      if (v.sides < 4)
+        warnings.push(
+          `${v.id}: punching critical section reaches a support face; ${v.sides}-sided perimeter used with αs = ${v.alphaS}. Review load transfer to the support.`,
+        );
+      if (!(v.b0 > 0))
+        warnings.push(
+          `${v.id}: punching not evaluated: the loaded area spans between support faces.`,
+        );
+    }
+  }
   const status =
     regions.every(
       (r) =>
@@ -1293,6 +1660,7 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
         r.tensionControlled,
     ) &&
     shear.every((r) => r.dcr <= i.dcrLimit) &&
+    punching.every((p) => !(p.dcr > i.dcrLimit)) &&
     !messages.length &&
     deflectionOk
       ? "SCREENING PASS"
@@ -1304,9 +1672,13 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     longSpan,
     shortAxis,
     bars,
-    method: plate
-      ? "Elastic Kirchhoff plate · Ritz 8×8 basis · exact aspect ratio"
-      : "Elastic one-metre beam strip · exact Fixed/Pinned end solution",
+    method:
+      (plate
+        ? "Elastic Kirchhoff plate · Ritz 8×8 basis · exact aspect ratio"
+        : "Elastic one-metre beam strip · exact Fixed/Pinned end solution") +
+      (hasPatches
+        ? " + point loads: Kirchhoff plate FE (BFS 16-DOF, graded mesh)"
+        : ""),
     coefficients,
     regions,
     shear,
@@ -1328,6 +1700,7 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
       governedBy: minimumThickness.ok ? "thickness" : "calculation",
       ok: deflectionOk,
     },
+    punching,
     recommendations,
     detailing: {
       ok: !messages.length,
@@ -1338,7 +1711,7 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     warnings,
     dead,
     unit: "metric",
-    engineVersion: "slab-0.2.1",
+    engineVersion: "slab-0.3.0",
   };
 }
 export function parseSlabLoads(text: string): SlabInput["loads"] {

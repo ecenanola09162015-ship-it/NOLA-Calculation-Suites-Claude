@@ -33,6 +33,23 @@ export const slabClauses = {
       "√f′c ≤ 8.3 MPa 22.5.3.1",
       "φ Table 21.2.1",
     ),
+  /** One-way shear with a point load within d of the support (critical section at the support). */
+  shearAtSupport: (s: SlabSystem) =>
+    ref(
+      bySystem(s, "7.5.3.1", "8.5.3.1.1"),
+      "7.4.3.2(c)",
+      "Table 22.5.5.1",
+      "√f′c ≤ 8.3 MPa 22.5.3.1",
+      "φ Table 21.2.1",
+    ),
+  punching: () =>
+    ref(
+      "22.6.1.2, critical section 22.6.4.1",
+      "d 22.6.2.1",
+      "vc Table 22.6.5.2, λs 22.5.5.1.3",
+      "√f′c ≤ 8.3 MPa 22.6.3.1",
+      "φ Table 21.2.1",
+    ),
   minimumThickness: (s: SlabSystem) =>
     ref(
       bySystem(

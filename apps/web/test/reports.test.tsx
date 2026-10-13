@@ -164,3 +164,55 @@ describe("shared PDF reports", () => {
     ).toBe(false);
   });
 });
+describe("slab point loads in the report", () => {
+  it("prints point loads, punching equations and the 22.6 clause, and renders the PDF", async () => {
+    const {
+      analyzeSlab,
+      defaultSlabInput,
+      defaultSlabQuantity,
+      defaultDesignCheckPolicy,
+    } = await import("@nola/calc-core");
+    const { slabReportData } = await import("../src/lib/reports/data");
+    const input = {
+      ...defaultSlabInput(),
+      lx: 5,
+      ly: 5,
+      h: 200,
+      pointLoads: [
+        { id: "P1", x: 2.5, y: 2.5, bx: 300, by: 300, dead: 40, live: 20 },
+      ],
+    };
+    const data = slabReportData(
+      undefined,
+      "SL-PL",
+      input,
+      analyzeSlab(input),
+      defaultSlabQuantity(),
+      defaultDesignCheckPolicy,
+      {},
+    );
+    for (const fig of data.figures) fig.png = png;
+    const punch = data.checks.rows.find((row) =>
+      String(row[0]).includes("P1 · Punching Shear"),
+    );
+    expect(String(punch?.[1])).toContain("Table 22.6.5.2");
+    const titles = data.sections.map((s) => s.title);
+    expect(titles).toContain("Point Loads");
+    expect(titles).toContain("Punching Shear At Point Loads");
+    expect(data.figures[0].svg).toContain("P1");
+    const result = await generateCalculationPdf(data, {
+      type: "complete",
+      paper: "A4",
+      nolaLogo: png,
+    });
+    expect(result.pageCount).toBeGreaterThan(0);
+    for (const paper of ["A4", "Letter"] as const) {
+      const simple = await generateCalculationPdf(data, {
+        type: "simple",
+        paper,
+        nolaLogo: png,
+      });
+      expect(simple.pageCount).toBe(1);
+    }
+  });
+});

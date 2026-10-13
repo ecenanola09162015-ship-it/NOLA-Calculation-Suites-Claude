@@ -109,3 +109,42 @@ describe("slab workspace and diagrams", () => {
     expect(html).not.toContain("No Available Capacity");
   });
 });
+describe("slab point loads", () => {
+  it("shows point-load inputs, plan markers and the punching table", () => {
+    const input = {
+      ...defaultSlabInput(),
+      lx: 5,
+      ly: 5,
+      h: 200,
+      pointLoads: [
+        { id: "P1", x: 2.5, y: 2.5, bx: 300, by: 300, dead: 40, live: 20 },
+      ],
+    };
+    const html = renderToStaticMarkup(
+      <SlabWorkspace
+        cloudReady={false}
+        onSaved={() => {}}
+        draft={{
+          id: "saved",
+          projectId: "project",
+          moduleSlug: "slab",
+          title: "Point Load Slab",
+          verificationStatus: "verification-required",
+          updatedAt: "2026-10-13",
+          payload: { kind: "slab", version: 1, input },
+        }}
+      />,
+    );
+    for (const text of [
+      "Point Loads",
+      "＋ Point Load",
+      'aria-label="P1 bx"',
+      "data-point-loads",
+      "Punching Shear At Point Loads",
+      "Punching",
+      "Table 22.6.5.2",
+    ])
+      expect(html).toContain(text);
+    expect(html).not.toContain("NaN");
+  });
+});
