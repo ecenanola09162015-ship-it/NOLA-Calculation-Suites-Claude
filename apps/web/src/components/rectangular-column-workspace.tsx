@@ -10,6 +10,9 @@ import {
   columnDraftSchema,
   defaultColumnQuantity,
   defaultColumnTieDesign,
+  defaultColumnStorey,
+  effectiveColumnQuantity,
+  migrateColumnStorey,
   rebarDesignation,
   syncColumnQuantityTies,
   designColumnTransverse,
@@ -33,6 +36,21 @@ import {
   type DraftDuplicate,
 } from "./duplicate-save-prompt";
 import { ColumnQuantityPanel } from "./column-quantity-panel";
+import { StoreyGeometryFields } from "./column-storey-panel";
+import dynamic from "next/dynamic";
+// Three.js loads only when results are shown.
+const ColumnInteraction3D = dynamic(
+  () => import("./column-interaction-3d").then((m) => m.ColumnInteraction3D),
+  {
+    ssr: false,
+    loading: () => (
+      <section className="rcPanel interaction3d">
+        <h3>3D Interaction Surface (P–Mx–My)</h3>
+        <p className="rcMuted">Loading 3D view…</p>
+      </section>
+    ),
+  },
+);
 import { NumberField, fmt } from "./column-ui";
 import {
   RebarGradeSelect,
@@ -50,7 +68,10 @@ import {
   ColumnSlendernessInputs,
   ColumnSlendernessResults,
 } from "./column-slenderness-panel";
+/** New calculations start with Vux = Vuy = 400 kN (user decision); imports stay as pasted. */
+export const DEFAULT_SHEAR = 400;
 const initial: RectangularColumnInput = {
+  storey: defaultColumnStorey(),
   code: "ACI 318-19",
   width: 600,
   depth: 800,
@@ -80,6 +101,8 @@ const initial: RectangularColumnInput = {
       pu: 2400,
       mx: 150,
       my: 80,
+      vx: DEFAULT_SHEAR,
+      vy: DEFAULT_SHEAR,
       included: true,
     },
     {
@@ -88,6 +111,8 @@ const initial: RectangularColumnInput = {
       pu: 3200,
       mx: 200,
       my: 120,
+      vx: DEFAULT_SHEAR,
+      vy: DEFAULT_SHEAR,
       included: true,
     },
     {
@@ -96,6 +121,8 @@ const initial: RectangularColumnInput = {
       pu: 2800,
       mx: -180,
       my: 100,
+      vx: DEFAULT_SHEAR,
+      vy: DEFAULT_SHEAR,
       included: true,
     },
     {
@@ -104,6 +131,8 @@ const initial: RectangularColumnInput = {
       pu: 3000,
       mx: 100,
       my: 180,
+      vx: DEFAULT_SHEAR,
+      vy: DEFAULT_SHEAR,
       included: true,
     },
     {
@@ -112,6 +141,8 @@ const initial: RectangularColumnInput = {
       pu: 3000,
       mx: -120,
       my: -150,
+      vx: DEFAULT_SHEAR,
+      vy: DEFAULT_SHEAR,
       included: true,
     },
   ],
@@ -136,8 +167,19 @@ export function RectangularColumnWorkspace({
 }) {
   const restored = columnDraftSchema.safeParse(draft?.payload);
   const editVersion = useRef(0);
+  // Drafts saved before storey geometry are migrated without changing their
+  // numbers (typed ℓu → override; differing confinement ℓu → manual).
+  const [migrated] = useState(() =>
+    restored.success
+      ? migrateColumnStorey(
+          restored.data.input,
+          restored.data.quantity,
+          restored.data.tieDesign,
+        )
+      : null,
+  );
   const [input, setInput] = useState<RectangularColumnInput>(() =>
-    restored.success ? restored.data.input : structuredClone(initial),
+    migrated ? migrated.input : structuredClone(initial),
   );
   const [quantity, setQuantity] = useState<ColumnQuantityInput>(() =>
     restored.success && restored.data.quantity
@@ -145,8 +187,8 @@ export function RectangularColumnWorkspace({
       : defaultColumnQuantity(initial.tieDiameter),
   );
   const [tieDesign, setTieDesign] = useState<ColumnTieDesignInput>(() =>
-    restored.success && restored.data.tieDesign
-      ? restored.data.tieDesign
+    migrated?.tie
+      ? migrated.tie
       : defaultColumnTieDesign(
           restored.success ? restored.data.input : initial,
           restored.success && restored.data.quantity
@@ -186,7 +228,7 @@ export function RectangularColumnWorkspace({
   const [nX, setNX] = useState(4),
     [nY, setNY] = useState(4);
   const standard = input.rebarStandard ?? "PNS49";
-  // Main bar size: Materials value, else the most common bar in the layout.
+  // Longitudinal bar diameter: Materials value, else the most common bar in the layout.
   const diameter =
     input.barDiameter ??
     (() => {
@@ -209,8 +251,12 @@ export function RectangularColumnWorkspace({
       diameter: tieSteel.diameter,
       fyt: tieSteel.fy,
       gradeId: tieSteel.gradeId ?? null,
+      // One hook basis for the estimate, drawings and the 18.7.5.2(f) check.
+      hookBasis: quantity.hookBasis,
     },
   };
+  // Estimate height / joint follow storey geometry unless overridden there.
+  const quantityEff = effectiveColumnQuantity(input, quantity);
   function changeQuantity(next: ColumnQuantityInput, tie = tieSteel) {
     setQuantity(syncColumnQuantityTies(next, tie));
   }
@@ -318,7 +364,8 @@ export function RectangularColumnWorkspace({
         });
     update({ ...input, bars });
   }
-  function calculate() {
+  /** fromBottom: the button under the load table scrolls to the results. */
+  function calculate(fromBottom = false) {
     setMessage("");
     try {
       if (!scope)
@@ -343,6 +390,12 @@ export function RectangularColumnWorkspace({
         );
       const next = analyzeRectangularColumn(parsed.data.input);
       setResult(next);
+      if (fromBottom)
+        requestAnimationFrame(() =>
+          document
+            .getElementById("column-results")
+            ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+        );
       setSelected(next.governing?.load.id ?? "");
       setMessage(
         "Development calculation updated. Review all warnings before using these results.",
@@ -507,7 +560,7 @@ export function RectangularColumnWorkspace({
         >
           {busy ? "Saving…" : "Save to project"}
         </button>
-        <button className="suitePrimary" onClick={calculate}>
+        <button className="suitePrimary" onClick={() => calculate()}>
           Calculate section
         </button>
         <ReportExportControls
@@ -525,7 +578,7 @@ export function RectangularColumnWorkspace({
               title,
               input,
               result,
-              quantity,
+              quantityEff,
               policy,
               remarks,
               effectiveTie,
@@ -594,16 +647,11 @@ export function RectangularColumnWorkspace({
                 onChange={(value) => update({ ...input, [key]: value })}
               />
             ))}
-            <RebarGradeSelect
-              label="Longitudinal steel grade (fy)"
-              standard={standard}
-              fy={input.fy}
-              gradeId={input.gradeId}
-              maxFy={550}
-              onChange={(fy, gradeId) => update({ ...input, fy, gradeId })}
-            />
+          </div>
+          {/* Diameters on the left, their steel grade on the right. */}
+          <div className="rcFields rcSteelPairs">
             <RebarSizeSelect
-              label="Main bar size"
+              label="Longitudinal Bar Diameter"
               standard={standard}
               value={diameter}
               onChange={(d) =>
@@ -617,8 +665,16 @@ export function RectangularColumnWorkspace({
                 })
               }
             />
+            <RebarGradeSelect
+              label="Longitudinal steel grade (fy)"
+              standard={standard}
+              fy={input.fy}
+              gradeId={input.gradeId}
+              maxFy={550}
+              onChange={(fy, gradeId) => update({ ...input, fy, gradeId })}
+            />
             <RebarSizeSelect
-              label="Tie diameter"
+              label="Tie Diameter"
               standard={standard}
               value={input.tieDiameter}
               min={6}
@@ -636,6 +692,7 @@ export function RectangularColumnWorkspace({
               }
             />
           </div>
+          <StoreyGeometryFields input={input} onChange={update} />
           <label className="rcCheckbox">
             <input
               type="checkbox"
@@ -801,6 +858,8 @@ export function RectangularColumnWorkspace({
                     pu: 0,
                     mx: 0,
                     my: 0,
+                    vx: DEFAULT_SHEAR,
+                    vy: DEFAULT_SHEAR,
                     included: true,
                   },
                 ],
@@ -1002,10 +1061,23 @@ export function RectangularColumnWorkspace({
           change only when you choose Replace or Append. File upload (.xlsx) is
           not included in this build.
         </p>
+        <div className="rcCalculateBar">
+          <button
+            className="suitePrimary"
+            onClick={() => calculate(true)}
+          >
+            Calculate section
+          </button>
+          <span className="rcMuted">
+            {!scope
+              ? "Tick the demand confirmation in panel 01 before calculating."
+              : "Results clear whenever an input changes."}
+          </span>
+        </div>
       </section>
       <ColumnSlendernessInputs input={input} onChange={update} />
       {result ? (
-        <section className="rcResults">
+        <section className="rcResults" id="column-results">
           <div className="rcReportHeader">
             <p>ÑOLA Calculation Suites · RC column · Development report v0.1</p>
             <h2>{title}</h2>
@@ -1057,6 +1129,7 @@ export function RectangularColumnWorkspace({
               ))}
             </ul>
           </div>
+          <ColumnInteraction3D input={input} result={result} policy={policy} />
           <div className="rcGrid">
             <section className="rcPanel">
               <h3>P–Mx Interaction</h3>
@@ -1299,13 +1372,13 @@ export function RectangularColumnWorkspace({
             value={effectiveTie}
             onChange={updateTie}
             design={transverse.design}
-            quantity={quantity}
+            quantity={quantityEff}
             onAdopt={() => {
               if (!transverse.design) return;
               editVersion.current++;
               changeQuantity(
                 adoptTieDesignToQuantity(
-                  { ...quantity, enabled: true },
+                  { ...quantityEff, enabled: true },
                   effectiveTie.tie,
                   transverse.design,
                 ),
@@ -1324,7 +1397,7 @@ export function RectangularColumnWorkspace({
       {result ? (
         <ColumnQuantityPanel
           section={input}
-          value={quantity}
+          value={quantityEff}
           onChange={(next) => {
             editVersion.current++;
             changeQuantity(next);

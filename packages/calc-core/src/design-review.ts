@@ -126,6 +126,7 @@ export function columnTransverseChecks(
     dcr: c.dcr,
     detail: c.detail,
     clause: c.clause,
+    ...(c.invalidLabel ? { invalidLabel: c.invalidLabel } : {}),
   }));
 }
 export function slabDesignChecks(i: SlabInput, r: SlabResult): DesignCheck[] {

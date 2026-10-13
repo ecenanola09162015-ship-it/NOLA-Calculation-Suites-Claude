@@ -113,8 +113,21 @@ export function crossTieHookPath(
   transverse: number,
   r: number,
   ext: number,
+  /**
+   * 90° end (ACI 318-14 / NSCP 2015 crosstie): full extension length, and
+   * which end carries it. Consecutive crossties alternate (18.7.5.2(c)).
+   */
+  ninety?: { ext: number; at: "a" | "b" },
 ) {
   const q = r / Math.SQRT2;
   const t = transverse;
-  return `M ${a - q + ext} ${t - q - ext} L ${a - q} ${t - q} A ${r} ${r} 0 0 0 ${a} ${t + r} L ${b} ${t + r} A ${r} ${r} 0 0 0 ${b + q} ${t - q} L ${b + q - ext} ${t - q - ext}`;
+  const startA =
+    ninety?.at === "a"
+      ? `M ${a - r} ${t - ninety.ext} L ${a - r} ${t} A ${r} ${r} 0 0 0 ${a} ${t + r}`
+      : `M ${a - q + ext} ${t - q - ext} L ${a - q} ${t - q} A ${r} ${r} 0 0 0 ${a} ${t + r}`;
+  const endB =
+    ninety?.at === "b"
+      ? `A ${r} ${r} 0 0 0 ${b + r} ${t} L ${b + r} ${t - ninety.ext}`
+      : `A ${r} ${r} 0 0 0 ${b + q} ${t - q} L ${b + q - ext} ${t - q - ext}`;
+  return `${startA} L ${b} ${t + r} ${endB}`;
 }

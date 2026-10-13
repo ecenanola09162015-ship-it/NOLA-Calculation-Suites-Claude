@@ -16,11 +16,52 @@ import {
   slabDraftSchema,
   slabLayers,
   slabSupportLayout,
+  slabBeamSizes,
   type SlabInput,
+  type SlabLocalLoad,
+  type SlabLocalLoadKind,
   type SlabLayer,
   type SlabResult,
 } from "@nola/calc-core";
 import { DesignReviewPanel, DesignStatus } from "./design-review-panel";
+import { loadStyles } from "@/lib/load-styles";
+import dynamic from "next/dynamic";
+// three.js is only downloaded when the 3D tab is opened (client-only).
+const Slab3DView = dynamic(() => import("./slab-3d-view"), {
+  ssr: false,
+  loading: () => <p className="slabMuted">Loading 3D view…</p>,
+});
+const localLoadKinds = ["point", "line", "area"] as const;
+const localLoadColumns: Record<
+  SlabLocalLoadKind,
+  { key: string; label: string }[]
+> = {
+  point: [
+    { key: "x", label: "x m" },
+    { key: "y", label: "y m" },
+    { key: "bx", label: "bx mm" },
+    { key: "by", label: "by mm" },
+    { key: "dead", label: "PD kN" },
+    { key: "live", label: "PL kN" },
+  ],
+  line: [
+    { key: "x", label: "Start x m" },
+    { key: "y", label: "Start y m" },
+    { key: "direction", label: "Along" },
+    { key: "length", label: "Length m" },
+    { key: "thickness", label: "Thickness mm" },
+    { key: "dead", label: "wD kN/m" },
+    { key: "live", label: "wL kN/m" },
+  ],
+  area: [
+    { key: "x", label: "Centre x m" },
+    { key: "y", label: "Centre y m" },
+    { key: "bx", label: "bx mm" },
+    { key: "by", label: "by mm" },
+    { key: "dead", label: "qD kPa" },
+    { key: "live", label: "qL kPa" },
+  ],
+};
 import type { ProjectRecord, CalculationDraftRecord } from "@/lib/projects";
 import { ReportExportControls } from "./report-export-controls";
 import {
@@ -91,8 +132,7 @@ export function SlabWorkspace({
   );
   const [quantity, setQuantity] = useState<SlabQuantityInput>(() =>
     restored.success
-      ? (restored.data.quantity ??
-        defaultSlabQuantity(restored.data.input.supportWidth))
+      ? (restored.data.quantity ?? defaultSlabQuantity())
       : defaultSlabQuantity(),
   );
   const policy =
@@ -114,7 +154,9 @@ export function SlabWorkspace({
   const [id, setId] = useState<string | undefined>(
     restored.success ? draft?.id : undefined,
   );
-  const [tab, setTab] = useState<"layout" | "calculations">("layout");
+  const [tab, setTab] = useState<"layout" | "calculations" | "3d">("layout"),
+    // Snapshot of the 3D view for the Complete PDF report (session only).
+    [snapshot3d, setSnapshot3d] = useState<string | null>(null);
   const [view, setView] = useState<"both" | "bottom" | "top">("both");
   const [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
@@ -129,7 +171,31 @@ export function SlabWorkspace({
   const editVersion = useRef(0);
   // Point loads add a plate FE solve (~0.1–0.5 s): defer the analysis so
   // typing stays responsive; results follow the latest input when idle.
-  const analysedInput = useDeferredValue(input);
+  // Bounding beams: "From Estimate section" takes each edge's beam width and
+  // depth from the Estimate inputs; the resolved input drives analysis,
+  // drawings, 3D, report and the saved draft.
+  const designInput = useMemo<SlabInput>(
+    () =>
+      input.beams?.source === "estimate"
+        ? {
+            ...input,
+            beams: {
+              source: "estimate",
+              sizes: Object.fromEntries(
+                (["west", "east", "south", "north"] as const).map((e) => [
+                  e,
+                  {
+                    width: quantity.beams[e].width,
+                    depth: quantity.beams[e].depth,
+                  },
+                ]),
+              ) as SlabInput["beams"]["sizes"],
+            },
+          }
+        : input,
+    [input, quantity],
+  );
+  const analysedInput = useDeferredValue(designInput);
   const analysis = useMemo(() => {
     try {
       return { result: analyzeSlab(analysedInput, false), error: "" };
@@ -153,7 +219,59 @@ export function SlabWorkspace({
     oneWay =
       cantilever ||
       Math.max(input.lx, input.ly) / Math.min(input.lx, input.ly) >= 2;
-  const pointLoads = input.pointLoads ?? [];
+  const pointLoads: SlabLocalLoad[] = input.pointLoads ?? [];
+  function editLocalLoad(k: number, patch: Record<string, unknown>) {
+    update({
+      ...input,
+      pointLoads: pointLoads.map((a, n) =>
+        n === k ? ({ ...a, ...patch } as SlabLocalLoad) : a,
+      ),
+    });
+  }
+  function addLocalLoad(kind: SlabLocalLoadKind) {
+    const prefix = { point: "P", line: "W", area: "A" }[kind];
+    let n = pointLoads.filter((p) => (p.kind ?? "point") === kind).length + 1;
+    while (pointLoads.some((p) => p.id === `${prefix}${n}`)) n++;
+    const lx = Number.isFinite(input.lx) ? input.lx : 2,
+      ly = Number.isFinite(input.ly) ? input.ly : 2,
+      id = `${prefix}${n}`;
+    const next: SlabLocalLoad =
+      kind === "line"
+        ? // Default wall: 6 kN/m dead, across the panel along X at mid-Y.
+          {
+            kind,
+            id,
+            x: 0,
+            y: ly / 2,
+            direction: "X",
+            length: lx,
+            thickness: 150,
+            dead: 6,
+            live: 0,
+          }
+        : kind === "area"
+          ? {
+              kind,
+              id,
+              x: lx / 2,
+              y: ly / 2,
+              bx: 1000,
+              by: 1000,
+              dead: 2,
+              live: 0,
+            }
+          : {
+              kind,
+              id,
+              x: lx / 2,
+              y: ly / 2,
+              bx: 300,
+              by: 300,
+              dead: 10,
+              live: 0,
+            };
+    update({ ...input, pointLoads: [...pointLoads, next] });
+  }
   function update(next: SlabInput) {
     editVersion.current++;
     setInput(next);
@@ -310,7 +428,7 @@ export function SlabWorkspace({
       const parsed = slabDraftSchema.safeParse({
         kind: "slab",
         version: 1,
-        input,
+        input: designInput,
         quantity,
         designPolicy: policy,
         remarks,
@@ -463,11 +581,12 @@ export function SlabWorkspace({
             return slabReportData(
               project,
               title,
-              input,
+              designInput,
               r,
               quantity,
               policy,
               remarks,
+              snapshot3d,
             );
           }}
         />
@@ -596,6 +715,36 @@ export function SlabWorkspace({
               </label>
             ))}
           </div>
+          <label className="slabBeamSource">
+            Bounding beams
+            <select
+              value={input.beams?.source ?? "default"}
+              onChange={(e) =>
+                update({
+                  ...input,
+                  beams: {
+                    ...(input.beams ?? designInput.beams),
+                    source: e.target.value as "default" | "estimate",
+                  },
+                })
+              }
+            >
+              <option value="default">Default 250 × 500 mm</option>
+              <option value="estimate">From Estimate section</option>
+            </select>
+          </label>
+          <p className="slabMuted">
+            Lx and Ly are clear spans between inner beam faces. Beams on Fixed
+            and Pinned edges, none on Free edges; tops flush with the slab top.{" "}
+            {(["west", "east", "south", "north"] as const)
+              .map((e) => {
+                const b = slabBeamSizes(designInput)[e];
+                return `${e} ${b ? `${b.width} × ${b.depth}` : "free"}`;
+              })
+              .join(" · ")}
+            . Support condition governs the design; ℓ for minimum thickness and
+            the deflection limit is centre-to-centre (clear + beam widths / 2).
+          </p>
           {cantilever && (
             <p className="slabMuted">
               Cantilever: Fixed {supportLayout.fixedEdge} edge, three Free
@@ -669,11 +818,6 @@ export function SlabWorkspace({
                 onChange={(v) => change("aggregate", v)}
               />
               <Numeric
-                label="Support Width (Diagram)"
-                value={input.supportWidth}
-                onChange={(v) => change("supportWidth", v)}
-              />
-              <Numeric
                 label="DCR Criterion"
                 value={input.dcrLimit}
                 unit=""
@@ -726,7 +870,27 @@ export function SlabWorkspace({
             >
               Calculations & loads
             </button>
+            <button
+              role="tab"
+              aria-selected={tab === "3d"}
+              onClick={() => setTab("3d")}
+            >
+              3D view with loads
+            </button>
           </div>
+          {tab === "3d" && (
+            <section className="slabPanel slab3dPanel">
+              <Slab3DView input={designInput} onSnapshot={setSnapshot3d} />
+              {snapshot3d && (
+                <p className="slabMuted">
+                  A 3D snapshot will be included in the Complete PDF report.{" "}
+                  <button onClick={() => setSnapshot3d(null)}>
+                    Remove snapshot
+                  </button>
+                </p>
+              )}
+            </section>
+          )}
           <section
             className={`slabPanel slabDrawing ${tab === "layout" ? "" : "slabScreenHidden"}`}
           >
@@ -747,14 +911,14 @@ export function SlabWorkspace({
             </div>
             <div className="slabPlans">
               {(view === "both" || view === "bottom") && (
-                <SlabPlan input={input} bars={bars} face="bottom" />
+                <SlabPlan input={designInput} bars={bars} face="bottom" />
               )}
               {(view === "both" || view === "top") && (
-                <SlabPlan input={input} bars={bars} face="top" />
+                <SlabPlan input={designInput} bars={bars} face="top" />
               )}
             </div>
-            <SlabSection input={input} bars={bars} direction="short" />
-            <SlabSection input={input} bars={bars} direction="long" />
+            <SlabSection input={designInput} bars={bars} direction="short" />
+            <SlabSection input={designInput} bars={bars} direction="long" />
             <p className="slabMuted">
               Main bars are continuous; extras have limited lengths and repeat
               across the full distribution width. Dashed extra lines in sections
@@ -967,119 +1131,127 @@ export function SlabWorkspace({
                 Append combinations
               </button>
             </details>
-            <h2>Point Loads</h2>
+            <h2>Local Loads</h2>
             <p className="slabMuted">
-              Concentrated loads on a loaded area bx × by. Centre (x, y) from
-              the south-west corner along X (west→east) and Y (south→north).
-              Unfactored dead PD and live PL; combinations apply γD and γL.
-              Flexure, shear and deflection disperse the load at 45° to the
-              mid-plane; punching uses the loaded area (ACI 318-19 22.6).
+              Point, line (wall) and area loads on the slab. Coordinates in m
+              from the south-west corner along X (west→east) and Y
+              (south→north). Unfactored dead and live values; combinations apply
+              γD and γL. Flexure, shear and deflection disperse each load at 45°
+              to the mid-plane; punching applies to point loads only (ACI 318-19
+              22.6). Up to 20 local loads in total.
             </p>
-            {pointLoads.length > 0 && (
-              <div className="slabTableWrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>x m</th>
-                      <th>y m</th>
-                      <th>bx mm</th>
-                      <th>by mm</th>
-                      <th>PD kN</th>
-                      <th>PL kN</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pointLoads.map((p, k) => (
-                      <tr key={k}>
-                        <td>
-                          <input
-                            aria-label={`Point load ${k + 1} ID`}
-                            value={p.id}
-                            onChange={(e) =>
-                              update({
-                                ...input,
-                                pointLoads: pointLoads.map((a, n) =>
-                                  n === k ? { ...a, id: e.target.value } : a,
-                                ),
-                              })
-                            }
-                          />
-                        </td>
-                        {(["x", "y", "bx", "by", "dead", "live"] as const).map(
-                          (key) => (
-                            <td key={key}>
-                              <input
-                                aria-label={`${p.id} ${key}`}
-                                type="number"
-                                step="any"
-                                value={Number.isFinite(p[key]) ? p[key] : ""}
-                                onChange={(e) =>
-                                  update({
-                                    ...input,
-                                    pointLoads: pointLoads.map((a, n) =>
-                                      n === k
-                                        ? {
-                                            ...a,
-                                            [key]:
+            {localLoadKinds.map((kind) => {
+              const cols = localLoadColumns[kind],
+                rows = pointLoads
+                  .map((p, k) => ({ p, k }))
+                  .filter(({ p }) => (p.kind ?? "point") === kind);
+              return (
+                <div key={kind} className="slabLocalLoads">
+                  <h3>
+                    <span
+                      aria-hidden="true"
+                      style={{ color: loadStyles[kind].stroke }}
+                    >
+                      ■
+                    </span>{" "}
+                    {loadStyles[kind].label}s
+                  </h3>
+                  {rows.length > 0 && (
+                    <div className="slabTableWrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>ID</th>
+                            {cols.map((c) => (
+                              <th key={c.key}>{c.label}</th>
+                            ))}
+                            <th>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.map(({ p, k }) => (
+                            <tr key={k}>
+                              <td>
+                                <input
+                                  aria-label={`${loadStyles[kind].label} ${k + 1} ID`}
+                                  value={p.id}
+                                  onChange={(e) =>
+                                    editLocalLoad(k, { id: e.target.value })
+                                  }
+                                />
+                              </td>
+                              {cols.map((c) => {
+                                const value = (p as Record<string, unknown>)[
+                                  c.key
+                                ];
+                                return (
+                                  <td key={c.key}>
+                                    {c.key === "direction" ? (
+                                      <select
+                                        aria-label={`${p.id} direction`}
+                                        value={String(value)}
+                                        onChange={(e) =>
+                                          editLocalLoad(k, {
+                                            direction: e.target.value,
+                                          })
+                                        }
+                                      >
+                                        <option>X</option>
+                                        <option>Y</option>
+                                      </select>
+                                    ) : (
+                                      <input
+                                        aria-label={`${p.id} ${c.key}`}
+                                        type="number"
+                                        step="any"
+                                        value={
+                                          Number.isFinite(value as number)
+                                            ? (value as number)
+                                            : ""
+                                        }
+                                        onChange={(e) =>
+                                          editLocalLoad(k, {
+                                            [c.key]:
                                               e.target.value === ""
                                                 ? NaN
                                                 : Number(e.target.value),
-                                          }
-                                        : a,
-                                    ),
-                                  })
-                                }
-                              />
-                            </td>
-                          ),
-                        )}
-                        <td>
-                          <button
-                            onClick={() =>
-                              update({
-                                ...input,
-                                pointLoads: pointLoads.filter(
-                                  (_, n) => n !== k,
-                                ),
-                              })
-                            }
-                          >
-                            Remove
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            <button
-              className="suiteSecondary"
-              disabled={pointLoads.length >= 20}
-              onClick={() => {
-                let n = pointLoads.length + 1;
-                while (pointLoads.some((p) => p.id === `P${n}`)) n++;
-                update({
-                  ...input,
-                  pointLoads: [
-                    ...pointLoads,
-                    {
-                      id: `P${n}`,
-                      x: Number.isFinite(input.lx) ? input.lx / 2 : 1,
-                      y: Number.isFinite(input.ly) ? input.ly / 2 : 1,
-                      bx: 300,
-                      by: 300,
-                      dead: 10,
-                      live: 0,
-                    },
-                  ],
-                });
-              }}
-            >
-              ＋ Point Load
-            </button>
+                                          })
+                                        }
+                                      />
+                                    )}
+                                  </td>
+                                );
+                              })}
+                              <td>
+                                <button
+                                  onClick={() =>
+                                    update({
+                                      ...input,
+                                      pointLoads: pointLoads.filter(
+                                        (_, n) => n !== k,
+                                      ),
+                                    })
+                                  }
+                                >
+                                  Remove
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <button
+                    className="suiteSecondary"
+                    disabled={pointLoads.length >= 20}
+                    onClick={() => addLocalLoad(kind)}
+                  >
+                    ＋ {loadStyles[kind].label}
+                  </button>
+                </div>
+              );
+            })}
             {r && (
               <>
                 <h3>Analysis Method</h3>
@@ -1423,7 +1595,7 @@ export function SlabWorkspace({
               </tbody>
             </table>
           </div>
-          <h3>One-Way Shear Checks At d From Idealized Support Line</h3>
+          <h3>One-Way Shear Checks At d From Beam Face</h3>
           {r.shear.some((v) => v.concentratedWithinD) && (
             <p className="slabMuted">
               Edges marked “support” carry a point load within d and are checked
@@ -1589,6 +1761,7 @@ export function SlabWorkspace({
       )}
       {r ? (
         <DesignReviewPanel
+          module="slab"
           checks={slabDesignChecks(input, r)}
           policy={policy}
           remarks={remarks}
