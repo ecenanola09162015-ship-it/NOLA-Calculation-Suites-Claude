@@ -283,3 +283,103 @@ describe("Materials tie flows into the estimate", () => {
     expect(c.dcr).toBeCloseTo(sum / 1.5, 9);
   });
 });
+
+describe("separate tie arrangement outside lo (SMF)", () => {
+  // Same 500×500 column. lo zone: hoop + 2 cross-ties each way = 4 legs.
+  // Outside lo: hoop only = 2 legs each way (Av = 2·78.54 = 157.08 mm²).
+  // Ash within lo is unchanged: provided 314.16 mm², ratio 0.0083447 (Table 18.7.5.4a).
+  // Mid-height shear along y at the adopted s: Vs = Av fyt d / s
+  //   = 157.08 · 420 · 395.83 / s (22.5.8.5.3).
+  // Lateral support outside lo: face bars at ±62.5 are unsupported; clear
+  //   distance to the corner bar = 125 − 25 = 100 mm ≤ 150 (25.7.2.3) ⇒ DCR 0.667.
+  const smfMid = tie({
+    confinement: {
+      ...defaultColumnTieDesign(input, 3000).confinement,
+      enabled: true,
+      frame: "SMF",
+    },
+    tie: {
+      ...tie().tie,
+      midInteriorX: 0,
+      midInteriorY: 0,
+    },
+  });
+  it("mid-zone legs drive Av outside lo; lo-zone Ash is unchanged", () => {
+    const r = designColumnTransverse(input, smfMid);
+    expect(r.midSeparate).toBe(true);
+    expect(r.layout.legsX).toBe(4);
+    expect(r.layoutMid.legsX).toBe(2);
+    expect(r.layoutMid.legsY).toBe(2);
+    expect(r.sectionsMid.y.av).toBeCloseTo(157.08, 2);
+    expect(r.ash[0]!.provided).toBeCloseTo(314.159, 3);
+    expect(r.ash[0]!.ratio).toBeCloseTo(0.0083447, 6);
+    const mid = r.shear.find((c) => c.zone === "mid" && c.dir === "y")!;
+    expect(mid.vs).toBeCloseTo(
+      (157.0796 * 420 * 395.8333) / r.adopted.sMid / 1000,
+      2,
+    );
+    const end = r.shear.find((c) => c.zone === "end" && c.dir === "y")!;
+    expect(end.vs).toBeCloseTo(
+      (314.1593 * 420 * 395.8333) / r.adopted.sEnd / 1000,
+      2,
+    );
+    const sup = r.checks.find((c) => c.id === "ties:support-mid")!;
+    expect(sup.dcr).toBeCloseTo(100 / 150, 6);
+  });
+  it("is ignored without lo zones and when confinement is full height", () => {
+    const plain = designColumnTransverse(input, {
+      ...tie(),
+      tie: { ...tie().tie, midInteriorX: 0, midInteriorY: 0 },
+    });
+    expect(plain.midSeparate).toBe(false);
+    expect(plain.layoutMid.legsX).toBe(4);
+    const full = designColumnTransverse(input, {
+      ...smfMid,
+      override: { ...smfMid.override, lo: 1500 },
+    });
+    expect(full.fullHeight).toBe(true);
+    expect(full.midSeparate).toBe(false);
+  });
+  it("adopt writes the mid arrangement to the middle zone only", () => {
+    const r = designColumnTransverse(input, smfMid);
+    const next = adoptTieDesignToQuantity(
+      { ...defaultColumnQuantity(10), enabled: true, height: 3500, beamDepth: 500 },
+      smfMid.tie,
+      r,
+    );
+    expect(next.zones.map((z) => [z.name, z.legsX, z.legsY])).toEqual([
+      ["Lower lo zone", 4, 4],
+      ["Middle zone", 2, 2],
+      ["Upper lo zone", 4, 4],
+      ["Beam-column joint", 4, 4],
+    ]);
+    expect(estimateColumnQuantity(input, next)).not.toBeNull();
+  });
+  it("rejects negative or fractional counts and notes counts above the bars available", () => {
+    expect(() =>
+      designColumnTransverse(input, {
+        ...tie(),
+        tie: { ...tie().tie, interiorX: -1 },
+      }),
+    ).toThrow();
+    expect(() =>
+      designColumnTransverse(input, {
+        ...tie(),
+        tie: { ...tie().tie, interiorY: 1.5 },
+      }),
+    ).toThrow();
+    expect(() =>
+      designColumnTransverse(input, {
+        ...smfMid,
+        tie: { ...smfMid.tie, midInteriorX: -2 },
+      }),
+    ).toThrow();
+    const r = designColumnTransverse(input, {
+      ...tie(),
+      tie: { ...tie().tie, interiorX: 5 },
+    });
+    expect(r.layout.availableX).toBe(2);
+    expect(r.layout.crossX).toHaveLength(2);
+    expect(r.notes.join(" ")).toContain("only 2 / 2 interior bar pairs");
+  });
+});

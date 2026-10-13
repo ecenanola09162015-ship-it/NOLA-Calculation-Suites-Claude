@@ -14,6 +14,7 @@ import type {
   SlabResolvedBar,
 } from "@nola/calc-core";
 import type { ReportFigure } from "./data";
+import { OVERRIDE_COLOR } from "../override-style";
 const teal = defaultReportStyle.colors.teal;
 const svg = (
   body: string,
@@ -22,8 +23,8 @@ const svg = (
   h = 175,
 ) =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" fill="${style.colors.white}"/><g font-family="${style.fontFamily.replaceAll('"', "").replaceAll("<", "").replaceAll(">", "")},Arial,sans-serif" font-size="${style.diagramFontSize}" fill="${style.colors.text}">${body}</g></svg>`;
-const text = (x: number, y: number, s: string) =>
-  `<text x="${x}" y="${y}">${s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</text>`;
+const text = (x: number, y: number, s: string, fill?: string) =>
+  `<text x="${x}" y="${y}"${fill ? ` fill="${fill}" font-weight="bold"` : ""}>${s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</text>`;
 const line = (
   x1: number,
   y1: number,
@@ -277,8 +278,14 @@ export function columnTieElevationFigure(
   clearHeight: number,
   d: TransverseResult,
   style: ReportStyle = defaultReportStyle,
+  /** Overridden values are labelled in the override colour. */
+  overridden: { lo?: boolean; sEnd?: boolean; sMid?: boolean } = {},
 ): ReportFigure {
   const { lo, sEnd, sMid } = d.adopted;
+  const ovc = (...k: (keyof typeof overridden)[]) =>
+    k.some((x) => overridden[x]) ? OVERRIDE_COLOR : undefined;
+  const tag = (...k: (keyof typeof overridden)[]) =>
+    k.some((x) => overridden[x]) ? " (override)" : "";
   const ink = style.colors.text,
     end = style.colors.gold,
     H = 130,
@@ -302,24 +309,27 @@ export function columnTieElevationFigure(
     ties(lo, clearHeight - lo, sMid, teal);
     ties(clearHeight - lo, clearHeight, sEnd, end);
   }
-  body += text(
-    120,
-    top + 10,
-    confined
-      ? full
-        ? `Full height @ ${sEnd}`
-        : `lo ${lo} @ ${sEnd}`
-      : `@ ${sMid}`,
-  );
+  body += confined
+    ? full
+      ? text(120, top + 10, `Full height @ ${sEnd}${tag("sEnd")}`, ovc("sEnd"))
+      : text(120, top + 10, `lo ${lo} @ ${sEnd}${tag("lo", "sEnd")}`, ovc("lo", "sEnd"))
+    : text(120, top + 10, `@ ${sMid}${tag("sMid")}`, ovc("sMid"));
   if (confined && !full) {
-    body += text(120, top + H / 2, `@ ${sMid}`);
-    body += text(120, top + H - 4, `lo ${lo} @ ${sEnd}`);
+    body += text(120, top + H / 2, `@ ${sMid}${tag("sMid")}`, ovc("sMid"));
+    body += text(
+      120,
+      top + H - 4,
+      `lo ${lo} @ ${sEnd}${tag("lo", "sEnd")}`,
+      ovc("lo", "sEnd"),
+    );
   }
   body += text(8, top + H / 2, `lu ${clearHeight}`);
   body += text(
     8,
     168,
-    `Legs ${d.layout.legsX} x ${d.layout.legsY}; hx ${d.layout.hx.toFixed(0)} mm`,
+    d.midSeparate
+      ? `Legs in lo ${d.layout.legsX} x ${d.layout.legsY}; outside ${d.layoutMid.legsX} x ${d.layoutMid.legsY}`
+      : `Legs ${d.layout.legsX} x ${d.layout.legsY}; hx ${d.layout.hx.toFixed(0)} mm`,
   );
   return {
     title: confined
@@ -329,13 +339,18 @@ export function columnTieElevationFigure(
   };
 }
 
-/** Tie arrangement at the lo zone (hoop, cross-ties, bars) with spacing. */
+/**
+ * Tie arrangement (hoop, cross-ties, bars) with spacing: the lo zone, or
+ * the arrangement outside lo when a separate one is used.
+ */
 export function columnTieSectionFigure(
   i: RectangularColumnInput,
   d: TransverseResult,
   tieDiameter: number,
   style: ReportStyle = defaultReportStyle,
+  zone: "lo" | "mid" = "lo",
 ): ReportFigure {
+  const lay = zone === "mid" ? d.layoutMid : d.layout;
   const { primary: blue, text: ink } = style.colors;
   const tie = style.colors.gold;
   const scale = 112 / Math.max(i.width, i.depth);
@@ -346,9 +361,9 @@ export function columnTieSectionFigure(
   const tw = Math.max(1, tieDiameter * scale);
   let body = `<rect x="${X(-i.width / 2)}" y="${Y(i.depth / 2)}" width="${i.width * scale}" height="${i.depth * scale}" fill="${style.colors.tint}" stroke="${ink}" stroke-width="0.6"/>`;
   body += `<rect x="${X(-hw)}" y="${Y(hd)}" width="${2 * hw * scale}" height="${2 * hd * scale}" rx="${3}" fill="none" stroke="${tie}" stroke-width="${tw}"/>`;
-  for (const y of d.layout.crossX)
+  for (const y of lay.crossX)
     body += line(X(-hw), Y(y), X(hw), Y(y), tie, tw);
-  for (const x of d.layout.crossY)
+  for (const x of lay.crossY)
     body += line(X(x), Y(hd), X(x), Y(-hd), tie, tw);
   body += i.bars
     .map(
@@ -356,19 +371,28 @@ export function columnTieSectionFigure(
         `<circle cx="${X(b.x)}" cy="${Y(b.y)}" r="${Math.max(1.2, (b.diameter * scale) / 2)}" fill="${blue}"/>`,
     )
     .join("");
-  const s = d.seismic ? d.adopted.sEnd : d.adopted.sMid;
+  const s = d.seismic && zone === "lo" ? d.adopted.sEnd : d.adopted.sMid;
   body += text(
     8,
     156,
-    `${d.layout.legsX} legs ∥X, ${d.layout.legsY} legs ∥Y; hx ${d.layout.hx.toFixed(0)} mm`,
+    `${lay.legsX} legs ∥X, ${lay.legsY} legs ∥Y; hx ${lay.hx.toFixed(0)} mm`,
   );
   body += text(
     8,
     168,
-    d.seismic ? `Within lo = ${d.adopted.lo} mm: s = ${s} mm` : `s = ${s} mm`,
+    zone === "mid"
+      ? `Outside lo: s = ${s} mm`
+      : d.seismic
+        ? `Within lo = ${d.adopted.lo} mm: s = ${s} mm`
+        : `s = ${s} mm`,
   );
   return {
-    title: d.seismic ? "Tie Section Within lo" : "Tie Section",
+    title:
+      zone === "mid"
+        ? "Tie Section Outside lo"
+        : d.seismic
+          ? "Tie Section Within lo"
+          : "Tie Section",
     svg: svg(body, style),
   };
 }

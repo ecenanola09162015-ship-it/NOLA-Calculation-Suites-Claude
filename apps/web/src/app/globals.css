@@ -2957,3 +2957,90 @@ select {
   background: #b3261e;
   border-color: #b3261e;
 }
+
+/* Designer overrides: one colour everywhere (see lib/override-style.ts). */
+.isOverride input,
+label.isOverride input {
+  border-color: #7c3aed !important;
+  box-shadow: 0 0 0 1px #7c3aed;
+  color: #5b21b6;
+  font-weight: 700;
+}
+.overrideBadge,
+.overrideTag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid #7c3aed;
+  border-radius: 4px;
+  background: #f3edff;
+  color: #6d28d9;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+}
+.cqSummary .isOverride {
+  border: 1px solid #7c3aed;
+  background: #f7f3ff;
+}
+.cqSummary .isOverride strong {
+  color: #6d28d9;
+}
+.cqSummary .overrideTag {
+  display: block;
+  width: fit-content;
+  margin: 4px 0 0;
+}
+.overrideNote {
+  color: #6d28d9;
+  font-weight: 600;
+}
+.overrideLegend {
+  font-size: 12px;
+  color: #475467;
+}
+.midArrangement {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px dashed #9cc7cb;
+  border-radius: 8px;
+}
+.crossTieField .crossTieLegs {
+  display: block;
+  font-size: 11px;
+  margin-top: 4px;
+}
+.fieldError {
+  display: block;
+  margin-top: 4px;
+  color: #b3261e;
+  font-size: 11px;
+  font-weight: 600;
+}
+.crossTieField input[aria-invalid="true"] {
+  border-color: #b3261e;
+}
+.cqDrawings figure > .crossTieField {
+  display: block;
+  max-width: 280px;
+  margin: 6px 0 4px;
+}
+
+/* Review tables inside panels 05 / 06: the panel's auto-width table rule
+   must not collapse the fixed 35/35/10/20 columns. */
+.cqPanel .designReviewPanel {
+  border: none;
+  padding: 0;
+  margin: 16px 0 0;
+  background: transparent;
+}
+.cqPanel .designReviewPanel .rcTableWrap {
+  overflow-x: auto;
+}
+.cqPanel .designReviewPanel table {
+  width: 100%;
+  min-width: 560px;
+  max-width: none;
+  table-layout: fixed;
+  font-size: 12px;
+}

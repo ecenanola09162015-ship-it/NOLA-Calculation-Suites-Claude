@@ -5,7 +5,9 @@ import type {
   RectangularColumnInput,
   TransverseResult,
 } from "@nola/calc-core";
+import { useState } from "react";
 import { ColumnTieSection } from "./column-tie-section";
+import { OVERRIDE_COLOR, OVERRIDE_LEGEND } from "../lib/override-style";
 import { DesignReviewPanel, DesignStatus } from "./design-review-panel";
 import { NumberField, fmt } from "./column-ui";
 import {
@@ -31,28 +33,116 @@ type Props = {
 };
 
 /** Zone-like object so the estimate's section drawing can be reused. */
-function designZone(value: ColumnTieDesignInput, design: TransverseResult) {
+function designZone(
+  value: ColumnTieDesignInput,
+  design: TransverseResult,
+  zone: "lo" | "mid" = "lo",
+) {
+  const lay = zone === "mid" ? design.layoutMid : design.layout;
   return {
-    name: "Design",
+    name: zone === "mid" ? "Outside lo" : "Design",
     start: 0,
     end: 1,
-    spacing: design.adopted.sEnd,
+    spacing: zone === "mid" ? design.adopted.sMid : design.adopted.sEnd,
     diameter: value.tie.diameter,
     fy: value.tie.fyt,
     hoops: 1,
-    legsX: design.layout.legsX,
-    legsY: design.layout.legsY,
-    crossXPositions: design.layout.crossX,
-    crossYPositions: design.layout.crossY,
+    legsX: lay.legsX,
+    legsY: lay.legsY,
+    crossXPositions: lay.crossX,
+    crossYPositions: lay.crossY,
   };
 }
+
+/** Why a typed cross-tie count is rejected, or "" when it is valid. */
+export function crossTieError(raw: string, max?: number) {
+  const v = Number(raw);
+  if (raw.trim() === "" || !Number.isFinite(v))
+    return "Enter a whole number (0 or more).";
+  if (v < 0) return "Cross-ties cannot be negative.";
+  if (!Number.isInteger(v)) return "Cross-ties must be a whole number.";
+  if (max !== undefined && v > max)
+    return `Only ${max} interior bar pair${max === 1 ? "" : "s"} can be engaged on this face (25.7.2.3).`;
+  return "";
+}
+
+/**
+ * Whole number of interior cross-ties, 0 … the number of interior bar pairs
+ * a cross-tie can engage (25.7.2.3). Invalid entries are not passed on; the
+ * last valid count stays in force and the reason is shown.
+ */
+export function CrossTieField({
+  label,
+  value,
+  max,
+  onChange,
+  legs,
+}: {
+  label: string;
+  value: number;
+  /** Interior bar pairs available; undefined before the first design. */
+  max?: number;
+  onChange: (v: number) => void;
+  /** Resulting leg count text, e.g. "→ 5 legs ∥ X (2 hoop + 3 cross-ties)". */
+  legs?: string;
+}) {
+  const [text, setText] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const shown = text ?? String(value);
+  return (
+    <label className="crossTieField">
+      {label}
+      <input
+        type="number"
+        inputMode="numeric"
+        min={0}
+        max={max}
+        step={1}
+        aria-invalid={!!error}
+        value={shown}
+        onChange={(e) => {
+          const raw = e.target.value;
+          setText(raw);
+          const problem = crossTieError(raw, max);
+          if (problem) return setError(problem);
+          setError("");
+          setText(null);
+          onChange(Number(raw));
+        }}
+        onBlur={() => {
+          setText(null);
+          setError("");
+        }}
+      />
+      {error ? (
+        <span className="fieldError" role="alert">
+          {error} Keeping {value}.
+        </span>
+      ) : legs ? (
+        <span className="rcMuted crossTieLegs">{legs}</span>
+      ) : null}
+    </label>
+  );
+}
+
+const legsText = (axis: "X" | "Y", legs: number | undefined) =>
+  legs === undefined
+    ? undefined
+    : `→ ${legs} legs ∥ ${axis} (2 hoop + ${legs - 2} cross-tie${legs - 2 === 1 ? "" : "s"})`;
 
 function TieArrangementFields({
   value,
   onChange,
   standard,
-}: Pick<Props, "value" | "onChange"> & { standard: RebarStandard }) {
-  const tie = (k: keyof ColumnTieDesignInput["tie"], v: number) =>
+  design,
+  showCounts = true,
+}: Pick<Props, "value" | "onChange"> & {
+  standard: RebarStandard;
+  design: TransverseResult | null;
+  /** Panel 05 puts the counts inside the Vux / Vuy cards instead. */
+  showCounts?: boolean;
+}) {
+  const tie = (k: "interiorX" | "interiorY", v: number) =>
     onChange({ ...value, tie: { ...value.tie, [k]: v } });
   return (
     <div className="rcFields">
@@ -61,16 +151,79 @@ function TieArrangementFields({
         {rebarGradeLabel(standard, value.tie.fyt, value.tie.gradeId)} (fyt{" "}
         {value.tie.fyt} MPa) from Section &amp; Materials.
       </p>
-      <NumberField
-        label="Interior cross-ties ∥ X"
-        value={value.tie.interiorX}
-        onChange={(v) => tie("interiorX", v)}
-      />
-      <NumberField
-        label="Interior cross-ties ∥ Y"
-        value={value.tie.interiorY}
-        onChange={(v) => tie("interiorY", v)}
-      />
+      {showCounts ? (
+        <>
+          <CrossTieField
+            label={`Interior cross-ties ∥ X — resist Vux${design?.seismic ? " (lo zone)" : ""}`}
+            value={value.tie.interiorX}
+            max={design?.layout.availableX}
+            legs={legsText("X", design?.layout.legsX)}
+            onChange={(v) => tie("interiorX", v)}
+          />
+          <CrossTieField
+            label={`Interior cross-ties ∥ Y — resist Vuy${design?.seismic ? " (lo zone)" : ""}`}
+            value={value.tie.interiorY}
+            max={design?.layout.availableY}
+            legs={legsText("Y", design?.layout.legsY)}
+            onChange={(v) => tie("interiorY", v)}
+          />
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Optional arrangement outside lo (seismic frames). Inside lo the lo-zone
+ * counts (panel 05 / above) govern Ash, hx and so (18.7.5.2–18.7.5.4);
+ * outside lo, 18.7.5.5, 25.7.2 and shear (22.5) govern.
+ */
+function MidArrangementFields({
+  value,
+  onChange,
+  design,
+}: Pick<Props, "value" | "onChange"> & { design: TransverseResult }) {
+  const on =
+    value.tie.midInteriorX != null || value.tie.midInteriorY != null;
+  const set = (next: Partial<ColumnTieDesignInput["tie"]>) =>
+    onChange({ ...value, tie: { ...value.tie, ...next } });
+  return (
+    <div className="midArrangement">
+      <label className="rcCheckbox">
+        <input
+          type="checkbox"
+          checked={on}
+          onChange={(e) =>
+            set(
+              e.target.checked
+                ? {
+                    midInteriorX: value.tie.interiorX,
+                    midInteriorY: value.tie.interiorY,
+                  }
+                : { midInteriorX: null, midInteriorY: null },
+            )
+          }
+        />
+        <span>Different tie arrangement outside lo (18.7.5.5)</span>
+      </label>
+      {on ? (
+        <div className="rcFields">
+          <CrossTieField
+            label="Outside lo: cross-ties ∥ X — resist Vux"
+            value={value.tie.midInteriorX ?? value.tie.interiorX}
+            max={design.layoutMid.availableX}
+            legs={legsText("X", design.layoutMid.legsX)}
+            onChange={(v) => set({ midInteriorX: v })}
+          />
+          <CrossTieField
+            label="Outside lo: cross-ties ∥ Y — resist Vuy"
+            value={value.tie.midInteriorY ?? value.tie.interiorY}
+            max={design.layoutMid.availableY}
+            legs={legsText("Y", design.layoutMid.legsY)}
+            onChange={(v) => set({ midInteriorY: v })}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -214,6 +367,33 @@ function ShearDirectionFigure({
   );
 }
 
+/** Label that wraps after the first " · " so long override notes stay legible. */
+function OverrideText({
+  x,
+  y,
+  fill,
+  text,
+  bold,
+}: {
+  x: number;
+  y: number;
+  fill: string;
+  text: string;
+  bold: boolean;
+}) {
+  const [first, ...rest] = text.split(" · override");
+  return (
+    <text x={x} y={y} fontSize="11" fill={fill} fontWeight={bold ? 700 : 400}>
+      <tspan>{first}</tspan>
+      {rest.length ? (
+        <tspan x={x} dy="13" fontSize="10">
+          override{rest.join(" · override")}
+        </tspan>
+      ) : null}
+    </text>
+  );
+}
+
 function ElevationFigure({
   value,
   design,
@@ -241,9 +421,22 @@ function ElevationFigure({
   }
   const end = "#b45309",
     mid = "#007f86";
+  const o = value.override;
+  const endOv = o.lo !== null || o.sEnd !== null;
+  const midOv = o.sMid !== null;
+  const endLabel = (`lo = ${lo} · s = ${sEnd}` +
+    (endOv
+      ? ` · override (rec. ${o.lo !== null ? `lo ${design.recommended.lo}` : ""}${o.lo !== null && o.sEnd !== null ? ", " : ""}${o.sEnd !== null ? `s ${design.recommended.sEnd}` : ""})`
+      : ""));
+  const midLabel =
+    `s = ${sMid}` +
+    (midOv ? ` · override (recommended ${design.recommended.sMid})` : "") +
+    (design.midSeparate
+      ? ` · ${design.layoutMid.legsX}×${design.layoutMid.legsY} legs`
+      : "");
   return (
     <svg
-      viewBox="0 0 300 370"
+      viewBox="0 0 380 370"
       role="img"
       aria-label={`Column elevation: lo ${lo} mm at each end at ${sEnd} mm, middle at ${sMid} mm, clear height ${lu} mm`}
     >
@@ -314,20 +507,36 @@ function ElevationFigure({
             stroke={end}
           />
           <path d={`M140 ${Y(lo)}V${top + H}M136 ${Y(lo)}h8`} stroke={end} />
-          <text x="148" y={top + (lo * S) / 2 + 4} fontSize="11" fill={end}>
-            lo = {lo} · s = {sEnd}
-          </text>
-          <text x="148" y={top + H / 2 + 4} fontSize="11" fill={mid}>
-            s = {sMid}
-          </text>
-          <text x="148" y={top + H - (lo * S) / 2 + 4} fontSize="11" fill={end}>
-            lo = {lo} · s = {sEnd}
-          </text>
+          <OverrideText
+            x={148}
+            y={top + (lo * S) / 2 + 4}
+            fill={endOv ? OVERRIDE_COLOR : end}
+            text={endLabel}
+            bold={endOv}
+          />
+          <OverrideText
+            x={148}
+            y={top + H / 2 + 4}
+            fill={midOv ? OVERRIDE_COLOR : mid}
+            text={midLabel}
+            bold={midOv}
+          />
+          <OverrideText
+            x={148}
+            y={top + H - (lo * S) / 2 + 4}
+            fill={endOv ? OVERRIDE_COLOR : end}
+            text={endLabel}
+            bold={endOv}
+          />
         </>
       ) : (
-        <text x="148" y={top + H / 2} fontSize="11" fill={end}>
-          Full height · s = {sEnd}
-        </text>
+        <OverrideText
+          x={148}
+          y={top + H / 2}
+          fill={endOv ? OVERRIDE_COLOR : end}
+          text={`Full height · s = ${sEnd}${endOv ? " · override" : ""}`}
+          bold={endOv}
+        />
       )}
       <text x="10" y="362" fontSize="10">
         Clear height between joint faces; joints shaded (18.8.3)
@@ -399,12 +608,16 @@ function SpacingOverrides({
     },
   };
   const shown = keys.filter((k) => field[k].show);
+  // Every active override (including ones set in the other panel).
+  const active = (Object.keys(field) as OverrideKey[]).filter(
+    (k) => field[k].show && o[k] !== null,
+  );
   if (!shown.length) return null;
   return (
     <div className="spacingOverrides">
       <div className="rcFields">
         {shown.map((k) => (
-          <label key={k}>
+          <label key={k} className={o[k] !== null ? "isOverride" : ""}>
             {field[k].label}
             <span className="rcUnit">{field[k].unit}</span>
             <span className="rebarCustom">
@@ -420,7 +633,9 @@ function SpacingOverrides({
               />
               {o[k] !== null ? (
                 <>
-                  <em className="customBadge">Override</em>
+                  <em className="overrideBadge">
+                    Override · rec. {field[k].rec}
+                  </em>
                   <button
                     type="button"
                     className="linkButton"
@@ -436,8 +651,21 @@ function SpacingOverrides({
       </div>
       <p className="rcMuted">
         Blank uses the recommended value (rounded down to 25 mm for spacing).
-        Overrides are re-checked immediately in this panel’s checks.
+        Overrides are re-checked immediately. Spacing overrides are shared by
+        panels 05 and 06.
       </p>
+      {active.length ? (
+        <p className="overrideNote" role="status">
+          Active designer overrides:{" "}
+          {active
+            .map(
+              (k) =>
+                `${field[k].label} ${o[k]} ${field[k].unit} (recommended ${field[k].rec})`,
+            )
+            .join("; ")}
+          .
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -470,6 +698,8 @@ export function ColumnShearPanel(props: Props) {
             value={value}
             onChange={onChange}
             standard={input.rebarStandard ?? "PNS49"}
+            design={design}
+            showCounts={!design}
           />
           {error ? <p className="rcAlert">{error}</p> : null}
           {design ? (
@@ -482,16 +712,44 @@ export function ColumnShearPanel(props: Props) {
           ) : null}
           {design ? (
             <>
+              {/* Each count sits in the card of the shear it resists: legs ∥ X
+                  carry Vux, legs ∥ Y carry Vuy (22.5.8.5). */}
               <div className="cqDrawings">
                 <figure>
-                  <figcaption>Vuy (along y) · pairs with Mux</figcaption>
-                  <ShearDirectionFigure input={input} design={design} dir="y" />
-                </figure>
-                <figure>
                   <figcaption>Vux (along x) · pairs with Muy</figcaption>
+                  <CrossTieField
+                    label={`Interior cross-ties ∥ X — resist Vux${design.seismic ? " (lo zone)" : ""}`}
+                    value={value.tie.interiorX}
+                    max={design.layout.availableX}
+                    legs={legsText("X", design.layout.legsX)}
+                    onChange={(v) =>
+                      onChange({ ...value, tie: { ...value.tie, interiorX: v } })
+                    }
+                  />
                   <ShearDirectionFigure input={input} design={design} dir="x" />
                 </figure>
+                <figure>
+                  <figcaption>Vuy (along y) · pairs with Mux</figcaption>
+                  <CrossTieField
+                    label={`Interior cross-ties ∥ Y — resist Vuy${design.seismic ? " (lo zone)" : ""}`}
+                    value={value.tie.interiorY}
+                    max={design.layout.availableY}
+                    legs={legsText("Y", design.layout.legsY)}
+                    onChange={(v) =>
+                      onChange({ ...value, tie: { ...value.tie, interiorY: v } })
+                    }
+                  />
+                  <ShearDirectionFigure input={input} design={design} dir="y" />
+                </figure>
               </div>
+              {design.midSeparate ? (
+                <p className="rcMuted">
+                  Drawings show the lo-zone arrangement. Outside lo:{" "}
+                  {design.layoutMid.legsX} legs ∥ X, {design.layoutMid.legsY}{" "}
+                  legs ∥ Y (set in panel 06); mid-height shear rows use those
+                  legs.
+                </p>
+              ) : null}
               <DesignReviewPanel
                 title="Shear Checks"
                 compact
@@ -647,6 +905,7 @@ export function ColumnConfinementPanel(props: Props) {
               value={value}
               onChange={onChange}
               standard={input.rebarStandard ?? "PNS49"}
+              design={design}
             />
           ) : (
             <p className="rcMuted">
@@ -655,10 +914,14 @@ export function ColumnConfinementPanel(props: Props) {
                 input.rebarStandard ?? "PNS49",
                 value.tie.diameter,
               )}{" "}
-              from Section &amp; Materials; {value.tie.interiorX} /{" "}
-              {value.tie.interiorY} interior cross-ties set in panel 05.
+              from Section &amp; Materials; {value.tie.interiorX} ∥ X /{" "}
+              {value.tie.interiorY} ∥ Y interior cross-ties
+              {design?.seismic ? " in lo" : ""} set in panel 05.
             </p>
           )}
+          {design?.seismic && !design.fullHeight ? (
+            <MidArrangementFields value={value} onChange={onChange} design={design} />
+          ) : null}
           {error ? <p className="rcAlert">{error}</p> : null}
           {design ? (
             <SpacingOverrides
@@ -671,8 +934,13 @@ export function ColumnConfinementPanel(props: Props) {
           {design ? (
             <>
               <div className="cqSummary">
-                <div>
+                <div className={value.override.lo !== null ? "isOverride" : ""}>
                   <strong>{design.adopted.lo || "—"} mm</strong>Zone length lo
+                  {value.override.lo !== null ? (
+                    <em className="overrideTag">
+                      override · recommended {design.recommended.lo}
+                    </em>
+                  ) : null}
                   <small>{design.loBasis}</small>
                 </div>
                 <div>
@@ -682,12 +950,26 @@ export function ColumnConfinementPanel(props: Props) {
                   </small>
                 </div>
                 {design.seismic ? (
-                  <div>
+                  <div
+                    className={
+                      value.override.veX !== null || value.override.veY !== null
+                        ? "isOverride"
+                        : ""
+                    }
+                  >
                     <strong>
                       {fmt(design.adopted.ve.x, 1)} /{" "}
                       {fmt(design.adopted.ve.y, 1)} kN
                     </strong>
-                    Ve x / y<small>{design.ve.basis}</small>
+                    Ve x / y
+                    {value.override.veX !== null ||
+                    value.override.veY !== null ? (
+                      <em className="overrideTag">
+                        override{value.override.veX !== null ? " x" : ""}
+                        {value.override.veY !== null ? " y" : ""}
+                      </em>
+                    ) : null}
+                    <small>{design.ve.basis}</small>
                   </div>
                 ) : null}
               </div>
@@ -697,10 +979,20 @@ export function ColumnConfinementPanel(props: Props) {
                   <ElevationFigure value={value} design={design} />
                 </figure>
                 <figure>
-                  <figcaption>
-                    Section · {design.layout.legsX} legs ∥ X,{" "}
-                    {design.layout.legsY} legs ∥ Y · hx ={" "}
-                    {fmt(design.layout.hx, 0)} mm
+                  <figcaption
+                    style={
+                      value.override.sEnd !== null
+                        ? { color: OVERRIDE_COLOR }
+                        : undefined
+                    }
+                  >
+                    Section{design.seismic ? " within lo" : ""} ·{" "}
+                    {design.layout.legsX} legs ∥ X, {design.layout.legsY} legs
+                    ∥ Y · hx = {fmt(design.layout.hx, 0)} mm · s ={" "}
+                    {design.seismic ? design.adopted.sEnd : design.adopted.sMid}
+                    {value.override.sEnd !== null && design.seismic
+                      ? " (override)"
+                      : ""}
                   </figcaption>
                   <ColumnTieSection
                     section={input}
@@ -709,7 +1001,32 @@ export function ColumnConfinementPanel(props: Props) {
                     color="#b45309"
                   />
                 </figure>
+                {design.midSeparate ? (
+                  <figure>
+                    <figcaption
+                      style={
+                        value.override.sMid !== null
+                          ? { color: OVERRIDE_COLOR }
+                          : undefined
+                      }
+                    >
+                      Section outside lo · {design.layoutMid.legsX} legs ∥ X,{" "}
+                      {design.layoutMid.legsY} legs ∥ Y · s ={" "}
+                      {design.adopted.sMid}
+                      {value.override.sMid !== null ? " (override)" : ""}
+                    </figcaption>
+                    <ColumnTieSection
+                      section={input}
+                      zone={designZone(value, design, "mid")}
+                      basis="aci135"
+                      color="#007f86"
+                    />
+                  </figure>
+                ) : null}
               </div>
+              <p className="overrideLegend">
+                <span style={{ color: OVERRIDE_COLOR }}>■</span> {OVERRIDE_LEGEND}
+              </p>
               {design.ash.length ? (
                 <div className="rcTableWrap">
                   <table>
@@ -856,23 +1173,46 @@ export function ColumnTieDesignSummary({
       </p>
       <div className="cqSummary">
         {design.seismic ? (
-          <div>
+          <div
+            className={
+              value.override.lo !== null || value.override.sEnd !== null
+                ? "isOverride"
+                : ""
+            }
+          >
             <strong>
               {design.adopted.lo} mm @ {design.adopted.sEnd}
             </strong>
             lo zones (each end + joint)
+            {value.override.lo !== null || value.override.sEnd !== null ? (
+              <em className="overrideTag">
+                override · recommended {design.recommended.lo} @{" "}
+                {design.recommended.sEnd}
+              </em>
+            ) : null}
           </div>
         ) : null}
-        <div>
+        <div className={value.override.sMid !== null ? "isOverride" : ""}>
           <strong>{design.adopted.sMid} mm</strong>
           {design.seismic ? "Outside lo" : "Full height"}
+          {value.override.sMid !== null ? (
+            <em className="overrideTag">
+              override · recommended {design.recommended.sMid}
+            </em>
+          ) : null}
         </div>
         <div>
           <strong>
             D{value.tie.diameter} · {design.layout.legsX}×{design.layout.legsY}{" "}
-            legs
+            legs{design.midSeparate ? " in lo" : ""}
           </strong>
           Hoop + cross-ties
+          {design.midSeparate ? (
+            <small>
+              Outside lo: {design.layoutMid.legsX}×{design.layoutMid.legsY}{" "}
+              legs
+            </small>
+          ) : null}
         </div>
       </div>
       {mismatch ? (

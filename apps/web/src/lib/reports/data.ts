@@ -1,3 +1,4 @@
+import { OVERRIDE_COLOR } from "../override-style";
 import {
   rebarDesignation,
   rebarGradeLabel,
@@ -138,6 +139,13 @@ export function columnReportData(
     t && tieDesign?.override[k] != null
       ? ` (designer override; recommended ${t.recommended[k]})`
       : "";
+  const overridden = {
+    lo: tieDesign?.override.lo != null,
+    sEnd: tieDesign?.override.sEnd != null,
+    sMid: tieDesign?.override.sMid != null,
+  };
+  const anyOverride =
+    !!t && (overridden.lo || overridden.sEnd || overridden.sMid);
   const checks = [...columnDesignChecks(result), ...columnTransverseChecks(t)];
   const slender = !!input.slenderness?.enabled;
   const shearOn = !!t && (!!tieDesign?.shear.enabled || t.seismic);
@@ -178,7 +186,10 @@ export function columnReportData(
       t && tieDesign
         ? [
             "Ties (Design)",
-            `${rebarDesignation(std, tieDesign.tie.diameter)} ${rebarGradeLabel(std, tieDesign.tie.fyt, tieDesign.tie.gradeId)} hoop + cross-ties, ${t.layout.legsX} x ${t.layout.legsY} legs; ${t.seismic ? `lo ${t.adopted.lo} mm${ov("lo")} @ ${t.adopted.sEnd}${ov("sEnd")}; outside lo @ ${t.adopted.sMid} mm${ov("sMid")}` : `@ ${t.adopted.sMid} mm${ov("sMid")}`}`,
+            {
+              text: `${rebarDesignation(std, tieDesign.tie.diameter)} ${rebarGradeLabel(std, tieDesign.tie.fyt, tieDesign.tie.gradeId)} hoop + cross-ties, ${t.layout.legsX} x ${t.layout.legsY} legs${t.midSeparate ? ` in lo, ${t.layoutMid.legsX} x ${t.layoutMid.legsY} outside lo` : ""}; ${t.seismic ? `lo ${t.adopted.lo} mm${ov("lo")} @ ${t.adopted.sEnd}${ov("sEnd")}; outside lo @ ${t.adopted.sMid} mm${ov("sMid")}` : `@ ${t.adopted.sMid} mm${ov("sMid")}`}`,
+              ...(anyOverride ? { color: OVERRIDE_COLOR } : {}),
+            },
           ]
         : [
             "Ties",
@@ -505,6 +516,7 @@ export function columnReportData(
               t.seismic ? tieDesign.confinement.clearHeight : 3000,
               t,
               project?.reportSettings?.style,
+              overridden,
             ),
             columnTieSectionFigure(
               input,
@@ -512,6 +524,17 @@ export function columnReportData(
               tieDesign.tie.diameter,
               project?.reportSettings?.style,
             ),
+            ...(t.midSeparate
+              ? [
+                  columnTieSectionFigure(
+                    input,
+                    t,
+                    tieDesign.tie.diameter,
+                    project?.reportSettings?.style,
+                    "mid",
+                  ),
+                ]
+              : []),
           ]
         : []),
     ].filter((x): x is ReportFigure => !!x),
