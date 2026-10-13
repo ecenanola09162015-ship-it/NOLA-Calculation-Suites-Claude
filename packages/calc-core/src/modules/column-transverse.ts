@@ -667,7 +667,7 @@ export function designColumnTransverse(
           id: `shear:${zone}:${dir}`,
           label: `Shear V${dir === "x" ? "ux" : "uy"} · ${zoneLabel(zone)} (${g.load})`,
           dcr: g.dcr,
-          detail: `Vu ${g.vu.toFixed(1)} kN; Vc ${g.vc.toFixed(1)}${g.vcZero ? " (Vc = 0, 18.7.6.2.1)" : ""}; Vs ${g.vs.toFixed(1)}; φVn ${g.phiVn.toFixed(1)} kN; ${secsFor(zone).find((x) => x.dir === dir)!.legs} legs; s = ${zone === "end" ? adopted.sEnd : adopted.sMid} mm`,
+          detail: `Vu ${g.vu.toFixed(1)} kN; φVn ${g.phiVn.toFixed(1)} kN\nVc ${g.vc.toFixed(1)}${g.vcZero ? " (Vc = 0, 18.7.6.2.1)" : ""}; Vs ${g.vs.toFixed(1)} kN\n${secsFor(zone).find((x) => x.dir === dir)!.legs} legs at s = ${zone === "end" ? adopted.sEnd : adopted.sMid} mm`,
           clause:
             "ACI 318-19 22.5.1.1; Vc Table 22.5.5.1; Vs 22.5.8.5.3; φ 0.75",
         });
@@ -688,8 +688,8 @@ export function designColumnTransverse(
         : "Biaxial shear (interaction not required)",
       dcr: biaxialShear.length ? bx / 1.5 : 0,
       detail: biaxialShear.length
-        ? `vux/φvnx + vuy/φvny = ${bx.toFixed(3)} ${bx <= 1.5 ? "≤" : ">"} 1.5 ⇒ DCR = Σ/1.5 = ${(bx / 1.5).toFixed(3)}. ${bx <= 1.5 ? "Satisfied." : "Reduce tie spacing or add legs."}`
-        : "Ratios do not both exceed 0.5: interaction may be neglected (22.5.1.10).",
+        ? `vux/φvnx + vuy/φvny = ${bx.toFixed(3)} ${bx <= 1.5 ? "≤" : ">"} 1.5\nDCR = Σ/1.5 = ${(bx / 1.5).toFixed(3)}\n${bx <= 1.5 ? "Satisfied." : "Reduce tie spacing or add legs."}`
+        : "Ratios do not both exceed 0.5:\ninteraction may be neglected (22.5.1.10).",
       clause: "ACI 318-19 22.5.1.10, 22.5.1.11",
     });
   }
@@ -746,7 +746,7 @@ export function designColumnTransverse(
     id: "ties:support",
     label: "Lateral support of bars (≤ 150 mm clear)",
     dcr: layout.maxUnsupportedClear / 150,
-    detail: `Max clear distance from an unsupported bar to a supported bar ${layout.maxUnsupportedClear.toFixed(0)} mm${midSeparate ? " (lo zone)" : ""}`,
+    detail: `Max clear distance from an unsupported bar\nto a supported bar ${layout.maxUnsupportedClear.toFixed(0)} mm${midSeparate ? " (lo zone)" : ""}`,
     clause: "ACI 318-19 25.7.2.3",
   });
   if (midSeparate)
@@ -754,7 +754,7 @@ export function designColumnTransverse(
       id: "ties:support-mid",
       label: "Lateral support of bars outside lo (≤ 150 mm clear)",
       dcr: layoutMid.maxUnsupportedClear / 150,
-      detail: `Outside lo: ${layoutMid.legsX} legs ∥ X, ${layoutMid.legsY} legs ∥ Y; max clear distance from an unsupported bar ${layoutMid.maxUnsupportedClear.toFixed(0)} mm`,
+      detail: `Outside lo: ${layoutMid.legsX} legs ∥ X, ${layoutMid.legsY} legs ∥ Y\nMax clear distance from an unsupported bar ${layoutMid.maxUnsupportedClear.toFixed(0)} mm`,
       clause: "ACI 318-19 25.7.2.3, 18.7.5.5",
     });
   if (frame === "SMF") {
@@ -763,7 +763,7 @@ export function designColumnTransverse(
         id: `ash:${r.dir}`,
         label: `Ash legs ∥ ${r.dir} (bc ${r.bc.toFixed(0)} mm)`,
         dcr: (r.ratio * adopted.sEnd * r.bc) / r.provided,
-        detail: `Required Ash/(s bc) ${r.ratio.toFixed(5)} = max(a ${r.terms.a.toFixed(5)}, b ${r.terms.b.toFixed(5)}${r.terms.c !== null ? `, c ${r.terms.c.toFixed(5)}` : ""}); provided ${r.provided.toFixed(0)} mm² at s ${adopted.sEnd}`,
+        detail: `Required Ash/(s bc) = ${r.ratio.toFixed(5)}\n= max(a ${r.terms.a.toFixed(5)}, b ${r.terms.b.toFixed(5)}${r.terms.c !== null ? `, c ${r.terms.c.toFixed(5)}` : ""})\nProvided Ash ${r.provided.toFixed(0)} mm² at s = ${adopted.sEnd} mm`,
         clause: "ACI 318-19 18.7.5.4, Table 18.7.5.4",
       });
     checks.push({
@@ -771,7 +771,7 @@ export function designColumnTransverse(
       label: `hx = ${layout.hx.toFixed(0)} mm`,
       dcr: layout.hx / (highAxial ? 200 : 350),
       detail: highAxial
-        ? "Pu > 0.3Ag f′c or f′c > 70 MPa: hx ≤ 200 mm and every bar supported"
+        ? "Pu > 0.3Ag f′c or f′c > 70 MPa:\nhx ≤ 200 mm and every bar supported"
         : "hx ≤ 350 mm",
       clause: "ACI 318-19 18.7.5.2",
     });
@@ -811,7 +811,7 @@ export function designColumnTransverse(
         label: `Longitudinal bar grade (custom fy ${input.fy} MPa)`,
         dcr: null,
         detail:
-          "Custom steel: confirm it is ASTM A706 / PNS W-grade, or A615-type meeting 20.2.2.5(b).",
+          "Custom steel grade.\nConfirm it is ASTM A706 / PNS W grade, or A615-type meeting 20.2.2.5(b).",
         clause: "ACI 318-19 20.2.2.5",
       });
     else if (!grade.weldable)
@@ -820,7 +820,7 @@ export function designColumnTransverse(
         label: `Longitudinal bar ${grade.label} is not weldable / low-alloy`,
         dcr: 1.05,
         detail:
-          "SMF longitudinal bars shall be ASTM A706 (PNS W grade). A615-type bars are permitted only where mill certificates show actual fy ≤ fy + 125 MPa and actual tensile / actual yield ≥ 1.25 (20.2.2.5(b)). Record the basis in remarks, or select a weldable grade.",
+          "SMF longitudinal bars: ASTM A706 / PNS W grade required (20.2.2.5).\nA615-type permitted only if mill certificates show actual fy ≤ fy + 125 MPa and actual tensile / actual yield ≥ 1.25 (20.2.2.5(b)).\nRecord the basis in remarks, or select a weldable grade.",
         clause: "ACI 318-19 20.2.2.5",
       });
     else
@@ -840,7 +840,7 @@ export function designColumnTransverse(
           id: `smf:scwb:${axis}`,
           label: `Strong column–weak beam about ${axis}`,
           dcr: mnc > 0 ? (1.2 * sum) / (2 * mnc) : Infinity,
-          detail: `ΣMnc = 2 × ${mnc.toFixed(1)} (lowest over Pu, same column above and below) vs 1.2ΣMnb = ${(1.2 * sum).toFixed(1)} kN·m`,
+          detail: `ΣMnc = 2 × ${mnc.toFixed(1)} kN·m (lowest over Pu, same column above and below)\n1.2ΣMnb = ${(1.2 * sum).toFixed(1)} kN·m`,
           clause: "ACI 318-19 18.7.3.2",
         });
       }

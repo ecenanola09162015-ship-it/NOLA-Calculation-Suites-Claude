@@ -134,8 +134,8 @@ function ReviewTable({
   policy: DesignCheckPolicy;
 }) {
   return (
-    <div className="rcTableWrap">
-      <table>
+    <div className="rcTableWrap reviewTableWrap">
+      <table className="reviewTable">
         <colgroup>
           <col className="dcCheck" />
           <col className="dcClause" />
@@ -155,17 +155,21 @@ function ReviewTable({
             <tr key={c.id}>
               <th scope="row">
                 {c.label}
-                {c.detail ? <p className="slabMuted">{c.detail}</p> : null}
+                {c.detail ? (
+                  <p className="slabMuted reviewDetail">{c.detail}</p>
+                ) : null}
               </th>
-              <td className="designClause">{c.clause}</td>
-              <td>
+              <td className="designClause" data-label="Code Reference">
+                {c.clause}
+              </td>
+              <td data-label="DCR">
                 {c.dcr === null
                   ? (c.invalidLabel ?? "—")
                   : Number.isFinite(c.dcr)
                     ? c.dcr.toFixed(3)
                     : (c.invalidLabel ?? "No Available Capacity")}
               </td>
-              <td>
+              <td data-label="Status">
                 <DesignStatus dcr={c.dcr} policy={policy} />
               </td>
             </tr>
