@@ -1,4 +1,8 @@
-import { defaultReportStyle, type ReportStyle } from "@nola/calc-core";
+import {
+  defaultReportStyle,
+  slabPrimaryAxisX,
+  type ReportStyle,
+} from "@nola/calc-core";
 import type {
   RectangularColumnInput,
   RectangularColumnResult,
@@ -99,7 +103,7 @@ function extents(i: SlabInput, b: SlabResolvedBar): [number, number][] {
   if (b.group === "main") return [[0, 1]];
   if (b.face === "bottom")
     return [[i.cutoffs.bottomStart, i.cutoffs.bottomEnd]];
-  const alongX = (b.direction === "short") === i.lx <= i.ly,
+  const alongX = (b.direction === "short") === slabPrimaryAxisX(i),
     near = alongX ? "west" : "south",
     far = alongX ? "east" : "north";
   return [
@@ -125,7 +129,7 @@ export function slabFigures(
       y = 17;
     let body = `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${style.colors.tint}" stroke="${teal}"/>`;
     for (const b of r.bars.filter((b) => b.face === face)) {
-      const alongX = (b.direction === "short") === i.lx <= i.ly;
+      const alongX = (b.direction === "short") === slabPrimaryAxisX(i);
       for (const p of b.positions)
         for (const [a, z] of extents(i, b))
           body += alongX

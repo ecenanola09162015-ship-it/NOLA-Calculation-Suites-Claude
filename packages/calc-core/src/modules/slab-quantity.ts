@@ -2,6 +2,8 @@ import {
   resolveSlabBars,
   slabBarPositions,
   slabInputSchema,
+  slabPrimaryAxisX,
+  slabSupportLayout,
   type SlabInput,
   type SlabEdge,
   type SlabResolvedBar,
@@ -86,15 +88,25 @@ export function estimateSlabQuantity(raw: SlabInput, value: SlabQuantityInput) {
     q = slabQuantitySchema.parse(value);
   const x = q.clearX ?? i.lx * 1000,
     y = q.clearY ?? i.ly * 1000;
-  const shortX = i.lx <= i.ly,
-    oneWay = Math.max(i.lx, i.ly) / Math.min(i.lx, i.ly) >= 2;
+  const shortX = slabPrimaryAxisX(i),
+    oneWay =
+      slabSupportLayout(i).kind === "cantilever" ||
+      Math.max(i.lx, i.ly) / Math.min(i.lx, i.ly) >= 2;
   const rows: SlabQuantityRow[] = [],
     warnings = new Set<string>();
+  if (
+    (["west", "east", "south", "north"] as const).some(
+      (e) => i.supports[e] === "Free",
+    )
+  )
+    warnings.add(
+      "Free edges: bars stop at the side cover; edge U-bars, trimmer bars and back-span anchorage of cantilever top bars are not included.",
+    );
   if (q.clearX === null || q.clearY === null)
     warnings.add(
       "Analysis span is being used as the clear panel dimension. Confirm beam-face dimensions before issuing quantities.",
     );
-  if (x <= y !== shortX)
+  if (slabSupportLayout(i).kind !== "cantilever" && x <= y !== shortX)
     warnings.add(
       "Clear-panel short direction differs from the analysis span: bar direction labels continue to follow the design axes.",
     );
@@ -131,8 +143,17 @@ export function estimateSlabQuantity(raw: SlabInput, value: SlabQuantityInput) {
                 label: e,
               }));
     for (const a of ranges) {
+      // Free edge: no bounding beam; bar ends at the side cover.
+      const freeEnd = {
+        extension: -i.sideCover,
+        tail: 0,
+        shape: "straight" as const,
+        direction: "down" as const,
+      };
       const n = a.near
-        ? slabEstimateEnd(q.beams[near], b.group, b.diameter)
+        ? i.supports[near] === "Free"
+          ? freeEnd
+          : slabEstimateEnd(q.beams[near], b.group, b.diameter)
         : {
             extension: 0,
             tail: 0,
@@ -140,7 +161,9 @@ export function estimateSlabQuantity(raw: SlabInput, value: SlabQuantityInput) {
             direction: "down" as const,
           };
       const f = a.far
-        ? slabEstimateEnd(q.beams[far], b.group, b.diameter)
+        ? i.supports[far] === "Free"
+          ? freeEnd
+          : slabEstimateEnd(q.beams[far], b.group, b.diameter)
         : {
             extension: 0,
             tail: 0,

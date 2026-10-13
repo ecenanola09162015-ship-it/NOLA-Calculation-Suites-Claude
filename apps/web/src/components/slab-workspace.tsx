@@ -15,6 +15,7 @@ import {
   slabBarElevation,
   slabDraftSchema,
   slabLayers,
+  slabSupportLayout,
   type SlabInput,
   type SlabLayer,
   type SlabResult,
@@ -137,7 +138,11 @@ export function SlabWorkspace({
     }
   }, [input]);
   const r = analysis.result,
-    oneWay = Math.max(input.lx, input.ly) / Math.min(input.lx, input.ly) >= 2;
+    supportLayout = slabSupportLayout(input),
+    cantilever = supportLayout.kind === "cantilever",
+    oneWay =
+      cantilever ||
+      Math.max(input.lx, input.ly) / Math.min(input.lx, input.ly) >= 2;
   const pointLoads = input.pointLoads ?? [];
   function update(next: SlabInput) {
     editVersion.current++;
@@ -459,6 +464,21 @@ export function SlabWorkspace({
           role="status"
         >
           {analysis.error || message}
+          {supportLayout.kind === "unstable" &&
+            supportLayout.suggest.map((edge) => (
+              <button
+                key={edge}
+                className="suiteSecondary"
+                onClick={() =>
+                  update({
+                    ...input,
+                    supports: { ...input.supports, [edge]: "Fixed" },
+                  })
+                }
+              >
+                Set {edge} to Fixed
+              </button>
+            ))}
         </p>
       )}
       <div className="slabGrid">
@@ -534,10 +554,20 @@ export function SlabWorkspace({
                 >
                   <option>Fixed</option>
                   <option>Pinned</option>
+                  <option>Free</option>
                 </select>
               </label>
             ))}
           </div>
+          {cantilever && (
+            <p className="slabMuted">
+              Cantilever: Fixed {supportLayout.fixedEdge} edge, three Free
+              edges. SHORT layers run along the cantilever span (perpendicular
+              to the Fixed edge, projection ℓ); LONG layers are transverse
+              distribution. Top MAIN bars are the principal steel. Root assumed
+              fully rigid; deflection limit uses ℓ.
+            </p>
+          )}
           {barTable("main")}
           {barTable("extra")}
           <p className="slabMuted">
@@ -1117,7 +1147,12 @@ export function SlabWorkspace({
                 </div>
                 <div>
                   <dt>Support anchorage</dt>
-                  <dd>REVIEW REQUIRED</dd>
+                  <dd>
+                    REVIEW REQUIRED
+                    {r.detailing.anchorage
+                      ? ` · top bars ≥ ld ${fmt(r.detailing.anchorage.ld, 0)} mm past support face`
+                      : ""}
+                  </dd>
                 </div>
               </dl>
               <h3>Suggested Design</h3>
@@ -1476,8 +1511,8 @@ export function SlabWorkspace({
             Mcr {fmt(r.deflection.mcr)} kN·m/m; Ie/Ig ={" "}
             {fmt(r.deflection.ie / r.deflection.ig, 3)}); limit{" "}
             {fmt(r.deflection.limit)} mm; service combination{" "}
-            {r.deflection.crackedCombination} ({slabClauses.deflection()}). This
-            does not establish long-term deflection compliance.
+            {r.deflection.crackedCombination} ({slabClauses.deflection(r.type)}
+            ). This does not establish long-term deflection compliance.
           </p>
           <div className="slabTableWrap">
             <table>

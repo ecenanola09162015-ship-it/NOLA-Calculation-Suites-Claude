@@ -96,7 +96,7 @@ export function slabDesignChecks(i: SlabInput, r: SlabResult): DesignCheck[] {
   const out: DesignCheck[] = [];
   const system = r.type;
   for (const v of r.regions) {
-    const distribution = system === "one-way" && v.layer.startsWith("long");
+    const distribution = system !== "two-way" && v.layer.startsWith("long");
     const main = r.bars.find((b) => b.group === "main" && b.layer === v.layer);
     out.push(
       {
@@ -210,7 +210,7 @@ function deflectionCheck(i: SlabInput, r: SlabResult): DesignCheck {
     id: "deflection",
     label: "Deflection Control · Cracked Immediate Deflection",
     dcr: d.limit > 0 ? d.crackedImmediate / d.limit : null,
-    clause: `${slabClauses.deflection()}; h < hmin per ${slabClauses.minimumThickness(t.system)}`,
+    clause: `${slabClauses.deflection(r.type)}; h < hmin per ${slabClauses.minimumThickness(t.system)}`,
     detail: `h = ${i.h} mm < ${t.formula}; deflection calculated. ${info}`,
   };
 }

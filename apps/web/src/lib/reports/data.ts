@@ -571,7 +571,7 @@ export function slabReportData(
         [
           "Immediate Deflection",
           `Ec=4700 sqrt(${input.fc}) MPa; fr=0.62 sqrt(fc); Ig=${f(r.deflection.ig / 1e6, 1)}e6, Icr=${f(r.deflection.icr / 1e6, 1)}e6 mm⁴; Mcr=${f(r.deflection.mcr)}, Ma=${f(r.deflection.ma)} kN·m/m; Ie,mid=${f(r.deflection.ieMid / 1e6, 1)}e6${r.deflection.ieAvg === null ? "" : `, Ie,avg=${f(r.deflection.ieAvg / 1e6, 1)}e6`}, Ie=${f(r.deflection.ie / 1e6, 1)}e6 mm⁴; delta,g=${f(r.deflection.immediate)} mm; delta,cr=delta,g x Ig/Ie=${f(r.deflection.crackedImmediate)} mm; limit=${f(r.shortSpan * 1000, 0)}/${input.deflectionDivisor}=${f(r.deflection.limit)} mm`,
-          slabClauses.deflection(),
+          slabClauses.deflection(r.type),
         ],
         [
           "Minimum Steel",
@@ -591,6 +591,15 @@ export function slabReportData(
             r.type === "one-way" && v.layer.startsWith("long"),
           ),
         ]),
+        ...(r.detailing.anchorage
+          ? [
+              [
+                "Cantilever Top-Bar Anchorage",
+                `${r.detailing.anchorage.layer} D${r.detailing.anchorage.diameter}: straight ld=${f(r.detailing.anchorage.ld)} mm required beyond the support face into the back-span/support; Review Required (not checked)`,
+                slabClauses.cantileverAnchorage(),
+              ],
+            ]
+          : []),
         ...r.detailing.development.map((v) => [
           v.layer + " Development",
           `ld=${f(v.ld)} mm; available=${f(v.extension)} mm; ${v.ok ? "Screen Satisfied" : "Review Required"}; cutoff allowance max(d,12db) also required`,

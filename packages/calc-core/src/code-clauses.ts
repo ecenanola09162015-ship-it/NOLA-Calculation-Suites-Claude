@@ -7,10 +7,10 @@
  * provisions by designer selection; see the slab warning text.
  */
 export const ACI_318_19 = "ACI 318-19";
-export type SlabSystem = "one-way" | "two-way";
+export type SlabSystem = "one-way" | "two-way" | "cantilever";
 const ref = (...parts: string[]) => `${ACI_318_19} ${parts.join("; ")}`;
 const bySystem = (system: SlabSystem, oneWay: string, twoWay: string) =>
-  system === "one-way" ? oneWay : twoWay;
+  system === "two-way" ? twoWay : oneWay;
 
 export const slabClauses = {
   flexure: (s: SlabSystem) =>
@@ -52,19 +52,24 @@ export const slabClauses = {
     ),
   minimumThickness: (s: SlabSystem) =>
     ref(
-      bySystem(
-        s,
-        "Table 7.3.1.1, 7.3.1.1.1",
-        "Table 8.3.1.2 (αfm > 2.0), 8.3.1.2.1",
-      ),
+      s === "cantilever"
+        ? "Table 7.3.1.1 (cantilever ℓ/10), 7.3.1.1.1"
+        : bySystem(
+            s,
+            "Table 7.3.1.1, 7.3.1.1.1",
+            "Table 8.3.1.2 (αfm > 2.0), 8.3.1.2.1",
+          ),
     ),
-  deflection: () =>
+  deflection: (s?: SlabSystem) =>
     ref(
       "Ec 19.2.2.1, fr 19.2.3.1",
       "Ie Table 24.2.3.5",
-      "24.2.3.6 / 24.2.3.7",
+      s === "cantilever" ? "Ie at support 24.2.3.7" : "24.2.3.6 / 24.2.3.7",
       "limit Table 24.2.2",
     ),
+  /** Cantilever top bars developed beyond the support face. */
+  cantileverAnchorage: () =>
+    ref("25.4.2.1, 25.4.2.4", "Table 25.4.2.5", "critical section 7.7.3.2"),
   development: (s: SlabSystem) =>
     ref(
       "25.4.2.1, 25.4.2.4",
