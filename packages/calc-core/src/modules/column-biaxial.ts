@@ -418,3 +418,61 @@ export function breslerReciprocal(
     note: "1/φPni = 1/φPnx + 1/φPny − 1/φPo",
   };
 }
+
+export interface InteractionSurface {
+  /** Neutral-axis directions (columns of the grid), rad. */
+  thetas: number[];
+  /** Neutral-axis depths (rows of the grid), mm; 0 = pure tension. */
+  depths: number[];
+  /** Design surface φPn (capped at 0.80·φPo), φMnx, φMny — [θ][c] → [Mx, My, P] (kN·m, kN). */
+  design: [number, number, number][][];
+  /** Nominal surface Pn, Mnx, Mny (uncapped). */
+  nominal: [number, number, number][][];
+  /** 0.80·0.65·Po (kN), Table 22.4.2.1. */
+  axialCap: number;
+}
+/**
+ * P–Mx–My interaction surfaces by strain compatibility with a rotated
+ * neutral axis (ACI 318-19 22.2, φ Table 21.2.2): a grid of θ (NA
+ * direction) × c (NA depth). Same engine as the 3D biaxial DCR, so the
+ * surface and the check always agree.
+ */
+export function interactionSurface(
+  s: BiaxialSection,
+  thetaSteps = 72,
+  depthSteps = 30,
+): InteractionSurface {
+  const hmax = Math.hypot(s.width, s.depth);
+  const thetas = Array.from(
+    { length: thetaSteps },
+    (_, i) => (2 * Math.PI * i) / thetaSteps,
+  );
+  // Denser near small c (the "nose" of the surface), then to full compression.
+  const depths = [
+    0,
+    ...Array.from(
+      { length: depthSteps - 2 },
+      (_, k) => 1.25 * hmax * ((k + 1) / (depthSteps - 2)) ** 1.6,
+    ),
+    cMax(s),
+  ];
+  const design = thetas.map((t) =>
+    depths.map((c) => {
+      const st = biaxialDesignStateAt(s, t, c);
+      return [st.designMx, st.designMy, st.designP] as [number, number, number];
+    }),
+  );
+  const nominal = thetas.map((t) =>
+    depths.map((c) => {
+      const r = biaxialRawStateAt(s, t, c);
+      return [r.mx / 1e6, r.my / 1e6, r.p / 1000] as [number, number, number];
+    }),
+  );
+  return {
+    thetas,
+    depths,
+    design,
+    nominal,
+    axialCap: (0.8 * 0.65 * squashLoad(s)) / 1000,
+  };
+}

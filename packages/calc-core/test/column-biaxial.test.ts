@@ -166,3 +166,50 @@ describe("Bresler reciprocal load (reference check)", () => {
     expect(b.ratio).toBeNull();
   });
 });
+
+describe("3D interaction surface (strain compatibility, ACI 318-19 22.2)", () => {
+  it("matches the uniaxial curves, the axial limits and the radial 3D capacity", async () => {
+    const { interactionSurface, biaxialSection, biaxialCapacityAt, analyzeRectangularColumn } =
+      await import("../src");
+    // 500 × 500, 12-D25, f′c 28, fy 420 (same section as the transverse tests).
+    const face = [-187.5, -62.5, 62.5, 187.5];
+    const bars = [
+      ...face.flatMap((x) => [-187.5, 187.5].map((y) => ({ x, y, diameter: 25 }))),
+      ...[-62.5, 62.5].flatMap((y) => [-187.5, 187.5].map((x) => ({ x, y, diameter: 25 }))),
+    ];
+    const input = {
+      code: "ACI 318-19" as const,
+      width: 500, depth: 500, fc: 28, fy: 420, es: 200000, cover: 40, tieDiameter: 10,
+      bars,
+      loads: [{ id: "U", description: "", pu: 1500, mx: 150, my: 0, included: true }],
+    };
+    const s = biaxialSection(input);
+    const surf = interactionSurface(s);
+    expect(surf.design).toHaveLength(72);
+    expect(surf.design[0]).toHaveLength(30);
+    // Pure tension (c = 0): φPnt = −0.9·As·fy (Table 21.2.2), As = 12·490.87.
+    const as = 12 * (Math.PI * 25 ** 2) / 4;
+    expect(surf.design[0]![0]![2]).toBeCloseTo((-0.9 * as * 420) / 1000, 6);
+    // Full compression is capped at 0.80·0.65·Po (Table 22.4.2.1).
+    const po = 0.85 * 28 * (250000 - as) + 420 * as;
+    expect(surf.axialCap).toBeCloseTo((0.8 * 0.65 * po) / 1000, 6);
+    expect(surf.design[0]!.at(-1)![2]).toBeCloseTo(surf.axialCap, 6);
+    // θ = 90° (index 18): uniaxial bending about x; My ≈ 0 by symmetry.
+    for (const p of surf.design[18]!) expect(Math.abs(p[1])).toBeLessThan(1e-6);
+    // Radial capacity at Pu from the 3D check lies on the surface: the surface
+    // meridian through that θ at the same c reproduces it.
+    const cap = biaxialCapacityAt(s, 1500, 150, 0)!;
+    const r = analyzeRectangularColumn(input);
+    expect(r.checks[0]!.biaxial!.capacity).toBeCloseTo(cap.capacity, 6);
+    const { biaxialDesignStateAt } = await import("../src");
+    const st = biaxialDesignStateAt(s, cap.theta, cap.c);
+    expect(Math.hypot(st.designMx, st.designMy)).toBeCloseTo(cap.capacity, 3);
+    expect(st.designP).toBeCloseTo(1500, 2);
+    // Nominal surface encloses the design surface (φ ≤ 0.9 < 1).
+    for (const row of surf.design.keys())
+      for (const k of surf.depths.keys()) {
+        const d = surf.design[row]![k]!, n = surf.nominal[row]![k]!;
+        expect(Math.hypot(d[0], d[1])).toBeLessThanOrEqual(Math.hypot(n[0], n[1]) + 1e-9);
+      }
+  });
+});

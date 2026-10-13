@@ -265,8 +265,12 @@ async function build(
     ),
     // The Ñola logo is fixed (supplied by the export); a stored upload is ignored.
     nola = await embed(options.nolaLogo, "Ñola logo");
+  const figureList =
+    options.type === "complete"
+      ? [...data.figures, ...(data.completeFigures ?? [])]
+      : data.figures;
   const figures = await Promise.all(
-    data.figures.map(async (f) => {
+    figureList.map(async (f) => {
       let image: PDFImage | null = null;
       try {
         image = await doc.embedPng(f.png ?? (await svgReportPng(f.svg)));

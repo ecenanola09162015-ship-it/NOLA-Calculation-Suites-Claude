@@ -32,6 +32,7 @@ import {
   columnTieElevationFigure,
   columnTieSectionFigure,
   columnStoreyFigure,
+  columnInteraction3DFigure,
   slabFigures,
 } from "./figures";
 export type Cell = { text: string; color?: string };
@@ -58,6 +59,8 @@ export type ReportData = {
   criticalNotes: string[];
   generatedAt: string;
   estimate?: ReportSection;
+  /** Figures printed only in the Complete report (e.g. the 3D surface). */
+  completeFigures?: ReportFigure[];
   /** Scope sentence printed in the simple-report overview. */
   scopeNote?: string;
 };
@@ -569,6 +572,14 @@ export function columnReportData(
           ]
         : []),
     ].filter((x): x is ReportFigure => !!x),
+    completeFigures: [
+      columnInteraction3DFigure(
+        input,
+        result,
+        policy,
+        project?.reportSettings?.style,
+      ),
+    ],
     checks: checkTable(checks, policy, remarks),
     sections: [
       equations,

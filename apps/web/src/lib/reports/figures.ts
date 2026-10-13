@@ -5,6 +5,7 @@ import {
   slabPrimaryAxisX,
   storeyClearHeights,
   type ColumnStorey,
+  type DesignCheckPolicy,
   type ReportStyle,
   type TransverseResult,
 } from "@nola/calc-core";
@@ -16,6 +17,13 @@ import type {
   SlabResolvedBar,
 } from "@nola/calc-core";
 import type { ReportFigure } from "./data";
+import {
+  buildInteraction3D,
+  isoProject,
+  sliceAt,
+  toScene,
+  type Vec3,
+} from "../interaction-3d-model";
 import { OVERRIDE_COLOR } from "../override-style";
 const teal = defaultReportStyle.colors.teal;
 const svg = (
@@ -424,4 +432,72 @@ export function columnStoreyFigure(
   body += text(98, top + 9, `Y ${storey.beamY}`);
   body += text(8, 168, `Joint ${h.joint} mm (deeper beam); lo uses ${h.loClear} mm`);
   return { title: "Storey Geometry", svg: svg(body, style) };
+}
+
+/**
+ * Fixed isometric view of the 3D interaction surfaces for the Complete
+ * report (vector, no WebGL): design (φ) meridians and constant-P rings in
+ * teal, nominal meridians dashed gray, demand points by status.
+ */
+export function columnInteraction3DFigure(
+  input: RectangularColumnInput,
+  result: RectangularColumnResult,
+  policy: DesignCheckPolicy,
+  style: ReportStyle = defaultReportStyle,
+): ReportFigure {
+  const m = buildInteraction3D(input, result, policy);
+  const sc = m.scale;
+  const W = 250,
+    H = 175;
+  const k = 52,
+    cx = W / 2,
+    cy = 92;
+  const P = (v: Vec3) => {
+    const [x, y] = isoProject(v);
+    return [cx + k * x, cy + k * y] as const;
+  };
+  const path = (pts: Vec3[], close = false) =>
+    pts
+      .map((v, i) => {
+        const [x, y] = P(v);
+        return `${i ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`;
+      })
+      .join("") + (close ? "Z" : "");
+  let body = "";
+  const ink = style.colors.text;
+  const y0 = toScene(sc, 0, 0, 0)[1];
+  for (const [a, b] of [
+    [[-1.15, y0, 0], [1.15, y0, 0]],
+    [[0, y0, -1.15], [0, y0, 1.15]],
+    [[0, -1.1, 0], [0, 1.15, 0]],
+  ] as [Vec3, Vec3][])
+    body += `<path d="${path([a, b])}" stroke="${ink}" stroke-width="0.4" fill="none"/>`;
+  const step = Math.max(1, Math.round(m.surface.thetas.length / 12));
+  m.surface.nominal.forEach((row, i) => {
+    if (i % step) return;
+    body += `<path d="${path(row.map(([x, y, p]) => toScene(sc, x, y, p)))}" stroke="#8a99a6" stroke-width="0.35" stroke-dasharray="2 1.5" fill="none"/>`;
+  });
+  // Design surface as constant-P rings (meridians twist with the neutral
+  // axis and read poorly in a static view).
+  const pLo = Math.min(...m.surface.design.map((r) => r[0]![2]));
+  for (let j = 1; j <= 9; j++) {
+    const p = pLo + ((m.surface.axialCap - pLo) * j) / 10;
+    const ring = sliceAt(m.surface.design, p).map(([x, y]) => toScene(sc, x, y, p));
+    if (ring.length > 3)
+      body += `<path d="${path(ring, true)}" stroke="${teal}" stroke-width="0.45" fill="${teal}" fill-opacity="0.06"/>`;
+  }
+  for (const pt of m.points) {
+    const [x, y] = P(toScene(sc, pt.mux, pt.muy, pt.pu));
+    body += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${pt.governing ? 2.6 : 1.6}" fill="${pt.color}"/>`;
+    if (pt.governing) body += text(x + 4, y - 3, `${pt.id} DCR ${pt.dcr?.toFixed(3) ?? "-"}`);
+  }
+  const lab = (v: Vec3, t: string) => {
+    const [x, y] = P(v);
+    return text(x, y, t);
+  };
+  body += lab([1.2, y0, 0], "Mx");
+  body += lab([0, y0, 1.25], "My");
+  body += lab([0.04, 1.2, 0], "P");
+  body += text(6, H - 4, "Teal rings: design (phi); dashed: nominal");
+  return { title: "3D Interaction Surface (P-Mx-My)", svg: svg(body, style, W, H) };
 }
