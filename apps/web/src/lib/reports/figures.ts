@@ -2,9 +2,12 @@ import {
   biaxialContour,
   biaxialSection,
   defaultReportStyle,
+  slabBeamSizes,
+  slabLoadPatch,
   slabPrimaryAxisX,
   storeyClearHeights,
   type ColumnStorey,
+  type DesignCheckPolicy,
   type ReportStyle,
   type TransverseResult,
 } from "@nola/calc-core";
@@ -16,7 +19,15 @@ import type {
   SlabResolvedBar,
 } from "@nola/calc-core";
 import type { ReportFigure } from "./data";
+import {
+  buildInteraction3D,
+  isoProject,
+  sliceAt,
+  toScene,
+  type Vec3,
+} from "../interaction-3d-model";
 import { OVERRIDE_COLOR } from "../override-style";
+import { loadStyles } from "@/lib/load-styles";
 const teal = defaultReportStyle.colors.teal;
 const svg = (
   body: string,
@@ -128,12 +139,38 @@ export function slabFigures(
 ): ReportFigure[] {
   const { primary: blue, teal, extra } = style.colors;
   const plans = (["bottom", "top"] as const).map((face) => {
-    const scale = Math.min(196 / i.lx, 105 / i.ly),
+    // Bounding beams outside the clear panel (north up), joined at corners.
+    const beams = slabBeamSizes(i),
+      bw = (e: "west" | "east" | "south" | "north") =>
+        (beams[e]?.width ?? 0) / 1000,
+      totalW = i.lx + bw("west") + bw("east"),
+      totalH = i.ly + bw("south") + bw("north"),
+      scale = Math.min(196 / totalW, 105 / totalH),
       w = i.lx * scale,
       h = i.ly * scale,
-      x = (250 - w) / 2,
-      y = 17;
-    let body = `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${style.colors.tint}" stroke="${teal}"/>`;
+      x = (250 - totalW * scale) / 2 + bw("west") * scale,
+      y = 17 + bw("north") * scale;
+    const band = (bx: number, by: number, bwid: number, bh: number) =>
+      `<rect x="${bx}" y="${by}" width="${bwid}" height="${bh}" fill="#dbe4e7" stroke="${teal}" stroke-width="0.4"/>`;
+    let body = "";
+    if (beams.west)
+      body += band(
+        x - bw("west") * scale,
+        y - bw("north") * scale,
+        bw("west") * scale,
+        h + (bw("north") + bw("south")) * scale,
+      );
+    if (beams.east)
+      body += band(
+        x + w,
+        y - bw("north") * scale,
+        bw("east") * scale,
+        h + (bw("north") + bw("south")) * scale,
+      );
+    if (beams.north)
+      body += band(x, y - bw("north") * scale, w, bw("north") * scale);
+    if (beams.south) body += band(x, y + h, w, bw("south") * scale);
+    body += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${style.colors.tint}" stroke="${teal}"/>`;
     for (const b of r.bars.filter((b) => b.face === face)) {
       const alongX = (b.direction === "short") === slabPrimaryAxisX(i);
       for (const p of b.positions)
@@ -156,15 +193,56 @@ export function slabFigures(
                 0.65,
               );
     }
-    // Point loads, north up: loaded area outlined in red with its ID.
+    // Local loads, north up: point red square, line blue bar with end ticks,
+    // area green hatched rectangle (hatch drawn as clipped lines).
     for (const p of i.pointLoads ?? []) {
-      const pw = Math.max(2, (p.bx / 1000) * scale),
-        ph = Math.max(2, (p.by / 1000) * scale),
-        cx = x + p.x * scale,
-        cy = y + h - p.y * scale;
-      body += `<rect x="${cx - pw / 2}" y="${cy - ph / 2}" width="${pw}" height="${ph}" fill="#c0392b" fill-opacity="0.25" stroke="#c0392b" stroke-width="0.6"/>`;
-      body += text(cx + pw / 2 + 1.5, cy - ph / 2 + 3, p.id);
+      const r = slabLoadPatch(p),
+        st = loadStyles[r.kind],
+        x0 = x + r.x0 * scale,
+        x1 = x + r.x1 * scale,
+        y0 = y + h - r.y1 * scale,
+        y1 = y + h - r.y0 * scale;
+      if (r.kind === "line") {
+        const alongX = p.kind === "line" && p.direction === "X",
+          cx = (x0 + x1) / 2,
+          cy = (y0 + y1) / 2;
+        body += alongX
+          ? `<line x1="${x0}" y1="${cy}" x2="${x1}" y2="${cy}" stroke="${st.stroke}" stroke-width="2.2"/><line x1="${x0}" y1="${cy - 3}" x2="${x0}" y2="${cy + 3}" stroke="${st.stroke}" stroke-width="0.8"/><line x1="${x1}" y1="${cy - 3}" x2="${x1}" y2="${cy + 3}" stroke="${st.stroke}" stroke-width="0.8"/>`
+          : `<line x1="${cx}" y1="${y0}" x2="${cx}" y2="${y1}" stroke="${st.stroke}" stroke-width="2.2"/><line x1="${cx - 3}" y1="${y0}" x2="${cx + 3}" y2="${y0}" stroke="${st.stroke}" stroke-width="0.8"/><line x1="${cx - 3}" y1="${y1}" x2="${cx + 3}" y2="${y1}" stroke="${st.stroke}" stroke-width="0.8"/>`;
+        body += text(x1 + 1.5, y0 + 3, p.id);
+        continue;
+      }
+      const pw = Math.max(2, x1 - x0),
+        ph = Math.max(2, y1 - y0),
+        rx = (x0 + x1) / 2 - pw / 2,
+        ry = (y0 + y1) / 2 - ph / 2;
+      if (r.kind === "area") {
+        body += `<rect x="${rx}" y="${ry}" width="${pw}" height="${ph}" fill="${st.fill}" fill-opacity="0.12" stroke="${st.stroke}" stroke-width="0.6"/>`;
+        for (let c = 3; c < pw + ph; c += 3) {
+          const ax = rx + Math.min(c, pw),
+            ay = ry + Math.max(0, c - pw),
+            bx = rx + Math.max(0, c - ph),
+            by = ry + Math.min(c, ph);
+          body += `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" stroke="${st.stroke}" stroke-width="0.35"/>`;
+        }
+      } else
+        body += `<rect x="${rx}" y="${ry}" width="${pw}" height="${ph}" fill="${st.fill}" fill-opacity="0.85" stroke="${st.stroke}" stroke-width="0.6"/>`;
+      body += text(rx + pw + 1.5, ry + 3, p.id);
     }
+    const kinds = (["point", "line", "area"] as const).filter((k) =>
+      (i.pointLoads ?? []).some((p) => (p.kind ?? "point") === k),
+    );
+    if (kinds.length)
+      body += text(
+        150,
+        151,
+        kinds
+          .map(
+            (k) =>
+              `${loadStyles[k].label}: ${k === "point" ? "red square" : k === "line" ? "blue bar" : "green hatch"}`,
+          )
+          .join("; "),
+      );
     body +=
       text(
         6,
@@ -424,4 +502,72 @@ export function columnStoreyFigure(
   body += text(98, top + 9, `Y ${storey.beamY}`);
   body += text(8, 168, `Joint ${h.joint} mm (deeper beam); lo uses ${h.loClear} mm`);
   return { title: "Storey Geometry", svg: svg(body, style) };
+}
+
+/**
+ * Fixed isometric view of the 3D interaction surfaces for the Complete
+ * report (vector, no WebGL): design (φ) meridians and constant-P rings in
+ * teal, nominal meridians dashed gray, demand points by status.
+ */
+export function columnInteraction3DFigure(
+  input: RectangularColumnInput,
+  result: RectangularColumnResult,
+  policy: DesignCheckPolicy,
+  style: ReportStyle = defaultReportStyle,
+): ReportFigure {
+  const m = buildInteraction3D(input, result, policy);
+  const sc = m.scale;
+  const W = 250,
+    H = 175;
+  const k = 52,
+    cx = W / 2,
+    cy = 92;
+  const P = (v: Vec3) => {
+    const [x, y] = isoProject(v);
+    return [cx + k * x, cy + k * y] as const;
+  };
+  const path = (pts: Vec3[], close = false) =>
+    pts
+      .map((v, i) => {
+        const [x, y] = P(v);
+        return `${i ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`;
+      })
+      .join("") + (close ? "Z" : "");
+  let body = "";
+  const ink = style.colors.text;
+  const y0 = toScene(sc, 0, 0, 0)[1];
+  for (const [a, b] of [
+    [[-1.15, y0, 0], [1.15, y0, 0]],
+    [[0, y0, -1.15], [0, y0, 1.15]],
+    [[0, -1.1, 0], [0, 1.15, 0]],
+  ] as [Vec3, Vec3][])
+    body += `<path d="${path([a, b])}" stroke="${ink}" stroke-width="0.4" fill="none"/>`;
+  const step = Math.max(1, Math.round(m.surface.thetas.length / 12));
+  m.surface.nominal.forEach((row, i) => {
+    if (i % step) return;
+    body += `<path d="${path(row.map(([x, y, p]) => toScene(sc, x, y, p)))}" stroke="#8a99a6" stroke-width="0.35" stroke-dasharray="2 1.5" fill="none"/>`;
+  });
+  // Design surface as constant-P rings (meridians twist with the neutral
+  // axis and read poorly in a static view).
+  const pLo = Math.min(...m.surface.design.map((r) => r[0]![2]));
+  for (let j = 1; j <= 9; j++) {
+    const p = pLo + ((m.surface.axialCap - pLo) * j) / 10;
+    const ring = sliceAt(m.surface.design, p).map(([x, y]) => toScene(sc, x, y, p));
+    if (ring.length > 3)
+      body += `<path d="${path(ring, true)}" stroke="${teal}" stroke-width="0.45" fill="${teal}" fill-opacity="0.06"/>`;
+  }
+  for (const pt of m.points) {
+    const [x, y] = P(toScene(sc, pt.mux, pt.muy, pt.pu));
+    body += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${pt.governing ? 2.6 : 1.6}" fill="${pt.color}"/>`;
+    if (pt.governing) body += text(x + 4, y - 3, `${pt.id} DCR ${pt.dcr?.toFixed(3) ?? "-"}`);
+  }
+  const lab = (v: Vec3, t: string) => {
+    const [x, y] = P(v);
+    return text(x, y, t);
+  };
+  body += lab([1.2, y0, 0], "Mx");
+  body += lab([0, y0, 1.25], "My");
+  body += lab([0.04, 1.2, 0], "P");
+  body += text(6, H - 4, "Teal rings: design (phi); dashed: nominal");
+  return { title: "3D Interaction Surface (P-Mx-My)", svg: svg(body, style, W, H) };
 }

@@ -37,6 +37,20 @@ import {
 } from "./duplicate-save-prompt";
 import { ColumnQuantityPanel } from "./column-quantity-panel";
 import { StoreyGeometryFields } from "./column-storey-panel";
+import dynamic from "next/dynamic";
+// Three.js loads only when results are shown.
+const ColumnInteraction3D = dynamic(
+  () => import("./column-interaction-3d").then((m) => m.ColumnInteraction3D),
+  {
+    ssr: false,
+    loading: () => (
+      <section className="rcPanel interaction3d">
+        <h3>3D Interaction Surface (P–Mx–My)</h3>
+        <p className="rcMuted">Loading 3D view…</p>
+      </section>
+    ),
+  },
+);
 import { NumberField, fmt } from "./column-ui";
 import {
   RebarGradeSelect,
@@ -1115,6 +1129,7 @@ export function RectangularColumnWorkspace({
               ))}
             </ul>
           </div>
+          <ColumnInteraction3D input={input} result={result} policy={policy} />
           <div className="rcGrid">
             <section className="rcPanel">
               <h3>P–Mx Interaction</h3>
