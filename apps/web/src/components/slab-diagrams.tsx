@@ -5,13 +5,13 @@ import type {
   SlabDirection,
   SlabEdge,
 } from "@nola/calc-core";
-import { slabExtraActive } from "@nola/calc-core";
+import { slabExtraActive, slabPrimaryAxisX } from "@nola/calc-core";
 const colors = { main: "#145da0", extra: "#e87916" };
 function segments(i: SlabInput, b: SlabResolvedBar): [number, number][] {
   if (b.group === "main") return [[0, 1]];
   if (b.face === "bottom")
     return [[i.cutoffs.bottomStart, i.cutoffs.bottomEnd]];
-  const alongX = (b.direction === "short") === i.lx <= i.ly,
+  const alongX = (b.direction === "short") === slabPrimaryAxisX(i),
     a: SlabEdge = alongX ? "west" : "south",
     c: SlabEdge = alongX ? "east" : "north";
   const out: [number, number][] = [];
@@ -40,7 +40,7 @@ export function SlabPlan({
     h = i.ly * scale,
     x = (560 - w) / 2,
     y = 70;
-  const shortX = i.lx <= i.ly,
+  const shortX = slabPrimaryAxisX(i),
     sx = i.lx * 1000,
     sy = i.ly * 1000;
   return (
@@ -62,10 +62,18 @@ export function SlabPlan({
           stroke="#445766"
           strokeWidth="2"
         />
-        <rect x={x} y={y} width={w} height="12" fill="#dbe4e7" />
-        <rect x={x} y={y + h - 12} width={w} height="12" fill="#dbe4e7" />
-        <rect x={x} y={y} width="12" height={h} fill="#dbe4e7" />
-        <rect x={x + w - 12} y={y} width="12" height={h} fill="#dbe4e7" />
+        {i.supports.north !== "Free" && (
+          <rect x={x} y={y} width={w} height="12" fill="#dbe4e7" />
+        )}
+        {i.supports.south !== "Free" && (
+          <rect x={x} y={y + h - 12} width={w} height="12" fill="#dbe4e7" />
+        )}
+        {i.supports.west !== "Free" && (
+          <rect x={x} y={y} width="12" height={h} fill="#dbe4e7" />
+        )}
+        {i.supports.east !== "Free" && (
+          <rect x={x + w - 12} y={y} width="12" height={h} fill="#dbe4e7" />
+        )}
         {bars
           .filter((b) => b.face === face)
           .map((b) => {

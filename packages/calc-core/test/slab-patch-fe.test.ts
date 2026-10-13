@@ -43,8 +43,18 @@ function navier(
     }
   return { w, mx, my, qx };
 }
-const ss = { west: false, east: false, south: false, north: false };
-const clamped = { west: true, east: true, south: true, north: true };
+const ss = {
+  west: "pinned",
+  east: "pinned",
+  south: "pinned",
+  north: "pinned",
+} as const;
+const clamped = {
+  west: "fixed",
+  east: "fixed",
+  south: "fixed",
+  north: "fixed",
+} as const;
 
 describe("patch-load plate FE (BFS 16-DOF) vs closed-form solutions", () => {
   const cases = [
@@ -117,5 +127,47 @@ describe("patch-load plate FE (BFS 16-DOF) vs closed-form solutions", () => {
       ]).at(0, 1.2, 2.3);
     expect(s2.mx).toBeCloseTo(s1.mx, 6);
     expect(s2.w / s1.w).toBeCloseTo(4, 6);
+  });
+});
+describe("patch-load plate FE with Free edges (cantilever)", () => {
+  const cant = {
+    west: "fixed",
+    east: "free",
+    south: "free",
+    north: "free",
+  } as const;
+  /** ∫ root moment across the width by midpoint rule. */
+  const rootIntegral = (
+    fe: ReturnType<typeof solvePatchLoads>,
+    width: number,
+  ) => {
+    let s = 0;
+    const n = 400;
+    for (let k = 0; k < n; k++)
+      s += -fe.at(0, 0, ((k + 0.5) / n) * width).mx * (width / n);
+    return s;
+  };
+  it("satisfies root equilibrium: ∫M dy = P × lever arm (uniform and tip patch)", () => {
+    // Uniform over 2 × 4: resultant at ℓ/2 -> ∫M = 1 × 1.0
+    const u = solvePatchLoads(2, 4, cant, 0.2, [
+      { x0: 0, x1: 2, y0: 0, y1: 4 },
+    ]);
+    expect(rootIntegral(u, 4)).toBeCloseTo(1.0, 3);
+    // Patch 0.2 × 0.2 centred at x = 1.8 -> ∫M = 1.8
+    const p = solvePatchLoads(2, 4, cant, 0.2, [
+      { x0: 1.7, x1: 1.9, y0: 1.9, y1: 2.1 },
+    ]);
+    expect(rootIntegral(p, 4) / 1.8).toBeCloseTo(1, 3);
+  });
+  it("wide cantilever approaches cylindrical bending: tip w = qℓ⁴/8D, root M = qℓ²/2", () => {
+    // ℓ = 1.5, width 6: q = 1/9 per unit total load
+    const fe = solvePatchLoads(1.5, 6, cant, 0.2, [
+      { x0: 0, x1: 1.5, y0: 0, y1: 6 },
+    ]);
+    const q = 1 / 9;
+    expect(fe.at(0, 1.5, 3).w / ((q * 1.5 ** 4) / 8)).toBeCloseTo(1, 1); // 1.004
+    const m = -fe.at(0, 0, 3).mx / ((q * 1.5 ** 2) / 2);
+    expect(m).toBeGreaterThan(0.995);
+    expect(m).toBeLessThan(1.02);
   });
 });

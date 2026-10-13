@@ -216,3 +216,51 @@ describe("slab point loads in the report", () => {
     }
   });
 });
+describe("cantilever slab report", () => {
+  it("prints cantilever clauses and the top-bar anchorage row, one-page simple report", async () => {
+    const {
+      analyzeSlab,
+      defaultSlabInput,
+      defaultSlabQuantity,
+      defaultDesignCheckPolicy,
+    } = await import("@nola/calc-core");
+    const { slabReportData } = await import("../src/lib/reports/data");
+    const input = {
+      ...defaultSlabInput(),
+      lx: 1.5,
+      ly: 6,
+      h: 180,
+      supports: {
+        west: "Fixed",
+        east: "Free",
+        south: "Free",
+        north: "Free",
+      } as const,
+    };
+    const data = slabReportData(
+      undefined,
+      "CS-01",
+      input,
+      analyzeSlab(input),
+      defaultSlabQuantity(),
+      defaultDesignCheckPolicy,
+      {},
+    );
+    for (const fig of data.figures) fig.png = png;
+    const rows = data.sections.flatMap((s) => s.rows.map((r) => r.join(" ")));
+    expect(rows.some((r) => r.includes("Cantilever Top-Bar Anchorage"))).toBe(
+      true,
+    );
+    expect(rows.some((r) => r.includes("cantilever ℓ/10"))).toBe(true);
+    for (const paper of ["A4", "Letter"] as const)
+      expect(
+        (
+          await generateCalculationPdf(data, {
+            type: "simple",
+            paper,
+            nolaLogo: png,
+          })
+        ).pageCount,
+      ).toBe(1);
+  });
+});

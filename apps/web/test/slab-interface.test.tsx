@@ -148,3 +148,60 @@ describe("slab point loads", () => {
     expect(html).not.toContain("NaN");
   });
 });
+describe("cantilever slabs", () => {
+  const draft = (
+    supports: ReturnType<typeof defaultSlabInput>["supports"],
+  ) => ({
+    id: "saved",
+    projectId: "project",
+    moduleSlug: "slab",
+    title: "Cantilever",
+    verificationStatus: "verification-required" as const,
+    updatedAt: "2026-10-13",
+    payload: {
+      kind: "slab" as const,
+      version: 1 as const,
+      input: { ...defaultSlabInput(), lx: 1.5, ly: 6, h: 180, supports },
+    },
+  });
+  it("designs a cantilever and draws free edges without a support band", () => {
+    const html = renderToStaticMarkup(
+      <SlabWorkspace
+        cloudReady={false}
+        onSaved={() => {}}
+        draft={draft({
+          west: "Fixed",
+          east: "Free",
+          south: "Free",
+          north: "Free",
+        })}
+      />,
+    );
+    for (const text of [
+      "<option>Free</option>",
+      "Auto: CANTILEVER",
+      "Cantilever root negative / top",
+      "EAST · Free",
+      "past support face",
+      "Ie at support 24.2.3.7",
+    ])
+      expect(html).toContain(text);
+    expect(html).not.toContain("NaN");
+  });
+  it("blocks an unstable layout and offers to fix the pinned edge", () => {
+    const html = renderToStaticMarkup(
+      <SlabWorkspace
+        cloudReady={false}
+        onSaved={() => {}}
+        draft={draft({
+          west: "Pinned",
+          east: "Free",
+          south: "Free",
+          north: "Free",
+        })}
+      />,
+    );
+    expect(html).toContain("Unstable supports");
+    expect(html).toContain("Set west to Fixed");
+  });
+});

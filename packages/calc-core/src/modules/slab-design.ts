@@ -2,7 +2,11 @@ import { designCheckPolicySchema, designRemarksSchema } from "../design-review";
 import { z } from "zod";
 import { slabQuantitySchema } from "./slab-quantity-schema";
 import { solveSlabPlate } from "./slab-plate";
-import { solvePatchLoads, type PatchFieldValue } from "./slab-patch-fe";
+import {
+  solvePatchLoads,
+  type PatchEdgeKind,
+  type PatchFieldValue,
+} from "./slab-patch-fe";
 export type SlabDirection = "short" | "long";
 export type SlabFace = "bottom" | "top";
 export type SlabEdge = "west" | "east" | "south" | "north";
@@ -13,6 +17,76 @@ export const slabLayers = [
   "long-top",
 ] as const;
 export type SlabLayer = (typeof slabLayers)[number];
+/** Edge support: Fixed (rotation restrained), Pinned (simple) or Free (no support). */
+export const slabSupports = ["Fixed", "Pinned", "Free"] as const;
+export type SlabSupport = (typeof slabSupports)[number];
+export interface SlabSupportLayout {
+  /**
+   * panel: no Free edge (existing one-way / two-way design);
+   * cantilever: one Fixed edge, three Free edges;
+   * unstable: rigid-body motion possible, a Fixed edge is required;
+   * unsupported: stable layout with Free edges not yet implemented (Phase 2).
+   */
+  kind: "panel" | "cantilever" | "unstable" | "unsupported";
+  fixedEdge: SlabEdge | null;
+  /** Edges that, set to Fixed, would make an unstable layout stable. */
+  suggest: SlabEdge[];
+  message: string;
+}
+const allEdges = ["west", "east", "south", "north"] as const;
+/**
+ * Classify the edge supports. A plate is stable (no rigid-body motion
+ * w = a + bx + cy) when any edge is Fixed, or when at least two edges are
+ * Pinned (opposite or adjacent lines are not collinear).
+ */
+export function slabSupportLayout(
+  i: Pick<SlabInput, "supports">,
+): SlabSupportLayout {
+  const of = (k: SlabSupport) => allEdges.filter((e) => i.supports[e] === k);
+  const fixed = of("Fixed"),
+    pinned = of("Pinned"),
+    free = of("Free");
+  if (!free.length)
+    return { kind: "panel", fixedEdge: null, suggest: [], message: "" };
+  if (!fixed.length && pinned.length < 2) {
+    const suggest = pinned.length ? pinned : [...allEdges];
+    return {
+      kind: "unstable",
+      fixedEdge: null,
+      suggest,
+      message: `Unstable supports: ${pinned.length ? `a single Pinned edge (${pinned[0]}) with Free edges can rotate as a rigid body` : "all edges are Free"}. Set ${suggest.length === 1 ? `the ${suggest[0]} edge` : "one edge"} to Fixed for a cantilever.`,
+    };
+  }
+  if (fixed.length === 1 && free.length === 3)
+    return {
+      kind: "cantilever",
+      fixedEdge: fixed[0],
+      suggest: [],
+      message: "",
+    };
+  return {
+    kind: "unsupported",
+    fixedEdge: null,
+    suggest: [],
+    message:
+      "This support layout with Free edges is stable but not yet designed by this module. Cantilever design requires one Fixed edge and three Free edges; other Free-edge layouts are planned for a later release.",
+  };
+}
+/**
+ * Axis of the "short" (primary) reinforcement layers: the shorter span for
+ * supported panels, or the cantilever span (perpendicular to the Fixed edge).
+ */
+export function slabPrimaryAxisX(i: Pick<SlabInput, "lx" | "ly" | "supports">) {
+  const layout = slabSupportLayout(i);
+  if (layout.kind === "cantilever")
+    return layout.fixedEdge === "west" || layout.fixedEdge === "east";
+  return i.lx <= i.ly;
+}
+/** Primary (short layers) and secondary spans, m. */
+export function slabSpans(i: Pick<SlabInput, "lx" | "ly" | "supports">) {
+  const x = slabPrimaryAxisX(i);
+  return { primary: x ? i.lx : i.ly, secondary: x ? i.ly : i.lx, primaryX: x };
+}
 const barSchema = z.object({
   diameter: z.number().min(6).max(40),
   spacing: z.number().min(20).max(1000),
@@ -59,10 +133,10 @@ export const slabInputSchema = z
     deflectionDivisor: z.number().min(180).max(500),
     supportWidth: z.number().min(100).max(1500),
     supports: z.object({
-      west: z.enum(["Fixed", "Pinned"]),
-      east: z.enum(["Fixed", "Pinned"]),
-      south: z.enum(["Fixed", "Pinned"]),
-      north: z.enum(["Fixed", "Pinned"]),
+      west: z.enum(slabSupports),
+      east: z.enum(slabSupports),
+      south: z.enum(slabSupports),
+      north: z.enum(slabSupports),
     }),
     main: barsSchema,
     extra: barsSchema,
@@ -183,7 +257,7 @@ export interface SlabFlexuralZone extends SlabStrength {
   position: number;
 }
 export interface SlabResult {
-  type: "one-way" | "two-way";
+  type: "one-way" | "two-way" | "cantilever";
   ratio: number;
   shortSpan: number;
   longSpan: number;
@@ -232,6 +306,8 @@ export interface SlabResult {
     icr: number;
     ieMid: number;
     ieAvg: number | null;
+    /** Section used for Ie: midspan (24.2.3.5–.7) or cantilever support (24.2.3.7). */
+    ieAt: "midspan" | "support";
     ie: number;
     minimumThickness: SlabMinimumThickness;
     /** "thickness": h ≥ hmin waives calculation; "calculation": Δcr governs. */
@@ -253,6 +329,11 @@ export interface SlabResult {
       extension: number;
       ok: boolean;
     }[];
+    /**
+     * Cantilever only: straight development length of the top MAIN bars,
+     * required beyond the support face into the back-span or support (mm).
+     */
+    anchorage: { layer: SlabLayer; diameter: number; ld: number } | null;
   };
   status: "SCREENING PASS" | "REVISE";
   warnings: string[];
@@ -384,9 +465,12 @@ export function slabBarElevation(
     : Math.min(...shorts.map((v) => v.z - v.diameter / 2)) - b.diameter / 2;
 }
 export function resolveSlabBars(i: SlabInput): SlabResolvedBar[] {
-  const short = Math.min(i.lx, i.ly),
-    long = Math.max(i.lx, i.ly),
-    oneWay = long / short >= 2;
+  const spans = slabSpans(i),
+    short = spans.primary,
+    long = spans.secondary,
+    oneWay =
+      slabSupportLayout(i).kind === "cantilever" ||
+      Math.max(i.lx, i.ly) / Math.min(i.lx, i.ly) >= 2;
   const out: SlabResolvedBar[] = [];
   for (const group of ["main", "extra"] as const)
     for (const layer of slabLayers) {
@@ -558,13 +642,17 @@ export interface SlabPunchingCheck {
   vu: number;
   dcr: number;
   combination: string;
+  /** Free edges the critical perimeter is opened to (least φVc governs). */
+  openEdges: SlabEdge[];
 }
 /**
  * Two-way (punching) shear at each point load, ACI 318-19 22.6, no shear
  * reinforcement, normal-weight concrete (λ = 1), no moment transfer.
  * Critical section at d/2 from the loaded area (22.6.4.1); sides beyond a
  * support face (supportWidth/2 from the idealized support line) are dropped
- * and αs = 40/30/20 for 4/3/2 remaining sides. vc = least of Table 22.6.5.2
+ * and αs = 40/30/20 for 4/3/2 remaining sides. Near a Free edge the
+ * perimeter may also open to the edge; every option is checked and the
+ * least φVc governs. vc = least of Table 22.6.5.2
  * (a) 0.33, (b) 0.17(1 + 2/β), (c) 0.083(2 + αs d/b0), each × λs √f′c,
  * λs per 22.5.5.1.3, √f′c ≤ 8.3 MPa (22.6.3.1), φ = 0.75.
  * Vu = factored point load + factored uniform load inside the critical section.
@@ -582,36 +670,81 @@ export function slabPunching(
     ly = i.ly * 1000,
     lambdaS = Math.min(1, Math.sqrt(2 / (1 + 0.004 * d))),
     root = slabSqrtFc(i.fc);
+  const freeEdges = allEdges.filter((e) => i.supports[e] === "Free");
   return i.pointLoads.map((p) => {
     const c1 = p.bx,
-      c2 = p.by;
-    let x0 = p.x * 1000 - c1 / 2 - d / 2,
-      x1 = p.x * 1000 + c1 / 2 + d / 2,
-      y0 = p.y * 1000 - c2 / 2 - d / 2,
-      y1 = p.y * 1000 + c2 / 2 + d / 2;
-    const west = x0 > face,
-      east = x1 < lx - face,
-      south = y0 > face,
-      north = y1 < ly - face;
-    x0 = Math.max(x0, face);
-    x1 = Math.min(x1, lx - face);
-    y0 = Math.max(y0, face);
-    y1 = Math.min(y1, ly - face);
-    const wx = Math.max(0, x1 - x0),
-      wy = Math.max(0, y1 - y0),
-      b0 =
-        (west ? wy : 0) + (east ? wy : 0) + (south ? wx : 0) + (north ? wx : 0),
-      sides = [west, east, south, north].filter(Boolean).length,
-      alphaS = sides >= 4 ? 40 : sides === 3 ? 30 : 20,
+      c2 = p.by,
       beta = Math.max(c1, c2) / Math.min(c1, c2);
-    const vcLimits = [
-      0.33,
-      0.17 * (1 + 2 / beta),
-      0.083 * (2 + (alphaS * d) / b0),
-    ].map((k) => k * lambdaS * root) as [number, number, number];
-    const vc = Math.min(...vcLimits),
-      area = (wx * wy) / 1e6,
-      phiVc = b0 > 0 ? (0.75 * vc * b0 * d) / 1000 : 0;
+    // Each Free edge: perimeter closed (must lie inside the slab) or opened
+    // to the free edge (that side dropped, 22.6.4.1). Least φVc governs.
+    let best: {
+      b0: number;
+      sides: number;
+      alphaS: number;
+      vcLimits: [number, number, number];
+      vc: number;
+      area: number;
+      phiVc: number;
+      openEdges: SlabEdge[];
+    } | null = null;
+    for (let mask = 0; mask < 1 << freeEdges.length; mask++) {
+      const open = freeEdges.filter((_, k) => mask & (1 << k));
+      let x0 = p.x * 1000 - c1 / 2 - d / 2,
+        x1 = p.x * 1000 + c1 / 2 + d / 2,
+        y0 = p.y * 1000 - c2 / 2 - d / 2,
+        y1 = p.y * 1000 + c2 / 2 + d / 2;
+      const side = (e: SlabEdge, inside: boolean) =>
+        i.supports[e] === "Free" ? !open.includes(e) : inside;
+      const west = side("west", x0 > face),
+        east = side("east", x1 < lx - face),
+        south = side("south", y0 > face),
+        north = side("north", y1 < ly - face);
+      // A closed side on a Free edge must lie inside the slab.
+      if (
+        (i.supports.west === "Free" && west && x0 <= 0) ||
+        (i.supports.east === "Free" && east && x1 >= lx) ||
+        (i.supports.south === "Free" && south && y0 <= 0) ||
+        (i.supports.north === "Free" && north && y1 >= ly)
+      )
+        continue;
+      // Opened sides extend the perpendicular sides to the free edge;
+      // supported edges clip at the support face.
+      const lo = (e: SlabEdge) => (i.supports[e] === "Free" ? 0 : face);
+      x0 = open.includes("west") ? 0 : Math.max(x0, lo("west"));
+      x1 = open.includes("east") ? lx : Math.min(x1, lx - lo("east"));
+      y0 = open.includes("south") ? 0 : Math.max(y0, lo("south"));
+      y1 = open.includes("north") ? ly : Math.min(y1, ly - lo("north"));
+      const wx = Math.max(0, x1 - x0),
+        wy = Math.max(0, y1 - y0),
+        b0 =
+          (west ? wy : 0) +
+          (east ? wy : 0) +
+          (south ? wx : 0) +
+          (north ? wx : 0),
+        sides = [west, east, south, north].filter(Boolean).length,
+        alphaS = sides >= 4 ? 40 : sides === 3 ? 30 : 20;
+      const vcLimits = [
+        0.33,
+        0.17 * (1 + 2 / beta),
+        0.083 * (2 + (alphaS * d) / b0),
+      ].map((k) => k * lambdaS * root) as [number, number, number];
+      const vc = Math.min(...vcLimits),
+        area = (wx * wy) / 1e6,
+        phiVc = b0 > 0 ? (0.75 * vc * b0 * d) / 1000 : 0;
+      const option = {
+        b0,
+        sides,
+        alphaS,
+        vcLimits,
+        vc,
+        area,
+        phiVc,
+        openEdges: open,
+      };
+      if (!best || (b0 > 0 && (!(best.b0 > 0) || phiVc < best.phiVc)))
+        best = option;
+    }
+    const { b0, sides, alphaS, vcLimits, vc, area, phiVc, openEdges } = best!;
     let vu = 0,
       combination = "";
     for (const l of loads) {
@@ -641,11 +774,12 @@ export function slabPunching(
       vu,
       dcr: b0 > 0 ? vu / phiVc : NaN,
       combination,
+      openEdges,
     };
   });
 }
 export interface SlabMinimumThickness {
-  system: "one-way" | "two-way";
+  system: "one-way" | "two-way" | "cantilever";
   /** Required minimum thickness, mm. */
   hmin: number;
   /** One-way: centre-to-centre span ℓ; two-way: clear long span ℓn (mm). */
@@ -654,7 +788,11 @@ export interface SlabMinimumThickness {
   beta: number | null;
   /** One-way end condition used for the ℓ/20, ℓ/24, ℓ/28 divisor. */
   continuity:
-    "simply supported" | "one end continuous" | "both ends continuous" | null;
+    | "simply supported"
+    | "one end continuous"
+    | "both ends continuous"
+    | "cantilever"
+    | null;
   /** Edges treated as discontinuous (Pinned) for the 8.3.1.2.1 note. */
   discontinuousEdges: SlabEdge[];
   formula: string;
@@ -669,6 +807,23 @@ export interface SlabMinimumThickness {
  * Normal-weight concrete only (schema limits unit weight to 20–26 kN/m³).
  */
 export function slabMinimumThickness(i: SlabInput): SlabMinimumThickness {
+  const layout = slabSupportLayout(i);
+  if (layout.kind === "cantilever") {
+    // Table 7.3.1.1 cantilever: ℓ/10, ℓ = projection from the Fixed support line.
+    const span = slabSpans(i).primary * 1000,
+      fyFactor = i.fy === 420 ? 1 : 0.4 + i.fy / 700,
+      hmin = (span / 10) * fyFactor;
+    return {
+      system: "cantilever",
+      hmin,
+      span,
+      beta: null,
+      continuity: "cantilever",
+      discontinuousEdges: [],
+      formula: `hmin = ℓ/10 x (0.4 + fy/700) = ${span.toFixed(0)}/10 x ${fyFactor.toFixed(3)} = ${hmin.toFixed(1)} mm`,
+      ok: i.h >= hmin - 1e-9,
+    };
+  }
   const short = Math.min(i.lx, i.ly) * 1000,
     long = Math.max(i.lx, i.ly) * 1000,
     shortAxisX = i.lx <= i.ly;
@@ -770,8 +925,12 @@ const shortLong = (v: PatchFieldValue, shortAxis: "X" | "Y"): PatchShortLong =>
   shortAxis === "X"
     ? { w: v.w, mShort: v.mx, mLong: v.my, qShort: v.qx, qLong: v.qy }
     : { w: v.w, mShort: v.my, mLong: v.mx, qShort: v.qy, qLong: v.qx };
+const patchEdgeKind = (s: SlabSupport): PatchEdgeKind =>
+  s === "Fixed" ? "fixed" : s === "Pinned" ? "pinned" : "free";
 const edgeDirection = (i: SlabInput, edge: SlabEdge): SlabDirection =>
-  (edge === "west" || edge === "east") === i.lx <= i.ly ? "short" : "long";
+  (edge === "west" || edge === "east") === slabPrimaryAxisX(i)
+    ? "short"
+    : "long";
 export function slabExtraActive(
   i: SlabInput,
   layer: SlabLayer,
@@ -783,7 +942,8 @@ export function slabExtraActive(
       position <= i.cutoffs.bottomEnd + 1e-9
     );
   const dir = layer.startsWith("short") ? "short" : "long";
-  const near: SlabEdge = (dir === "short") === i.lx <= i.ly ? "west" : "south",
+  const near: SlabEdge =
+      (dir === "short") === slabPrimaryAxisX(i) ? "west" : "south",
     far: SlabEdge = near === "west" ? "east" : "north";
   return (
     (i.supports[near] === "Fixed" && position <= i.cutoffs[near] + 1e-9) ||
@@ -838,11 +998,22 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
       throw new Error(
         "All MAIN BARS layers are required; use distribution steel in the one-way transverse direction.",
       );
-  const shortSpan = Math.min(i.lx, i.ly),
-    longSpan = Math.max(i.lx, i.ly),
+  const layout = slabSupportLayout(i);
+  if (layout.kind === "unstable" || layout.kind === "unsupported")
+    throw new Error(layout.message);
+  // Cantilever: one Fixed edge, three Free edges; "short" layers span from the
+  // Fixed edge (projection ℓ), "long" layers are transverse distribution.
+  const cant = layout.kind === "cantilever",
+    spans = slabSpans(i);
+  const shortSpan = spans.primary,
+    longSpan = spans.secondary,
     ratio = longSpan / shortSpan,
-    type = ratio >= 2 ? "one-way" : "two-way",
-    shortAxis = i.lx <= i.ly ? "X" : "Y";
+    type: SlabResult["type"] = cant
+      ? "cantilever"
+      : ratio >= 2
+        ? "one-way"
+        : "two-way",
+    shortAxis = spans.primaryX ? "X" : "Y";
   const bars = resolveSlabBars(i),
     messages: string[] = [];
   if (bars.some((b) => b.d <= 0 || b.z <= 0 || b.z >= i.h))
@@ -889,12 +1060,20 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
   const near: SlabEdge = shortAxis === "X" ? "west" : "south",
     far: SlabEdge = shortAxis === "X" ? "east" : "north";
   const fn = i.supports[near] === "Fixed",
-    ff = i.supports[far] === "Fixed";
-  const beam = {
-    left: fn ? (ff ? -1 / 12 : -1 / 8) : 0,
-    right: ff ? (fn ? -1 / 12 : -1 / 8) : 0,
-    reaction: fn === ff ? 0.5 : fn ? 0.625 : 0.375,
-  };
+    ff = i.supports[far] === "Fixed",
+    rootT = cant ? (layout.fixedEdge === near ? 0 : 1) : 0;
+  // Cantilever strip: M = −(1 − s)²/2 · wℓ² with s from the root; all load to the root.
+  const beam = cant
+    ? {
+        left: rootT === 0 ? -0.5 : 0,
+        right: rootT === 0 ? 0 : -0.5,
+        reaction: rootT === 0 ? 1 : 0,
+      }
+    : {
+        left: fn ? (ff ? -1 / 12 : -1 / 8) : 0,
+        right: ff ? (fn ? -1 / 12 : -1 / 8) : 0,
+        reaction: fn === ff ? 0.5 : fn ? 0.625 : 0.375,
+      };
   const beamMoment = (t: number) => beam.left + beam.reaction * t - (t * t) / 2;
   const normalized =
     shortAxis === "X"
@@ -927,7 +1106,7 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     beamC * t;
   let beamBeta = 0;
   for (let k = 0; k <= 200; k++) beamBeta = Math.max(beamBeta, beamW(k / 200));
-  const coefficients = plate
+  let coefficients = plate
     ? {
         shortPositive: plate.shortPositive,
         longPositive: plate.longPositive,
@@ -967,18 +1146,24 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
       y1: Math.min(i.ly, p.y + hy),
     };
   });
-  const patchFe = hasPatches
+  // Cantilever: the uniform load is also solved by the plate FE (load 0 =
+  // unit load over the whole panel) to capture root-moment concentration
+  // towards the free corners; the strip wℓ²/2 is reported as a check.
+  const hasFe = hasPatches || cant,
+    feOffset = cant ? 1 : 0,
+    panelArea = i.lx * i.ly;
+  const patchFe = hasFe
     ? solvePatchLoads(
         i.lx,
         i.ly,
         {
-          west: i.supports.west === "Fixed",
-          east: i.supports.east === "Fixed",
-          south: i.supports.south === "Fixed",
-          north: i.supports.north === "Fixed",
+          west: patchEdgeKind(i.supports.west),
+          east: patchEdgeKind(i.supports.east),
+          south: patchEdgeKind(i.supports.south),
+          north: patchEdgeKind(i.supports.north),
         },
         i.nu,
-        dispersed,
+        cant ? [{ x0: 0, x1: i.lx, y0: 0, y1: i.ly }, ...dispersed] : dispersed,
       )
     : null;
   const range = (n: number) => Array.from({ length: n + 1 }, (_, k) => k / n);
@@ -988,18 +1173,63 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
       ? [tS * shortSpan, tL * longSpan]
       : [tL * longSpan, tS * shortSpan];
   /** Per-load field at (tS, tL) resolved into short/long components. */
-  const patchCache = new Map<string, PatchShortLong[]>();
-  const patchAt = (tS: number, tL: number): PatchShortLong[] => {
+  const fieldCache = new Map<
+    string,
+    { uniform: PatchShortLong | null; loads: PatchShortLong[] }
+  >();
+  const fieldAt = (tS: number, tL: number) => {
     const key = `${tS}|${tL}`,
-      hit = patchCache.get(key);
+      hit = fieldCache.get(key);
     if (hit) return hit;
     const [x, y] = toGlobal(tS, tL);
-    const values = pointLoads.map((_, k) =>
-      shortLong(patchFe!.at(k, x, y), shortAxis),
-    );
-    patchCache.set(key, values);
-    return values;
+    let uniform: PatchShortLong | null = null;
+    if (cant) {
+      // Per unit load intensity, normalised: m/(wℓ²), q/(wℓ), w·D/(wℓ⁴).
+      const v = shortLong(patchFe!.at(0, x, y), shortAxis);
+      uniform = {
+        w: (v.w * panelArea) / shortSpan ** 4,
+        mShort: (v.mShort * panelArea) / shortSpan ** 2,
+        mLong: (v.mLong * panelArea) / shortSpan ** 2,
+        qShort: (v.qShort * panelArea) / shortSpan,
+        qLong: (v.qLong * panelArea) / shortSpan,
+      };
+    }
+    const value = {
+      uniform,
+      loads: pointLoads.map((_, k) =>
+        shortLong(patchFe!.at(k + feOffset, x, y), shortAxis),
+      ),
+    };
+    fieldCache.set(key, value);
+    return value;
   };
+  const patchAt = (tS: number, tL: number): PatchShortLong[] =>
+    fieldAt(tS, tL).loads;
+  const uniformAt = (tS: number, tL: number) => fieldAt(tS, tL).uniform!;
+  if (cant) {
+    // Coefficients sampled on a 41 × 41 grid of the FE uniform solution.
+    let shortPositive = 0,
+      longPositive = 0,
+      root = 0,
+      beta = 0;
+    for (let a = 0; a <= 40; a++)
+      for (let b = 0; b <= 40; b++) {
+        const u = uniformAt(a / 40, b / 40);
+        shortPositive = Math.max(shortPositive, u.mShort);
+        longPositive = Math.max(longPositive, u.mLong);
+        beta = Math.max(beta, u.w);
+        if (a / 40 === rootT) root = Math.max(root, -u.mShort);
+      }
+    coefficients = {
+      shortPositive,
+      longPositive,
+      westNegative: layout.fixedEdge === "west" ? root : 0,
+      eastNegative: layout.fixedEdge === "east" ? root : 0,
+      southNegative: layout.fixedEdge === "south" ? root : 0,
+      northNegative: layout.fixedEdge === "north" ? root : 0,
+      beta,
+    };
+  }
   /** Normalised lines through each dispersed patch (edges and centre). */
   const patchLines = (axis: SlabDirection) =>
     dispersed.flatMap((r) => {
@@ -1056,6 +1286,14 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
       layer: "long-top",
     },
   ];
+  if (cant)
+    for (const spec of specs)
+      spec.label = {
+        "short-positive": "Cantilever span positive / bottom",
+        "long-positive": "Transverse positive / distribution",
+        "short-negative": "Cantilever root negative / top",
+        "long-negative": "Transverse negative / distribution",
+      }[spec.id]!;
   const regions = specs.map((spec) => {
     const isLong = spec.layer.startsWith("long"),
       isTop = spec.layer.endsWith("top");
@@ -1067,6 +1305,10 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     const sense = isTop ? -1 : 1;
     // Uniform-load moment coefficient (× wu·Lshort²) at plate-normalised (tS, tL).
     const uniform = (tS: number, tL: number) => {
+      if (cant) {
+        const u = uniformAt(tS, tL);
+        return isLong ? u.mLong : u.mShort;
+      }
       if (!plate) return isLong ? 0 : beamMoment(tS);
       const m = plate.at(tS, tL * ratio);
       return isLong ? m.my : m.mx;
@@ -1094,12 +1336,12 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
         ...(hasPatches ? patchLines("short") : []),
       ],
       longGrid =
-        plate || hasPatches
+        plate || hasFe
           ? [...range(30), ...(hasPatches ? patchLines("long") : [])]
           : [0];
     // One-way strip without point loads keeps the short-direction position for both layers.
     const positionOf = (tS: number, tL: number) =>
-      isLong && (plate || hasPatches) ? tL : tS;
+      isLong && (plate || hasFe) ? tL : tS;
     for (const l of activeLoads)
       for (const tS of shortGrid)
         for (const tL of longGrid) push(l, tS, tL, positionOf(tS, tL));
@@ -1114,7 +1356,7 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     for (const t0 of cuts)
       for (const t of [Math.max(0, t0 - 0.00001), Math.min(1, t0 + 0.00001)])
         for (const l of activeLoads)
-          for (const u of plate || hasPatches ? across : [0])
+          for (const u of plate || hasFe ? across : [0])
             push(l, isLong ? u : t, isLong ? t : u, t);
     const select = (extra: boolean) =>
       bars.filter(
@@ -1235,6 +1477,7 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
   const shear: SlabResult["shear"] = [];
   for (const edge of ["west", "east", "south", "north"] as const) {
     const direction = edgeDirection(i, edge);
+    if (i.supports[edge] === "Free") continue;
     if (type === "one-way" && direction === "long" && !hasPatches) continue;
     // Main steel only: no shear credit to curtailed extras until anchorage has independent review.
     const face: SlabFace = i.supports[edge] === "Fixed" ? "top" : "bottom",
@@ -1342,7 +1585,9 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     combination = "";
   const ec = 4700 * Math.sqrt(i.fc),
     rigidity =
-      (ec * 1000 * (i.h / 1000) ** 3) / 12 / (plate ? 1 - i.nu ** 2 : 1);
+      (ec * 1000 * (i.h / 1000) ** 3) /
+      12 /
+      (plate || cant ? 1 - i.nu ** 2 : 1);
   // Point loads: service field sampled on a grid through every patch.
   const plateRigidity = (ec * 1000 * (i.h / 1000) ** 3) / 12 / (1 - i.nu ** 2),
     serviceGrid = hasPatches
@@ -1373,7 +1618,11 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     let max = 0;
     for (const tS of serviceGrid.short)
       for (const tL of serviceGrid.long) {
-        const shapeU = plate ? plate.at(tS, tL * ratio).w : beamW(tS);
+        const shapeU = cant
+          ? uniformAt(tS, tL).w
+          : plate
+            ? plate.at(tS, tL * ratio).w
+            : beamW(tS);
         max = Math.max(
           max,
           ((shapeU * ws * shortSpan ** 4) / rigidity +
@@ -1394,7 +1643,11 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     let max = 0;
     for (const tS of tSLine === null ? serviceGrid.short : [tSLine])
       for (const tL of serviceGrid.long) {
-        const mU = plate ? plate.at(tS, tL * ratio).mx : beamMoment(tS);
+        const mU = cant
+          ? uniformAt(tS, tL).mShort
+          : plate
+            ? plate.at(tS, tL * ratio).mx
+            : beamMoment(tS);
         max = Math.max(
           max,
           sense * mU * ws * shortSpan ** 2 +
@@ -1426,7 +1679,10 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
       as > 0 ? set.reduce((s, b) => s + b.as * b.d, 0) / as : 0,
     );
   };
-  const midSection = sectionAt("bottom", 0.5);
+  const midSection = sectionAt("bottom", 0.5),
+    // 24.2.3.7: cantilever Ie permitted at the support (top steel in tension).
+    rootSection = cant ? sectionAt("top", rootT) : null,
+    refSection = rootSection ?? midSection;
   const ends = (
     [
       [near, 0],
@@ -1438,12 +1694,31 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
   let crackedImmediate = 0,
     crackedCombination = "",
     governingMa = 0,
-    governingIe = midSection.ig,
-    governingIeMid = midSection.ig,
+    governingIe = refSection.ig,
+    governingIeMid = refSection.ig,
     governingIeAvg: number | null = null;
   for (const l of activeLoads) {
     const ws = dead + l.serviceLiveFactor * i.live;
     const delta = grossDeflection(l);
+    if (rootSection) {
+      const maRoot = Math.max(
+        Math.abs(coefficients[`${layout.fixedEdge!}Negative`]) *
+          ws *
+          shortSpan ** 2,
+        servicePatchMoment(l, -1, rootT),
+      );
+      const ie = slabEffectiveInertia(rootSection, maRoot),
+        deltaCr = ie > 0 ? (delta * rootSection.ig) / ie : Infinity;
+      if (deltaCr >= crackedImmediate) {
+        crackedImmediate = deltaCr;
+        crackedCombination = l.id;
+        governingMa = maRoot;
+        governingIe = ie;
+        governingIeMid = ie;
+        governingIeAvg = null;
+      }
+      continue;
+    }
     const maMid = Math.max(
       Math.max(0, coefficients.shortPositive) * ws * shortSpan ** 2,
       servicePatchMoment(l, 1, null),
@@ -1513,6 +1788,17 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
         `Extra ${b.layer}: available extension is insufficient for the development/cutoff screening, or no fixed support is selected.`,
       );
   }
+  // Cantilever: top MAIN bars must be developed beyond the support face.
+  const anchorBar = cant
+    ? bars.find((b) => b.group === "main" && b.layer === "short-top")!
+    : null;
+  const anchorage = anchorBar
+    ? {
+        layer: anchorBar.layer,
+        diameter: anchorBar.diameter,
+        ld: slabDevelopmentLength(i, anchorBar),
+      }
+    : null;
   const minDepth = Math.min(...bars.map((b) => b.d));
   const recommendations = suggestions
     ? slabLayers.map((layer) => {
@@ -1586,6 +1872,15 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     "Straight-bar development/cutoff screening is not a complete anchorage check. Support embedment, hooks, laps and curtailment beyond the theoretical cutoff require designer review.",
     "No openings, column-supported slabs, corner torsion steel, redistribution or pattern live loading are evaluated; punching only at entered point loads.",
   ];
+  if (cant) {
+    const strip = 0.5 * shortSpan ** 2,
+      rootCoef = Math.abs(coefficients[`${layout.fixedEdge!}Negative`]);
+    warnings.push(
+      `Cantilever: the Fixed ${layout.fixedEdge} support is assumed fully rigid (no rotation of the supporting beam, wall or back-span). Root moment and deflection are unconservative if the support rotates; check beam torsion and back-span balance. Plate FE root moment ${(rootCoef * shortSpan ** 2).toFixed(3)}·wu vs strip wuℓ²/2 = ${strip.toFixed(3)}·wu (×${(rootCoef / 0.5).toFixed(3)}, concentration towards the free corners).`,
+      `Cantilever anchorage: top MAIN bars ${anchorage!.layer} Ø${anchorage!.diameter} must extend at least ld = ${anchorage!.ld.toFixed(0)} mm (straight, ACI 318-19 25.4.2) beyond the support face into the back-span or support; hooks/back-span length are not checked. Deflection: Ie at the support (24.2.3.7); limit uses the projection ℓ; long-term deflection is not evaluated and often governs cantilevers.`,
+      "Free edges: edge U-bars or trimmer bars are recommended good practice (not an ACI 318-19 check performed here).",
+    );
+  }
   if (type === "two-way")
     warnings.push(
       "Two-way moments use elastic Kirchhoff plate Ritz analysis, not ACI tabulated coefficients or the Direct Design Method. Local plate shear and corner effects require independent review.",
@@ -1673,9 +1968,11 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     shortAxis,
     bars,
     method:
-      (plate
-        ? "Elastic Kirchhoff plate · Ritz 8×8 basis · exact aspect ratio"
-        : "Elastic one-metre beam strip · exact Fixed/Pinned end solution") +
+      (cant
+        ? `Cantilever (Fixed ${layout.fixedEdge}, three Free edges) · Kirchhoff plate FE (BFS 16-DOF) for moments and deflection · strip shear wu(ℓ − d)`
+        : plate
+          ? "Elastic Kirchhoff plate · Ritz 8×8 basis · exact aspect ratio"
+          : "Elastic one-metre beam strip · exact Fixed/Pinned end solution") +
       (hasPatches
         ? " + point loads: Kirchhoff plate FE (BFS 16-DOF, graded mesh)"
         : ""),
@@ -1690,12 +1987,13 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
       crackedImmediate,
       crackedCombination,
       ma: governingMa,
-      mcr: midSection.mcr,
-      ig: midSection.ig,
-      icr: midSection.icr,
+      mcr: refSection.mcr,
+      ig: refSection.ig,
+      icr: refSection.icr,
       ieMid: governingIeMid,
       ieAvg: governingIeAvg,
       ie: governingIe,
+      ieAt: rootSection ? "support" : "midspan",
       minimumThickness,
       governedBy: minimumThickness.ok ? "thickness" : "calculation",
       ok: deflectionOk,
@@ -1706,12 +2004,13 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
       ok: !messages.length,
       messages: [...new Set(messages)],
       development,
+      anchorage,
     },
     status,
     warnings,
     dead,
     unit: "metric",
-    engineVersion: "slab-0.3.0",
+    engineVersion: "slab-0.4.0",
   };
 }
 export function parseSlabLoads(text: string): SlabInput["loads"] {

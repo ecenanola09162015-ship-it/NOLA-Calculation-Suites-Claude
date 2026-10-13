@@ -20,12 +20,13 @@ export interface PatchRect {
   y0: number;
   y1: number;
 }
-/** true = clamped (Fixed), false = simply supported (Pinned). */
+/** Edge condition: clamped (Fixed), simply supported (Pinned) or Free. */
+export type PatchEdgeKind = "fixed" | "pinned" | "free";
 export interface PatchEdges {
-  west: boolean;
-  east: boolean;
-  south: boolean;
-  north: boolean;
+  west: PatchEdgeKind;
+  east: PatchEdgeKind;
+  south: PatchEdgeKind;
+  north: PatchEdgeKind;
 }
 export interface PatchFieldValue {
   w: number;
@@ -255,20 +256,21 @@ export function solvePatchLoads(
           }
       });
     }
-  // Supports. Pinned edge: w = 0 and tangential slope = 0. Fixed edge: all four nodal DOFs = 0.
+  // Supports. Pinned edge: w = 0 and tangential slope = 0. Fixed edge: all
+  // four nodal DOFs = 0. Free edge: unconstrained (natural boundary).
   const fixed = new Uint8Array(dof);
   for (let j = 0; j < ny; j++)
     for (let i = 0; i < nx; i++) {
       const d = node(i, j),
-        xEdge = i === 0 ? edges.west : i === nx - 1 ? edges.east : null,
-        yEdge = j === 0 ? edges.south : j === ny - 1 ? edges.north : null;
-      if (xEdge !== null) {
+        xEdge = i === 0 ? edges.west : i === nx - 1 ? edges.east : "free",
+        yEdge = j === 0 ? edges.south : j === ny - 1 ? edges.north : "free";
+      if (xEdge !== "free") {
         fixed[d] = fixed[d + 2] = 1;
-        if (xEdge) fixed[d + 1] = fixed[d + 3] = 1;
+        if (xEdge === "fixed") fixed[d + 1] = fixed[d + 3] = 1;
       }
-      if (yEdge !== null) {
+      if (yEdge !== "free") {
         fixed[d] = fixed[d + 1] = 1;
-        if (yEdge) fixed[d + 2] = fixed[d + 3] = 1;
+        if (yEdge === "fixed") fixed[d + 2] = fixed[d + 3] = 1;
       }
     }
   for (let r = 0; r < dof; r++) {

@@ -14,6 +14,7 @@ import {
   slabCrackedSection,
   slabEffectiveInertia,
   slabTopBarFactor,
+  slabSupportLayout,
 } from "../src/modules/slab-design";
 import { solveSlabPlate } from "../src/modules/slab-plate";
 const pinned = {
@@ -586,7 +587,7 @@ describe("point (patch) loads and ACI 318-19 22.6 punching shear", () => {
     const r = analyzeSlab(defaultSlabInput());
     expect(r.punching).toEqual([]);
     expect(r.shear.every((v) => !v.concentratedWithinD)).toBe(true);
-    expect(r.engineVersion).toBe("slab-0.3.0");
+    expect(r.engineVersion).toBe("slab-0.4.0");
   });
   it("interior punching, hand calculation (h 200, 300 × 300, PD 150 + PL 100)", () => {
     const r = analyzeSlab(
@@ -773,5 +774,166 @@ describe("point (patch) loads and ACI 318-19 22.6 punching shear", () => {
       input: legacy,
     });
     expect(parsed.input.pointLoads).toEqual([]);
+  });
+});
+describe("cantilever slabs (one Fixed edge, three Free edges)", () => {
+  const lc1 = [
+    {
+      id: "LC1",
+      deadFactor: 1.2,
+      liveFactor: 1.6,
+      serviceLiveFactor: 1,
+      included: true,
+    },
+  ];
+  const cantilever = (
+    fixed: "west" | "east" | "south" | "north" = "west",
+    extra: Partial<ReturnType<typeof defaultSlabInput>> = {},
+  ) => {
+    const alongX = fixed === "west" || fixed === "east";
+    return {
+      ...defaultSlabInput(),
+      lx: alongX ? 1.5 : 6,
+      ly: alongX ? 6 : 1.5,
+      h: 180,
+      loads: lc1,
+      supports: {
+        west: "Free",
+        east: "Free",
+        south: "Free",
+        north: "Free",
+        [fixed]: "Fixed",
+      } as ReturnType<typeof defaultSlabInput>["supports"],
+      ...extra,
+    };
+  };
+  it("classifies support layouts and suggests the edge to fix", () => {
+    const L = (s: Record<string, string>) =>
+      slabSupportLayout({
+        supports: s as ReturnType<typeof defaultSlabInput>["supports"],
+      });
+    expect(
+      L({ west: "Fixed", east: "Fixed", south: "Pinned", north: "Pinned" })
+        .kind,
+    ).toBe("panel");
+    expect(
+      L({ west: "Free", east: "Free", south: "Free", north: "Fixed" }),
+    ).toMatchObject({ kind: "cantilever", fixedEdge: "north" });
+    expect(
+      L({ west: "Pinned", east: "Free", south: "Free", north: "Free" }),
+    ).toMatchObject({ kind: "unstable", suggest: ["west"] });
+    expect(
+      L({ west: "Free", east: "Free", south: "Free", north: "Free" }).suggest,
+    ).toEqual(["west", "east", "south", "north"]);
+    // Stable but Phase 2: two Pinned (opposite or adjacent), or more than one Fixed.
+    expect(
+      L({ west: "Pinned", east: "Pinned", south: "Free", north: "Free" }).kind,
+    ).toBe("unsupported");
+    expect(
+      L({ west: "Pinned", east: "Free", south: "Pinned", north: "Free" }).kind,
+    ).toBe("unsupported");
+    expect(
+      L({ west: "Fixed", east: "Fixed", south: "Free", north: "Free" }).kind,
+    ).toBe("unsupported");
+    expect(() =>
+      analyzeSlab(
+        cantilever("west", {
+          supports: {
+            west: "Pinned",
+            east: "Free",
+            south: "Free",
+            north: "Free",
+          },
+        }),
+      ),
+    ).toThrow(/Unstable supports.*Set the west edge to Fixed/);
+  });
+  it("hand calculation: ℓ = 1.5 m, h 180, Fixed west (strip shear, ℓ/10, Ie at support)", () => {
+    const r = analyzeSlab(cantilever("west"), false);
+    expect(r.type).toBe("cantilever");
+    expect([r.shortSpan, r.longSpan, r.shortAxis]).toEqual([1.5, 6, "X"]);
+    // D = 0.18 × 24 + 2.4 + 0.5 = 7.22 kPa; wu = 1.2 × 7.22 + 1.6 × 1.92 = 11.736 kPa
+    expect(r.dead).toBeCloseTo(7.22, 12);
+    // Table 7.3.1.1 cantilever: hmin = 1500/10 = 150 mm <= 180
+    expect(r.deflection.minimumThickness.hmin).toBeCloseTo(150, 9);
+    expect(r.deflection.minimumThickness.system).toBe("cantilever");
+    // One-way shear at d from the root only: d = 180 − 20 − 6 = 154 mm
+    // Vu = 11.736 × (1.5 − 0.154) = 15.797 kN/m
+    expect(r.shear.map((v) => v.edge)).toEqual(["west"]);
+    expect(r.shear[0].d).toBeCloseTo(154, 9);
+    expect(r.shear[0].vu).toBeCloseTo(11.736 * (1.5 - 0.154), 9);
+    // Root moment: strip wuℓ²/2 = 13.203 kN·m/m; plate FE peak within +4 %
+    const root = r.regions.find((g) => g.id === "short-negative")!;
+    const strip = (11.736 * 1.5 ** 2) / 2;
+    expect(root.mu / strip).toBeGreaterThan(1.0);
+    expect(root.mu / strip).toBeLessThan(1.04);
+    expect(root.position).toBe(0);
+    expect(root.label).toBe("Cantilever root negative / top");
+    // Bottom steel has no flexural demand under gravity (minimum steel governs)
+    expect(r.regions.find((g) => g.id === "short-positive")!.dcr).toBeLessThan(
+      0.01,
+    );
+    // Tip deflection ≈ ws ℓ⁴/(8D), D = Ec h³/[12(1 − ν²)]; limit ℓ/240 = 6.25 mm
+    const ec = 4700 * Math.sqrt(28),
+      D = (ec * 1000 * 0.18 ** 3) / 12 / (1 - 0.2 ** 2),
+      hand = (((7.22 + 1.92) * 1.5 ** 4) / (8 * D)) * 1000;
+    expect(r.deflection.immediate / hand).toBeGreaterThan(0.995);
+    expect(r.deflection.immediate / hand).toBeLessThan(1.02);
+    expect(r.deflection.limit).toBeCloseTo(6.25, 12);
+    expect(r.deflection.ieAt).toBe("support");
+    // Top-bar anchorage: Ø12, z = 154 ≤ 300 -> ψt = 1; cb = 26; ld = 420/(1.1 √28) × 0.8 / (26/12) × 12 = 319.7 mm
+    expect(r.detailing.anchorage!.ld).toBeCloseTo(319.71, 1);
+    expect(r.status).toBe("SCREENING PASS");
+  });
+  it("gives the same design for every Fixed-edge orientation", () => {
+    const base = analyzeSlab(cantilever("west"), false);
+    for (const edge of ["east", "south", "north"] as const) {
+      const r = analyzeSlab(cantilever(edge), false);
+      expect(r.regions.map((g) => g.mu)).toEqual(
+        base.regions.map((g) => expect.closeTo(g.mu, 6)),
+      );
+      expect(r.shear[0].edge).toBe(edge);
+      expect(r.shear[0].vu).toBeCloseTo(base.shear[0].vu, 9);
+      expect(r.deflection.immediate).toBeCloseTo(base.deflection.immediate, 6);
+    }
+  });
+  it("punching near free edges opens the perimeter (hand calculation)", () => {
+    const r = analyzeSlab(
+      cantilever("west", {
+        pointLoads: [
+          // 0.2 m from the tip: closed 4-sided fits but the 3-sided open perimeter governs
+          { id: "P1", x: 1.3, y: 3, bx: 200, by: 200, dead: 10, live: 5 },
+          // at the free corner
+          { id: "P2", x: 1.35, y: 0.2, bx: 150, by: 150, dead: 8, live: 0 },
+          // interior
+          { id: "P3", x: 0.75, y: 3, bx: 200, by: 200, dead: 10, live: 0 },
+        ],
+      }),
+      false,
+    );
+    const [p1, p2, p3] = r.punching;
+    // d = (154 + 142)/2 = 148; P1: x0 = 1300 − 100 − 74 = 1126 -> to edge 1500: wx = 374; wy = 348
+    // b0 = 348 + 2 × 374 = 1096 (3 sides, αs 30); vc = 0.33√28 (a governs)
+    expect(p1.d).toBeCloseTo(148, 9);
+    expect(p1.b0).toBeCloseTo(1096, 9);
+    expect([p1.sides, p1.alphaS, p1.openEdges]).toEqual([3, 30, ["east"]]);
+    expect(p1.phiVc).toBeCloseTo(
+      (0.75 * 0.33 * Math.sqrt(28) * 1096 * 148) / 1000,
+      6,
+    ); // 212.44
+    // Closed alternative 4 × 348 = 1392 gives 269.8 kN > 212.4 -> open governs (least φVc)
+    // P2 corner: wx = 1500 − 1201 = 299; wy = 0 + 349 = 349; b0 = 648 (2 sides, αs 20)
+    expect(p2.b0).toBeCloseTo(648, 9);
+    expect([p2.sides, p2.alphaS]).toEqual([2, 20]);
+    expect(p2.openEdges.sort()).toEqual(["east", "south"]);
+    // P3 interior: b0 = 4 × 348 = 1392, αs 40
+    expect(p3.b0).toBeCloseTo(1392, 9);
+    expect([p3.sides, p3.alphaS, p3.openEdges]).toEqual([4, 40, []]);
+  });
+  it("keeps supported panels unchanged (no Free edge)", () => {
+    const r = analyzeSlab(defaultSlabInput(), false);
+    expect(r.type).toBe("two-way");
+    expect(r.deflection.ieAt).toBe("midspan");
+    expect(r.detailing.anchorage).toBeNull();
   });
 });
