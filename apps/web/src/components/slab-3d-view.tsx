@@ -34,7 +34,7 @@ function concrete() {
   return concreteTexture;
 }
 /** Concrete box with the watercolour texture tiled about once per metre. */
-function concreteBox(b: Box3, tint = 0xffffff) {
+function concreteBox(b: Box3, tint = 0xffffff, outline = true) {
   const w = b.x1 - b.x0,
     d = b.y1 - b.y0,
     t = b.z1 - b.z0,
@@ -55,16 +55,123 @@ function concreteBox(b: Box3, tint = 0xffffff) {
   mesh.position.copy(
     v3((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, (b.z0 + b.z1) / 2),
   );
-  const ink = new THREE.LineSegments(
-    new THREE.EdgesGeometry(geometry),
+  if (outline)
+    mesh.add(
+      new THREE.LineSegments(
+        new THREE.EdgesGeometry(geometry),
+        new THREE.LineBasicMaterial({
+          color: 0x3d4a55,
+          transparent: true,
+          opacity: 0.55,
+        }),
+      ),
+    );
+  return mesh;
+}
+type Segment = [number, number, number, number, number, number];
+/** Ink lines from engineering-coordinate segments. */
+function inkLines(segments: Segment[]) {
+  return new THREE.LineSegments(
+    new THREE.BufferGeometry().setFromPoints(
+      segments.flatMap(([x1, y1, z1, x2, y2, z2]) => [
+        v3(x1, y1, z1),
+        v3(x2, y2, z2),
+      ]),
+    ),
     new THREE.LineBasicMaterial({
       color: 0x3d4a55,
       transparent: true,
       opacity: 0.55,
     }),
   );
-  mesh.add(ink);
-  return mesh;
+}
+/**
+ * Outline of the monolithic slab + beam ring: slab top edges, outer
+ * vertical corner edges, soffit edges on Free sides, beam soffits, inner
+ * downstand edges and exposed beam ends. Seams between the slab body and
+ * the beam downstands are not drawn, so the model reads as one solid.
+ */
+function ringOutline(model: Slab3DModel) {
+  const { lx, ly, h } = model.slab,
+    f = model.footprint,
+    k = model.supportKinds,
+    seg: Segment[] = [];
+  const has = (e: "west" | "east" | "south" | "north") =>
+    model.supports.some((s) => s.id === e);
+  seg.push(
+    [f.x0, f.y0, h, f.x1, f.y0, h],
+    [f.x1, f.y0, h, f.x1, f.y1, h],
+    [f.x1, f.y1, h, f.x0, f.y1, h],
+    [f.x0, f.y1, h, f.x0, f.y0, h],
+  );
+  const low = (x: number, y: number) =>
+    Math.min(
+      0,
+      ...model.supports
+        .filter(
+          (s) =>
+            x >= s.box.x0 - 1e-9 &&
+            x <= s.box.x1 + 1e-9 &&
+            y >= s.box.y0 - 1e-9 &&
+            y <= s.box.y1 + 1e-9,
+        )
+        .map((s) => s.box.z0),
+    );
+  for (const [x, y] of [
+    [f.x0, f.y0],
+    [f.x1, f.y0],
+    [f.x1, f.y1],
+    [f.x0, f.y1],
+  ])
+    seg.push([x, y, h, x, y, low(x, y)]);
+  if (!has("south")) seg.push([f.x0, f.y0, 0, f.x1, f.y0, 0]);
+  if (!has("north")) seg.push([f.x0, f.y1, 0, f.x1, f.y1, 0]);
+  if (!has("west")) seg.push([f.x0, f.y0, 0, f.x0, f.y1, 0]);
+  if (!has("east")) seg.push([f.x1, f.y0, 0, f.x1, f.y1, 0]);
+  for (const s of model.supports) {
+    const b = s.box;
+    seg.push(
+      [b.x0, b.y0, b.z0, b.x1, b.y0, b.z0],
+      [b.x1, b.y0, b.z0, b.x1, b.y1, b.z0],
+      [b.x1, b.y1, b.z0, b.x0, b.y1, b.z0],
+      [b.x0, b.y1, b.z0, b.x0, b.y0, b.z0],
+    );
+    if (s.edge === "corner") continue;
+    // Inner (panel-side) face meets the panel soffit.
+    if (s.id === "west") seg.push([0, 0, 0, 0, ly, 0]);
+    if (s.id === "east") seg.push([lx, 0, 0, lx, ly, 0]);
+    if (s.id === "south") seg.push([0, 0, 0, lx, 0, 0]);
+    if (s.id === "north") seg.push([0, ly, 0, lx, ly, 0]);
+    // Exposed beam end faces where the adjacent edge is Free.
+    const alongY = s.id === "west" || s.id === "east";
+    const ends = alongY
+      ? [k.south === "Free" ? b.y0 : null, k.north === "Free" ? b.y1 : null]
+      : [k.west === "Free" ? b.x0 : null, k.east === "Free" ? b.x1 : null];
+    for (const at of ends) {
+      if (at === null) continue;
+      for (const t of [0, 1])
+        seg.push(
+          alongY
+            ? [
+                b.x0 + t * (b.x1 - b.x0),
+                at,
+                0,
+                b.x0 + t * (b.x1 - b.x0),
+                at,
+                b.z0,
+              ]
+            : [
+                at,
+                b.y0 + t * (b.y1 - b.y0),
+                0,
+                at,
+                b.y0 + t * (b.y1 - b.y0),
+                b.z0,
+              ],
+        );
+    }
+  }
+  return inkLines(seg);
 }
 function label(text: string, color: string, height: number) {
   const canvas = document.createElement("canvas"),
@@ -98,51 +205,20 @@ function buildGroups(model: Slab3DModel) {
     supports = new THREE.Group(),
     loads = new THREE.Group(),
     labels = new THREE.Group();
-  slab.add(concreteBox({ x0: 0, x1: lx, y0: 0, y1: ly, z0: 0, z1: h }));
-  for (const s of model.supports) {
-    if (s.kind === "Fixed") supports.add(concreteBox(s.box, 0xd9d4cc));
-    else {
-      // Knife-edge prism along the edge (simple support).
-      const b = s.box,
-        alongY = s.edge === "west" || s.edge === "east",
-        length = alongY ? b.y1 - b.y0 : b.x1 - b.x0,
-        width = alongY ? b.x1 - b.x0 : b.y1 - b.y0,
-        height = b.z1 - b.z0,
-        shape = new THREE.Shape();
-      shape.moveTo(-width / 2, -height);
-      shape.lineTo(width / 2, -height);
-      shape.lineTo(0, 0);
-      shape.closePath();
-      const geometry = new THREE.ExtrudeGeometry(shape, {
-        depth: length,
-        bevelEnabled: false,
-      });
-      const mesh = new THREE.Mesh(
-        geometry,
-        new THREE.MeshStandardMaterial({ color: 0x8a96a3, roughness: 0.6 }),
-      );
-      // Extrusion runs along local +z; orient it along the edge.
-      // alongY: extrude from three z = −ly to 0 (engineering y = ly → 0).
-      if (alongY) mesh.position.copy(v3((b.x0 + b.x1) / 2, b.y1, 0));
-      else {
-        mesh.rotation.y = Math.PI / 2;
-        mesh.position.copy(v3(0, (b.y0 + b.y1) / 2, 0));
-      }
-      mesh.add(
-        new THREE.LineSegments(
-          new THREE.EdgesGeometry(geometry),
-          new THREE.LineBasicMaterial({ color: 0x3d4a55 }),
-        ),
-      );
-      supports.add(mesh);
-    }
-  }
+  // Slab body over the clear panel and the beam tops (flush), then beam
+  // downstands and corner pieces as one ring, all the same watercolour concrete.
+  const f0 = model.footprint;
+  slab.add(concreteBox({ ...f0, z0: 0, z1: h }, 0xffffff, false));
+  for (const s of model.supports)
+    supports.add(concreteBox(s.box, 0xffffff, false));
+  slab.add(ringOutline(model));
   const textHeight = Math.max(0.12, model.extent * 0.035);
+  const gap = 0.06 * model.extent;
   for (const [edge, x, y] of [
-    ["WEST", -0.06 * model.extent, ly / 2],
-    ["EAST", lx + 0.06 * model.extent, ly / 2],
-    ["SOUTH", lx / 2, -0.06 * model.extent],
-    ["NORTH", lx / 2, ly + 0.06 * model.extent],
+    ["WEST", f0.x0 - gap, ly / 2],
+    ["EAST", f0.x1 + gap, ly / 2],
+    ["SOUTH", lx / 2, f0.y0 - gap],
+    ["NORTH", lx / 2, f0.y1 + gap],
   ] as const) {
     const e = edge.toLowerCase() as "west" | "east" | "south" | "north";
     const sprite = label(

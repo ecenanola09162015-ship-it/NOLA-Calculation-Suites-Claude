@@ -69,19 +69,53 @@ describe("3D slab scene model", () => {
     ],
   };
   const m = buildSlab3DModel(input);
-  it("uses true scale and draws supports by type (Free edges have none)", () => {
+  it("uses true scale; beams on Fixed and Pinned edges, none on Free; flush ring", () => {
     expect(m.slab).toEqual({ lx: 6, ly: 4.5, h: 0.15 });
-    expect(m.supports.map((s) => `${s.edge}:${s.kind}`)).toEqual([
-      "west:Fixed",
-      "east:Pinned",
-      "south:Fixed",
+    // Default 250 x 500 beams outside the clear panel; north is Free (no beam).
+    expect(m.footprint).toEqual({ x0: -0.25, x1: 6.25, y0: -0.25, y1: 4.5 });
+    expect(m.supports.map((s) => s.id)).toEqual([
+      "west",
+      "east",
+      "south",
+      "west-south",
+      "east-south",
     ]);
+    // Downstand below the soffit: 500 − 150 = 350 mm; top flush (slab body covers the beam top).
     const west = m.supports[0].box;
-    // 300 mm support centred on the west line, wall below the soffit (z ≤ 0)
-    expect([west.x0, west.x1, west.y0, west.y1, west.z1]).toEqual([
-      -0.15, 0.15, 0, 4.5, 0,
-    ]);
-    expect(west.z0).toBeLessThan(0);
+    expect(west).toEqual({
+      x0: -0.25,
+      x1: 0,
+      y0: 0,
+      y1: 4.5,
+      z0: -0.35,
+      z1: 0,
+    });
+    expect(m.supports[0]).toMatchObject({
+      kind: "Fixed",
+      size: { width: 250, depth: 500 },
+    });
+    expect(m.supports[1]).toMatchObject({ kind: "Pinned" });
+    // Beam next to the Free north edge stops at the slab edge (no corner piece).
+    expect(m.supports.some((s) => s.id.includes("north"))).toBe(false);
+  });
+  it("takes Estimate beam sizes per edge; corner fills to the deeper beam", () => {
+    const est = buildSlab3DModel({
+      ...input,
+      beams: {
+        source: "estimate",
+        sizes: {
+          west: { width: 300, depth: 600 },
+          east: { width: 250, depth: 500 },
+          south: { width: 400, depth: 700 },
+          north: { width: 250, depth: 500 },
+        },
+      },
+    });
+    expect(est.footprint).toEqual({ x0: -0.3, x1: 6.25, y0: -0.4, y1: 4.5 });
+    const corner = est.supports.find((s) => s.id === "west-south")!.box;
+    // x −0.3..0, y −0.4..0, soffit at the deeper beam: 700 − 150 = 550 mm
+    expect(corner).toMatchObject({ x0: -0.3, x1: 0, y0: -0.4, y1: 0, z1: 0 });
+    expect(corner.z0).toBeCloseTo(-0.55, 12);
   });
   it("places loads at their coordinates with type colours and governing factored labels", () => {
     const [p, w, a] = m.loads;

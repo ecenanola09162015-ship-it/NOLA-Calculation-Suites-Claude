@@ -22,6 +22,7 @@ import {
   type SlabResult,
   type SlabQuantityInput,
   slabLoadPatch,
+  slabBeamSizes,
 } from "@nola/calc-core";
 import { loadStyles } from "@/lib/load-styles";
 import type { ProjectRecord } from "../projects";
@@ -631,11 +632,17 @@ export function slabReportData(
       ],
     ]),
     section("Section And Reinforcement", [
-      ["Geometry", `${input.lx} x ${input.ly} m; h = ${input.h} mm; ${r.type}`],
       [
-        "Supports",
-        Object.entries(input.supports)
-          .map(([e, s]) => e + ": " + s)
+        "Geometry",
+        `${input.lx} x ${input.ly} m clear; h = ${input.h} mm; ${r.type}`,
+      ],
+      [
+        "Supports / Beams",
+        (["west", "east", "south", "north"] as const)
+          .map((e) => {
+            const b = slabBeamSizes(input)[e];
+            return `${e}: ${input.supports[e]}${b ? ` ${b.width}x${b.depth}` : ""}`;
+          })
           .join("; "),
       ],
       ...r.bars.map((b) => [
@@ -809,7 +816,7 @@ export function slabReportData(
         ],
         [
           "Immediate Deflection",
-          `Ec=4700 sqrt(${input.fc}) MPa; fr=0.62 sqrt(fc); Ig=${f(r.deflection.ig / 1e6, 1)}e6, Icr=${f(r.deflection.icr / 1e6, 1)}e6 mm⁴; Mcr=${f(r.deflection.mcr)}, Ma=${f(r.deflection.ma)} kN·m/m; Ie,mid=${f(r.deflection.ieMid / 1e6, 1)}e6${r.deflection.ieAvg === null ? "" : `, Ie,avg=${f(r.deflection.ieAvg / 1e6, 1)}e6`}, Ie=${f(r.deflection.ie / 1e6, 1)}e6 mm⁴; delta,g=${f(r.deflection.immediate)} mm; delta,cr=delta,g x Ig/Ie=${f(r.deflection.crackedImmediate)} mm; limit=${f(r.shortSpan * 1000, 0)}/${input.deflectionDivisor}=${f(r.deflection.limit)} mm`,
+          `Ec=4700 sqrt(${input.fc}) MPa; fr=0.62 sqrt(fc); Ig=${f(r.deflection.ig / 1e6, 1)}e6, Icr=${f(r.deflection.icr / 1e6, 1)}e6 mm⁴; Mcr=${f(r.deflection.mcr)}, Ma=${f(r.deflection.ma)} kN·m/m; Ie,mid=${f(r.deflection.ieMid / 1e6, 1)}e6${r.deflection.ieAvg === null ? "" : `, Ie,avg=${f(r.deflection.ieAvg / 1e6, 1)}e6`}, Ie=${f(r.deflection.ie / 1e6, 1)}e6 mm⁴; delta,g=${f(r.deflection.immediate)} mm; delta,cr=delta,g x Ig/Ie=${f(r.deflection.crackedImmediate)} mm; limit=ℓ/${input.deflectionDivisor}=${f(r.deflection.span, 0)}/${input.deflectionDivisor}=${f(r.deflection.limit)} mm (${r.type === "cantilever" ? "ℓ = projection" : "ℓ = c/c: clear span + beam widths/2"})`,
           slabClauses.deflection(r.type),
         ],
         [

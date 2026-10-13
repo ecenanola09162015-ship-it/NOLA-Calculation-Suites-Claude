@@ -295,3 +295,44 @@ describe("line and area loads in the plan", () => {
     expect(html).not.toContain("NaN");
   });
 });
+describe("bounding beams", () => {
+  it("shows the beam-size switch and draws 250 × 500 beams in plan and section", () => {
+    const i = defaultSlabInput();
+    const html = renderToStaticMarkup(
+      <SlabWorkspace cloudReady={false} onSaved={() => {}} />,
+    );
+    for (const text of [
+      "Bounding beams",
+      "Default 250 × 500 mm",
+      "From Estimate section",
+      "One-Way Shear Checks At d From Beam Face",
+    ])
+      expect(html).toContain(text);
+    const bars = resolveSlabBars(i);
+    expect(
+      renderToStaticMarkup(
+        <SlabSection input={i} bars={bars} direction="short" />,
+      ),
+    ).toContain('data-beams="250x500|250x500"');
+    expect(
+      renderToStaticMarkup(<SlabPlan input={i} bars={bars} face="bottom" />),
+    ).toContain("data-plan-beams");
+    // Cantilever: beam at the Fixed root only, free tip has none.
+    const c = {
+      ...i,
+      lx: 1.5,
+      ly: 6,
+      supports: {
+        west: "Fixed",
+        east: "Free",
+        south: "Free",
+        north: "Free",
+      } as const,
+    };
+    expect(
+      renderToStaticMarkup(
+        <SlabSection input={c} bars={resolveSlabBars(c)} direction="short" />,
+      ),
+    ).toContain('data-beams="250x500|free"');
+  });
+});

@@ -2,6 +2,7 @@ import {
   biaxialContour,
   biaxialSection,
   defaultReportStyle,
+  slabBeamSizes,
   slabLoadPatch,
   slabPrimaryAxisX,
   type ReportStyle,
@@ -127,12 +128,38 @@ export function slabFigures(
 ): ReportFigure[] {
   const { primary: blue, teal, extra } = style.colors;
   const plans = (["bottom", "top"] as const).map((face) => {
-    const scale = Math.min(196 / i.lx, 105 / i.ly),
+    // Bounding beams outside the clear panel (north up), joined at corners.
+    const beams = slabBeamSizes(i),
+      bw = (e: "west" | "east" | "south" | "north") =>
+        (beams[e]?.width ?? 0) / 1000,
+      totalW = i.lx + bw("west") + bw("east"),
+      totalH = i.ly + bw("south") + bw("north"),
+      scale = Math.min(196 / totalW, 105 / totalH),
       w = i.lx * scale,
       h = i.ly * scale,
-      x = (250 - w) / 2,
-      y = 17;
-    let body = `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${style.colors.tint}" stroke="${teal}"/>`;
+      x = (250 - totalW * scale) / 2 + bw("west") * scale,
+      y = 17 + bw("north") * scale;
+    const band = (bx: number, by: number, bwid: number, bh: number) =>
+      `<rect x="${bx}" y="${by}" width="${bwid}" height="${bh}" fill="#dbe4e7" stroke="${teal}" stroke-width="0.4"/>`;
+    let body = "";
+    if (beams.west)
+      body += band(
+        x - bw("west") * scale,
+        y - bw("north") * scale,
+        bw("west") * scale,
+        h + (bw("north") + bw("south")) * scale,
+      );
+    if (beams.east)
+      body += band(
+        x + w,
+        y - bw("north") * scale,
+        bw("east") * scale,
+        h + (bw("north") + bw("south")) * scale,
+      );
+    if (beams.north)
+      body += band(x, y - bw("north") * scale, w, bw("north") * scale);
+    if (beams.south) body += band(x, y + h, w, bw("south") * scale);
+    body += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${style.colors.tint}" stroke="${teal}"/>`;
     for (const b of r.bars.filter((b) => b.face === face)) {
       const alongX = (b.direction === "short") === slabPrimaryAxisX(i);
       for (const p of b.positions)

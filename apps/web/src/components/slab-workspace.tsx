@@ -16,6 +16,7 @@ import {
   slabDraftSchema,
   slabLayers,
   slabSupportLayout,
+  slabBeamSizes,
   type SlabInput,
   type SlabLocalLoad,
   type SlabLocalLoadKind,
@@ -127,8 +128,7 @@ export function SlabWorkspace({
   );
   const [quantity, setQuantity] = useState<SlabQuantityInput>(() =>
     restored.success
-      ? (restored.data.quantity ??
-        defaultSlabQuantity(restored.data.input.supportWidth))
+      ? (restored.data.quantity ?? defaultSlabQuantity())
       : defaultSlabQuantity(),
   );
   const policy =
@@ -166,7 +166,31 @@ export function SlabWorkspace({
   const editVersion = useRef(0);
   // Point loads add a plate FE solve (~0.1–0.5 s): defer the analysis so
   // typing stays responsive; results follow the latest input when idle.
-  const analysedInput = useDeferredValue(input);
+  // Bounding beams: "From Estimate section" takes each edge's beam width and
+  // depth from the Estimate inputs; the resolved input drives analysis,
+  // drawings, 3D, report and the saved draft.
+  const designInput = useMemo<SlabInput>(
+    () =>
+      input.beams?.source === "estimate"
+        ? {
+            ...input,
+            beams: {
+              source: "estimate",
+              sizes: Object.fromEntries(
+                (["west", "east", "south", "north"] as const).map((e) => [
+                  e,
+                  {
+                    width: quantity.beams[e].width,
+                    depth: quantity.beams[e].depth,
+                  },
+                ]),
+              ) as SlabInput["beams"]["sizes"],
+            },
+          }
+        : input,
+    [input, quantity],
+  );
+  const analysedInput = useDeferredValue(designInput);
   const analysis = useMemo(() => {
     try {
       return { result: analyzeSlab(analysedInput, false), error: "" };
@@ -397,7 +421,7 @@ export function SlabWorkspace({
       const parsed = slabDraftSchema.safeParse({
         kind: "slab",
         version: 1,
-        input,
+        input: designInput,
         quantity,
         designPolicy: policy,
         remarks,
@@ -533,7 +557,7 @@ export function SlabWorkspace({
             return slabReportData(
               project,
               title,
-              input,
+              designInput,
               r,
               quantity,
               policy,
@@ -658,6 +682,36 @@ export function SlabWorkspace({
               </label>
             ))}
           </div>
+          <label className="slabBeamSource">
+            Bounding beams
+            <select
+              value={input.beams?.source ?? "default"}
+              onChange={(e) =>
+                update({
+                  ...input,
+                  beams: {
+                    ...(input.beams ?? designInput.beams),
+                    source: e.target.value as "default" | "estimate",
+                  },
+                })
+              }
+            >
+              <option value="default">Default 250 × 500 mm</option>
+              <option value="estimate">From Estimate section</option>
+            </select>
+          </label>
+          <p className="slabMuted">
+            Lx and Ly are clear spans between inner beam faces. Beams on Fixed
+            and Pinned edges, none on Free edges; tops flush with the slab top.{" "}
+            {(["west", "east", "south", "north"] as const)
+              .map((e) => {
+                const b = slabBeamSizes(designInput)[e];
+                return `${e} ${b ? `${b.width} × ${b.depth}` : "free"}`;
+              })
+              .join(" · ")}
+            . Support condition governs the design; ℓ for minimum thickness and
+            the deflection limit is centre-to-centre (clear + beam widths / 2).
+          </p>
           {cantilever && (
             <p className="slabMuted">
               Cantilever: Fixed {supportLayout.fixedEdge} edge, three Free
@@ -731,11 +785,6 @@ export function SlabWorkspace({
                 onChange={(v) => change("aggregate", v)}
               />
               <Numeric
-                label="Support Width (Diagram)"
-                value={input.supportWidth}
-                onChange={(v) => change("supportWidth", v)}
-              />
-              <Numeric
                 label="DCR Criterion"
                 value={input.dcrLimit}
                 unit=""
@@ -798,7 +847,7 @@ export function SlabWorkspace({
           </div>
           {tab === "3d" && (
             <section className="slabPanel slab3dPanel">
-              <Slab3DView input={input} onSnapshot={setSnapshot3d} />
+              <Slab3DView input={designInput} onSnapshot={setSnapshot3d} />
               {snapshot3d && (
                 <p className="slabMuted">
                   A 3D snapshot will be included in the Complete PDF report.{" "}
@@ -829,14 +878,14 @@ export function SlabWorkspace({
             </div>
             <div className="slabPlans">
               {(view === "both" || view === "bottom") && (
-                <SlabPlan input={input} bars={bars} face="bottom" />
+                <SlabPlan input={designInput} bars={bars} face="bottom" />
               )}
               {(view === "both" || view === "top") && (
-                <SlabPlan input={input} bars={bars} face="top" />
+                <SlabPlan input={designInput} bars={bars} face="top" />
               )}
             </div>
-            <SlabSection input={input} bars={bars} direction="short" />
-            <SlabSection input={input} bars={bars} direction="long" />
+            <SlabSection input={designInput} bars={bars} direction="short" />
+            <SlabSection input={designInput} bars={bars} direction="long" />
             <p className="slabMuted">
               Main bars are continuous; extras have limited lengths and repeat
               across the full distribution width. Dashed extra lines in sections
@@ -1513,7 +1562,7 @@ export function SlabWorkspace({
               </tbody>
             </table>
           </div>
-          <h3>One-Way Shear Checks At d From Idealized Support Line</h3>
+          <h3>One-Way Shear Checks At d From Beam Face</h3>
           {r.shear.some((v) => v.concentratedWithinD) && (
             <p className="slabMuted">
               Edges marked “support” carry a point load within d and are checked

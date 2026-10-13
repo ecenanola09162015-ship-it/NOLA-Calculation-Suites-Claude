@@ -1,4 +1,5 @@
 import {
+  slabBeamSizes,
   slabLoadPatch,
   type SlabInput,
   type SlabLocalLoadKind,
@@ -19,10 +20,17 @@ export interface Box3 {
   z0: number;
   z1: number;
 }
+/**
+ * Bounding-beam downstand (below the slab soffit; the beam top is the slab
+ * itself, flush). Edge beams lie outside the clear panel; corner pieces join
+ * adjacent beams into one ring at the deeper of the two soffits.
+ */
 export interface Slab3DSupport {
-  edge: "west" | "east" | "south" | "north";
-  kind: "Fixed" | "Pinned";
-  /** Fixed: wall/beam block under the edge; Pinned: knife-edge prism. */
+  id: string;
+  edge: "west" | "east" | "south" | "north" | "corner";
+  kind: "Fixed" | "Pinned" | "corner";
+  /** Beam width x total depth, mm. */
+  size: { width: number; depth: number };
   box: Box3;
 }
 export interface Slab3DArrow {
@@ -46,6 +54,8 @@ export interface Slab3DLoad {
 }
 export interface Slab3DModel {
   slab: { lx: number; ly: number; h: number };
+  /** Slab top/body footprint: clear panel plus beams on supported edges. */
+  footprint: { x0: number; x1: number; y0: number; y1: number };
   /** Support condition per edge, including Free. */
   supportKinds: SlabInput["supports"];
   supports: Slab3DSupport[];
@@ -62,32 +72,63 @@ const count = (length: number, pitch: number, max: number) =>
 
 export function buildSlab3DModel(i: SlabInput): Slab3DModel {
   const h = i.h / 1000,
-    sw = i.supportWidth / 1000,
     extent = Math.max(i.lx, i.ly),
     arrowReference = Math.max(0.3, 0.22 * Math.min(i.lx, i.ly));
-  const supports: Slab3DSupport[] = [];
-  const blockDepth = Math.max(0.3, 3 * h),
-    prismHeight = Math.max(0.12, 0.8 * sw);
+  const supports: Slab3DSupport[] = [],
+    beam = slabBeamSizes(i),
+    w = (e: "west" | "east" | "south" | "north") =>
+      (beam[e]?.width ?? 0) / 1000,
+    dz = (e: "west" | "east" | "south" | "north") =>
+      Math.max(0, (beam[e]?.depth ?? 0) / 1000 - h);
+  const footprint = {
+    x0: -w("west"),
+    x1: i.lx + w("east"),
+    y0: -w("south"),
+    y1: i.ly + w("north"),
+  };
   for (const edge of ["west", "east", "south", "north"] as const) {
-    const kind = i.supports[edge];
-    if (kind === "Free") continue;
-    const alongY = edge === "west" || edge === "east",
-      line =
-        edge === "west"
-          ? 0
-          : edge === "east"
-            ? i.lx
-            : edge === "south"
-              ? 0
-              : i.ly,
-      z1 = 0,
-      z0 = kind === "Fixed" ? -blockDepth : -prismHeight;
+    const b = beam[edge];
+    if (!b || dz(edge) <= 0) continue;
+    const kind = i.supports[edge] as "Fixed" | "Pinned",
+      z0 = -dz(edge);
     supports.push({
+      id: edge,
       edge,
       kind,
-      box: alongY
-        ? { x0: line - sw / 2, x1: line + sw / 2, y0: 0, y1: i.ly, z0, z1 }
-        : { x0: 0, x1: i.lx, y0: line - sw / 2, y1: line + sw / 2, z0, z1 },
+      size: b,
+      box:
+        edge === "west"
+          ? { x0: -w(edge), x1: 0, y0: 0, y1: i.ly, z0, z1: 0 }
+          : edge === "east"
+            ? { x0: i.lx, x1: i.lx + w(edge), y0: 0, y1: i.ly, z0, z1: 0 }
+            : edge === "south"
+              ? { x0: 0, x1: i.lx, y0: -w(edge), y1: 0, z0, z1: 0 }
+              : { x0: 0, x1: i.lx, y0: i.ly, y1: i.ly + w(edge), z0, z1: 0 },
+    });
+  }
+  // Corners where two beams meet: fill to the deeper soffit (flush ring).
+  for (const [a, c] of [
+    ["west", "south"],
+    ["east", "south"],
+    ["west", "north"],
+    ["east", "north"],
+  ] as const) {
+    if (!beam[a] || !beam[c]) continue;
+    const depth = Math.max(dz(a), dz(c));
+    if (depth <= 0) continue;
+    supports.push({
+      id: `${a}-${c}`,
+      edge: "corner",
+      kind: "corner",
+      size: { width: 0, depth: Math.max(beam[a]!.depth, beam[c]!.depth) },
+      box: {
+        x0: a === "west" ? -w(a) : i.lx,
+        x1: a === "west" ? 0 : i.lx + w(a),
+        y0: c === "south" ? -w(c) : i.ly,
+        y1: c === "south" ? 0 : i.ly + w(c),
+        z0: -depth,
+        z1: 0,
+      },
     });
   }
   const active = i.loads.filter((l) => l.included);
@@ -159,6 +200,7 @@ export function buildSlab3DModel(i: SlabInput): Slab3DModel {
   });
   return {
     slab: { lx: i.lx, ly: i.ly, h },
+    footprint,
     supportKinds: { ...i.supports },
     supports,
     loads,

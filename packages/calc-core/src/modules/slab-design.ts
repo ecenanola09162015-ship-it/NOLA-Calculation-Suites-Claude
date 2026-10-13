@@ -181,6 +181,33 @@ export function slabLoadPatch(p: SlabLocalLoad): SlabLoadPatch {
     live: p.live * area,
   };
 }
+/** Bounding beam size per edge, mm (width x total depth, top flush with slab top). */
+const beamSizeSchema = z.object({
+  width: z.number().min(100).max(3000),
+  depth: z.number().min(100).max(5000),
+});
+export const SLAB_DEFAULT_BEAM = { width: 250, depth: 500 } as const;
+const defaultBeams = () => ({
+  source: "default" as const,
+  sizes: {
+    west: { ...SLAB_DEFAULT_BEAM },
+    east: { ...SLAB_DEFAULT_BEAM },
+    south: { ...SLAB_DEFAULT_BEAM },
+    north: { ...SLAB_DEFAULT_BEAM },
+  },
+});
+export const slabBeamsSchema = z
+  .object({
+    /** default: 250 x 500 on every supported edge; estimate: sizes from the Estimate section. */
+    source: z.enum(["default", "estimate"]),
+    sizes: z.object({
+      west: beamSizeSchema,
+      east: beamSizeSchema,
+      south: beamSizeSchema,
+      north: beamSizeSchema,
+    }),
+  })
+  .default(defaultBeams);
 const barsSchema = z.object({
   "short-bottom": barSchema,
   "long-bottom": barSchema,
@@ -206,6 +233,7 @@ export const slabInputSchema = z
     aggregate: z.number().min(5).max(40),
     dcrLimit: z.number().min(0.5).max(1.2),
     deflectionDivisor: z.number().min(180).max(500),
+    /** Legacy (≤ slab-0.5): kept for saved drafts; beams.sizes now define support widths. */
     supportWidth: z.number().min(100).max(1500),
     supports: z.object({
       west: z.enum(slabSupports),
@@ -240,6 +268,11 @@ export const slabInputSchema = z
       .max(100),
     /** Local loads: point, line and area (field name kept for saved drafts). */
     pointLoads: z.array(slabLocalLoadSchema).max(20).default([]),
+    /**
+     * Bounding beams (Fixed and Pinned edges; none on Free edges). Lx and Ly
+     * are clear spans between inner beam faces; beams lie outside the panel.
+     */
+    beams: slabBeamsSchema,
   })
   .refine(
     (i) => new Set(i.loads.map((l) => l.id)).size === i.loads.length,
@@ -372,6 +405,8 @@ export interface SlabResult {
     /** Uncracked (gross Ig) immediate deflection, mm. */
     immediate: number;
     limit: number;
+    /** Span ℓ used for the limit, mm (c/c; cantilever: projection). */
+    span: number;
     combination: string;
     cracked: boolean;
     /** Immediate deflection using effective inertia Ie, mm. */
@@ -453,7 +488,7 @@ export function defaultSlabInput(): SlabInput {
     aggregate: 20,
     dcrLimit: 1,
     deflectionDivisor: 240,
-    supportWidth: 300,
+    supportWidth: 250,
     supports: { west: "Fixed", east: "Fixed", south: "Fixed", north: "Fixed" },
     main,
     extra,
@@ -485,7 +520,44 @@ export function defaultSlabInput(): SlabInput {
       },
     ],
     pointLoads: [],
+    beams: defaultBeams(),
   };
+}
+/**
+ * Effective bounding-beam size per edge (mm): the 250 x 500 default or the
+ * Estimate-section sizes; null on Free edges (no beam).
+ */
+export function slabBeamSizes(
+  i: Pick<SlabInput, "supports"> & { beams?: SlabInput["beams"] },
+): Record<SlabEdge, { width: number; depth: number } | null> {
+  const beams = i.beams ?? defaultBeams();
+  const size = (e: SlabEdge) =>
+    i.supports[e] === "Free"
+      ? null
+      : beams.source === "estimate"
+        ? { ...beams.sizes[e] }
+        : { ...SLAB_DEFAULT_BEAM };
+  return {
+    west: size("west"),
+    east: size("east"),
+    south: size("south"),
+    north: size("north"),
+  };
+}
+/**
+ * Span ℓ for one-way minimum thickness and the deflection limit, mm.
+ * Lx/Ly are clear spans, so ℓ = clear span + half of each supporting beam
+ * width (centre-to-centre); cantilever: projection ℓ (clear).
+ */
+export function slabDesignSpan(i: SlabInput) {
+  const spans = slabSpans(i),
+    clear = spans.primary * 1000;
+  if (slabSupportLayout(i).kind === "cantilever") return clear;
+  const b = slabBeamSizes(i),
+    ends = spans.primaryX
+      ? (["west", "east"] as const)
+      : (["south", "north"] as const);
+  return clear + ends.reduce((s, e) => s + (b[e]?.width ?? 0) / 2, 0);
 }
 /** Positions along the transverse width in mm. Main spacing is a maximum; extras are staggered. */
 export function slabBarPositions(
@@ -727,7 +799,7 @@ export interface SlabPunchingCheck {
  * Two-way (punching) shear at each point load, ACI 318-19 22.6, no shear
  * reinforcement, normal-weight concrete (λ = 1), no moment transfer.
  * Critical section at d/2 from the loaded area (22.6.4.1); sides beyond a
- * support face (supportWidth/2 from the idealized support line) are dropped
+ * support face (the slab edge: Lx/Ly are clear spans between beam faces) are dropped
  * and αs = 40/30/20 for 4/3/2 remaining sides. Near a Free edge the
  * perimeter may also open to the edge; every option is checked and the
  * least φVc governs. vc = least of Table 22.6.5.2
@@ -743,7 +815,8 @@ export function slabPunching(
 ): SlabPunchingCheck[] {
   const bottom = bars.filter((b) => b.group === "main" && b.face === "bottom");
   const d = bottom.reduce((s, b) => s + b.d, 0) / Math.max(1, bottom.length),
-    face = i.supportWidth / 2,
+    // Lx/Ly are clear spans: the support (beam) face is the slab edge line.
+    face = 0,
     lx = i.lx * 1000,
     ly = i.ly * 1000,
     lambdaS = Math.min(1, Math.sqrt(2 / (1 + 0.004 * d))),
@@ -916,11 +989,13 @@ export function slabMinimumThickness(i: SlabInput): SlabMinimumThickness {
     ).filter((e) => i.supports[e] === "Fixed").length;
     const divisor = [20, 24, 28][fixed];
     const fyFactor = i.fy === 420 ? 1 : 0.4 + i.fy / 700;
-    const hmin = (short / divisor) * fyFactor;
+    // ℓ = clear span + half of each supporting beam width (centre-to-centre).
+    const span = slabDesignSpan(i);
+    const hmin = (span / divisor) * fyFactor;
     return {
       system: "one-way",
       hmin,
-      span: short,
+      span,
       beta: null,
       continuity: (
         [
@@ -930,12 +1005,13 @@ export function slabMinimumThickness(i: SlabInput): SlabMinimumThickness {
         ] as const
       )[fixed],
       discontinuousEdges,
-      formula: `hmin = ℓ/${divisor} x (0.4 + fy/700) = ${short.toFixed(0)}/${divisor} x ${fyFactor.toFixed(3)} = ${hmin.toFixed(1)} mm`,
+      formula: `hmin = ℓ/${divisor} x (0.4 + fy/700) = ${span.toFixed(0)}/${divisor} x ${fyFactor.toFixed(3)} = ${hmin.toFixed(1)} mm (ℓ = c/c)`,
       ok: i.h >= hmin - 1e-9,
     };
   }
-  const ln = long - i.supportWidth,
-    lnShort = short - i.supportWidth,
+  // Lx/Ly are clear spans between beam faces: ℓn = clear long span.
+  const ln = long,
+    lnShort = short,
     beta = ln / lnShort;
   const eq = (ln * (0.8 + i.fy / 1400)) / (36 + 9 * beta),
     hmin = Math.max(eq, 90);
@@ -1843,7 +1919,8 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
       governingIeAvg = ieAvg;
     }
   }
-  const deflectionLimit = (shortSpan * 1000) / i.deflectionDivisor;
+  const deflectionSpan = slabDesignSpan(i),
+    deflectionLimit = deflectionSpan / i.deflectionDivisor;
   const crackedDeflectionOk = crackedImmediate <= deflectionLimit + 1e-9;
   const deflectionOk = minimumThickness.ok || crackedDeflectionOk;
   const development: SlabResult["detailing"]["development"] = [];
@@ -2081,6 +2158,7 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     deflection: {
       immediate,
       limit: deflectionLimit,
+      span: deflectionSpan,
       combination,
       cracked,
       crackedImmediate,
@@ -2109,7 +2187,7 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     warnings,
     dead,
     unit: "metric",
-    engineVersion: "slab-0.5.0",
+    engineVersion: "slab-0.6.0",
   };
 }
 export function parseSlabLoads(text: string): SlabInput["loads"] {

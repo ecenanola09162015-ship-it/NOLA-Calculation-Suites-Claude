@@ -8,7 +8,8 @@ import {
 } from "../src/index";
 const setup = () => {
   const i = defaultSlabInput(),
-    q = defaultSlabQuantity();
+    // Hand calculations below use 300 mm wide bounding beams (explicit, not the default).
+    q = defaultSlabQuantity(300);
   q.enabled = true;
   q.clearX = 4300;
   q.clearY = 2500;
@@ -152,5 +153,10 @@ describe("slab quantities", () => {
       estimateSlabQuantity(i, q)!.rows.find((b) => b.axis === "Y")!.count,
     ).toBeGreaterThan(r.rows.find((b) => b.axis === "Y")!.count);
     expect(JSON.stringify(i)).toBe(original);
+  });
+  it("defaults bounding beams to 250 x 500 mm for new slabs", () => {
+    const d = defaultSlabQuantity();
+    for (const e of ["west", "east", "south", "north"] as const)
+      expect([d.beams[e].width, d.beams[e].depth]).toEqual([250, 500]);
   });
 });
