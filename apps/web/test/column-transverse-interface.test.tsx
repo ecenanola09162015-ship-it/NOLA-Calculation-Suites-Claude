@@ -202,7 +202,6 @@ describe("column simple report with design add-ons", () => {
       tie,
       design,
     );
-    expect(data.simplePageLimit).toBe(2);
     expect(data.figures.map((f) => f.title)).toContain(
       "Confinement Zones (Clear Height)",
     );

@@ -497,6 +497,8 @@ export function RectangularColumnWorkspace({
         <ReportExportControls
           moduleName="RC Column"
           disabled={!result}
+          disabledReason="Calculate section to enable export. Results clear whenever an input changes."
+          hint={missingRemarksMessage("Exporting")}
           onData={async () => {
             if (!result) throw Error("Calculate The Column First.");
             if (missingRemarksMessage("Exporting"))

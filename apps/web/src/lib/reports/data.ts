@@ -54,8 +54,6 @@ export type ReportData = {
   criticalNotes: string[];
   generatedAt: string;
   estimate?: ReportSection;
-  /** Simple report page budget (column: 2 when design add-ons are active). */
-  simplePageLimit?: 1 | 2;
   /** Scope sentence printed in the simple-report overview. */
   scopeNote?: string;
 };
@@ -559,7 +557,6 @@ export function columnReportData(
       ...extra,
     ],
     references: refColumn(shearOn, !!t?.seismic, slender),
-    simplePageLimit: twoPages ? 2 : 1,
     scopeNote: `Rectangular Tied Column. ${slender ? "Slenderness By Moment Magnification." : "Short Column (Slenderness Not Considered)."} ${shearOn ? "Shear Designed." : "Shear Not Evaluated."} ${t?.seismic ? `${t.frame} Confinement Designed.` : "Seismic Confinement Not Evaluated."}`,
     criticalNotes: result.warnings.slice(4),
     limitations: [

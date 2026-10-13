@@ -2913,3 +2913,25 @@ select {
 .slabWorkspace :where(input, select, textarea, svg, img) {
   max-width: 100%;
 }
+.reportExportHint {
+  color: #8a5a00;
+}
+.reportExportError {
+  flex-basis: 100%;
+  max-width: 520px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #c0392b;
+  border-left-width: 4px;
+  border-radius: 5px;
+  background: #fdecea;
+  color: #8e1b10;
+  font-size: 12px;
+}
+.reportExportError p {
+  margin: 0;
+  flex: 1 1 240px;
+}

@@ -122,6 +122,15 @@ export async function svgReportPng(svg: string): Promise<string> {
   }
 }
 class SimpleOverflow extends Error {}
+/** The Simple report cannot fit two pages; the UI offers the Complete report. */
+export class ReportTooLongError extends Error {
+  constructor(module: string) {
+    super(
+      `The ${module === "Slab Design" ? "Slab" : "Column"} Simple Report Exceeds Two Pages. Shorten Project Descriptions / Remarks Or Select Complete Report.`,
+    );
+    this.name = "ReportTooLongError";
+  }
+}
 async function build(
   data: ReportData,
   options: ReportOptions,
@@ -234,22 +243,38 @@ async function build(
   );
   const top = margin + headerH + Math.max(18, moduleLines.length * 10 + 8),
     bottom = pageH - margin - footerH - 6;
-  const embed = async (s: string | undefined): Promise<PDFImage | undefined> =>
-    s
-      ? s.startsWith("data:image/jpeg")
+  const warnings: string[] = [];
+  // A logo or drawing that cannot be decoded must not stop the report.
+  const embed = async (
+    s: string | undefined,
+    what: string,
+  ): Promise<PDFImage | undefined> => {
+    if (!s) return undefined;
+    try {
+      return await (s.startsWith("data:image/jpeg")
         ? doc.embedJpg(s)
-        : doc.embedPng(s)
-      : undefined;
+        : doc.embedPng(s));
+    } catch {
+      warnings.push(`${what} could not be read and was omitted.`);
+      return undefined;
+    }
+  };
   const company = await embed(
       options.companyLogo ?? settings.companyLogo ?? undefined,
+      "Company logo",
     ),
     // The Ñola logo is fixed (supplied by the export); a stored upload is ignored.
-    nola = await embed(options.nolaLogo);
+    nola = await embed(options.nolaLogo, "Ñola logo");
   const figures = await Promise.all(
-    data.figures.map(async (f) => ({
-      title: f.title,
-      image: await doc.embedPng(f.png ?? (await svgReportPng(f.svg))),
-    })),
+    data.figures.map(async (f) => {
+      let image: PDFImage | null = null;
+      try {
+        image = await doc.embedPng(f.png ?? (await svgReportPng(f.svg)));
+      } catch {
+        warnings.push(`Figure "${f.title}" could not be drawn and was omitted.`);
+      }
+      return { title: f.title, image };
+    }),
   );
   let page!: PDFPage;
   let y = top;
@@ -537,6 +562,10 @@ async function build(
         true,
         colors.primary,
       );
+      if (!fig.image) {
+        write(page, "Figure Unavailable", x + 6, y + 14 + figureHeight / 2, 8);
+        continue;
+      }
       const scale = Math.min(
         (fw - 6) / fig.image.width,
         (figureHeight - 4) / fig.image.height,
@@ -700,6 +729,7 @@ async function build(
     bytes: await doc.save(),
     pageCount: pages.length,
     font: style.pdfFallbackFont,
+    warnings,
   };
 }
 export async function generateCalculationPdf(
@@ -716,30 +746,21 @@ export async function generateCalculationPdf(
     Math.max(style.minimumFontSize, style.simpleFontSize - 0.5),
     style.minimumFontSize,
   ];
-  for (const [index, size] of sizes.entries())
+  // Simple report, both modules: up to two pages. Readability first — one
+  // page at the normal or slightly reduced font, then two pages; the minimum
+  // font is used only when two pages are still not enough.
+  const attempts: [number, number, 1 | 2][] = [
+    [sizes[0], 150, 1],
+    [sizes[1], 140, 1],
+    [sizes[0], 150, 2],
+    [sizes[1], 140, 2],
+    [sizes[2], 137, 2],
+  ];
+  for (const [size, figureHeight, pages] of attempts)
     try {
-      return await build(
-        data,
-        options,
-        size,
-        index === 0 ? 150 : index === 1 ? 140 : 137,
-      );
+      return await build(data, options, size, figureHeight, pages);
     } catch (error) {
       if (!(error instanceof SimpleOverflow)) throw error;
     }
-  if (data.module === "Slab Design" || data.simplePageLimit === 2) {
-    for (const size of sizes)
-      try {
-        return await build(data, options, size, 137, 2);
-      } catch (error) {
-        if (!(error instanceof SimpleOverflow)) throw error;
-      }
-  }
-  throw Error(
-    data.module === "Slab Design"
-      ? "The Slab Simple Report Exceeds Two Pages. Shorten Project Descriptions / Remarks Or Select Complete Report."
-      : data.simplePageLimit === 2
-        ? "The Column Simple Report Exceeds Two Pages. Shorten Project Descriptions / Remarks Or Select Complete Report."
-        : "The Column Simple Report Cannot Fit One Page At The Minimum Font Size. Shorten Project Descriptions / Remarks Or Select Complete Report.",
-  );
+  throw new ReportTooLongError(data.module);
 }

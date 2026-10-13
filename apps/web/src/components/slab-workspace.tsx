@@ -423,6 +423,14 @@ export function SlabWorkspace({
         <ReportExportControls
           moduleName="Slab Design"
           disabled={!r}
+          disabledReason="Complete valid slab inputs to enable export."
+          hint={
+            r &&
+            missingJudgmentRemarks(slabDesignChecks(input, r), policy, remarks)
+              .length
+              ? `Record Engineering Judgment Remarks Before Exporting (${missingJudgmentRemarks(slabDesignChecks(input, r), policy, remarks).length}).`
+              : undefined
+          }
           onData={async () => {
             if (!r) throw Error("Complete Valid Slab Inputs First.");
             if (
