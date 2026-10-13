@@ -67,7 +67,7 @@ export function DesignReviewPanel({
                 <td className="designClause">{c.clause}</td>
                 <td>
                   {c.dcr === null
-                    ? "—"
+                    ? (c.invalidLabel ?? "—")
                     : Number.isFinite(c.dcr)
                       ? c.dcr.toFixed(3)
                       : (c.invalidLabel ?? "No Available Capacity")}

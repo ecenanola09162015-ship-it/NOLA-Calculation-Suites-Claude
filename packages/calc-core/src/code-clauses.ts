@@ -83,5 +83,21 @@ export const columnClauses = {
   axial: () => ref("22.4.2", "φ Table 21.2.2"),
   flexure: () => ref("22.2, 22.4", "φ Table 21.2.2"),
   interaction: () =>
-    ref("22.2, 22.4", "linear biaxial interaction screen (designer method)"),
+    ref("22.2, 22.4", "linear biaxial interaction screen (reference only)"),
+  biaxial3d: () =>
+    ref(
+      "22.2.1, 22.2.2 rotated neutral axis",
+      "22.4.2.1",
+      "φ Table 21.2.2",
+      "radial at constant Pu",
+    ),
+  bresler: () =>
+    ref("R22.4 Bresler reciprocal load (reference)", "Pu/0.65 ≥ 0.10 f′c Ag"),
+  slenderness: (sway: boolean) =>
+    ref(
+      "6.2.5.1",
+      sway ? "6.6.4.6.2 δs" : "6.6.4.5 δns, Cm 6.6.4.5.3, M2,min 6.6.4.5.4",
+      "EI 6.6.4.4.4",
+      "Mc ≤ 1.4 M2 6.2.5.3",
+    ),
 } as const;

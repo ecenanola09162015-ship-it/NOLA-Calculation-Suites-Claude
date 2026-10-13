@@ -3,7 +3,10 @@ import {
   type ColumnQuantityInput,
   type RectangularColumnInput,
 } from "@nola/calc-core";
-import { crossTiePositions } from "../lib/column-tie-layout";
+import {
+  crossTieHookPath,
+  crossTiePositions,
+} from "../lib/column-tie-layout";
 
 export function ColumnTieSection({
   section,
@@ -26,15 +29,14 @@ export function ColumnTieSection({
     top = inset,
     bottom = h - inset;
   const rad = Math.min(radius, (right - left) / 2, (bottom - top) / 2);
+  // Cross-tie bend centreline radius (Table 25.3.2 inside diameter); the bend
+  // centre is offset inward so the hook hugs the bar's outer face.
+  const bend = radius;
   const ext = hook.extension / Math.sqrt(2);
   const x = crossTiePositions(section, zone, "X"),
     y = crossTiePositions(section, zone, "Y");
   const font = Math.max(w, h) * 0.032;
   const margin = Math.max(w, h) * 0.1;
-  function crossPath(a: number, b: number, transverse: number, r: number) {
-    const q = r / Math.sqrt(2);
-    return `M ${a - q + ext} ${transverse - q + ext} L ${a - q} ${transverse - q} A ${r} ${r} 0 0 0 ${a} ${transverse + r} L ${b} ${transverse + r} A ${r} ${r} 0 0 0 ${b + q} ${transverse - q} L ${b + q - ext} ${transverse - q + ext}`;
-  }
   return (
     <>
       <svg
@@ -81,17 +83,21 @@ export function ColumnTieSection({
             const engaged = section.bars
               .filter((b) => Math.abs(b.y - p) < 0.1)
               .sort((a, b) => a.x - b.x);
-            const a = engaged.length ? w / 2 + engaged[0].x : left + rad;
-            const b = engaged.length ? w / 2 + engaged.at(-1)!.x : right - rad;
-            const radius = Math.max(
-              rad,
-              ...engaged.map((b) => b.diameter / 2 + d / 2),
-            );
+            const hug = engaged.length
+              ? Math.max(...engaged.map((b) => b.diameter / 2 + d / 2))
+              : rad;
+            const radius = Math.max(bend, hug);
+            const a =
+              (engaged.length ? w / 2 + engaged[0].x : left + rad) +
+              (radius - hug);
+            const b =
+              (engaged.length ? w / 2 + engaged.at(-1)!.x : right - rad) -
+              (radius - hug);
             return (
               <path
                 key={`x${i}`}
                 strokeDasharray={x.valid ? undefined : "8 5"}
-                d={crossPath(a, b, py, radius)}
+                d={crossTieHookPath(a, b, py, radius, ext)}
               />
             );
           })}
@@ -100,17 +106,21 @@ export function ColumnTieSection({
             const engaged = section.bars
               .filter((b) => Math.abs(b.x - p) < 0.1)
               .sort((a, b) => b.y - a.y);
-            const a = engaged.length ? h / 2 - engaged[0].y : top + rad;
-            const b = engaged.length ? h / 2 - engaged.at(-1)!.y : bottom - rad;
-            const radius = Math.max(
-              rad,
-              ...engaged.map((b) => b.diameter / 2 + d / 2),
-            );
+            const hug = engaged.length
+              ? Math.max(...engaged.map((b) => b.diameter / 2 + d / 2))
+              : rad;
+            const radius = Math.max(bend, hug);
+            const a =
+              (engaged.length ? h / 2 - engaged[0].y : top + rad) +
+              (radius - hug);
+            const b =
+              (engaged.length ? h / 2 - engaged.at(-1)!.y : bottom - rad) -
+              (radius - hug);
             return (
               <path
                 key={`y${i}`}
                 strokeDasharray={y.valid ? undefined : "8 5"}
-                d={crossPath(a, b, px, radius)}
+                d={crossTieHookPath(a, b, px, radius, ext)}
                 transform="matrix(0 1 1 0 0 0)"
               />
             );
@@ -149,8 +159,9 @@ export function ColumnTieSection({
         </small>
       ) : null}
       <small>
-        Dimensions And Diameters To Scale. Hook Orientation Illustrative; Bend
-        Fit And Bar Engagement Require Review.
+        Dimensions And Diameters To Scale. 135° Hook Tails Turn Away From The Leg Into The Core At 45°
+        (ACI 318-19 25.3.2, 25.7.1.6). Bend Fit And Bar Engagement Require
+        Review.
       </small>
     </>
   );

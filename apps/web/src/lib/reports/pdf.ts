@@ -545,7 +545,8 @@ async function build(
   const overview = [
     `Design Code: ${data.code}; Calculation Basis: ${data.basis}.`,
     data.module === "RC Column"
-      ? "Section-Strength Screening Only. Shear / Slenderness / Seismic Tie Compliance Not Evaluated."
+      ? (data.scopeNote ??
+        "Section-Strength Screening Only. Shear / Slenderness / Seismic Tie Compliance Not Evaluated.")
       : "Immediate Elastic Deflection Screen; Long-Term / Cracked Deflection And Full Anchorage Compliance Require Review.",
     ...(data.estimate
       ? ["Estimate Excludes Splices, Couplers, Waste And Bend Deductions."]
@@ -716,7 +717,7 @@ export async function generateCalculationPdf(
     } catch (error) {
       if (!(error instanceof SimpleOverflow)) throw error;
     }
-  if (data.module === "Slab Design") {
+  if (data.module === "Slab Design" || data.simplePageLimit === 2) {
     for (const size of sizes)
       try {
         return await build(data, options, size, 137, 2);
@@ -727,6 +728,8 @@ export async function generateCalculationPdf(
   throw Error(
     data.module === "Slab Design"
       ? "The Slab Simple Report Exceeds Two Pages. Shorten Project Descriptions / Remarks Or Select Complete Report."
-      : "The Column Simple Report Cannot Fit One Page At The Minimum Font Size. Shorten Project Descriptions / Remarks Or Select Complete Report.",
+      : data.simplePageLimit === 2
+        ? "The Column Simple Report Exceeds Two Pages. Shorten Project Descriptions / Remarks Or Select Complete Report."
+        : "The Column Simple Report Cannot Fit One Page At The Minimum Font Size. Shorten Project Descriptions / Remarks Or Select Complete Report.",
   );
 }

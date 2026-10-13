@@ -1,7 +1,10 @@
-import type {
-  ColumnCheck,
-  RectangularColumnInput,
-  RectangularColumnResult,
+import {
+  biaxialContour,
+  biaxialSection,
+  columnCapacityAt,
+  type ColumnCheck,
+  type RectangularColumnInput,
+  type RectangularColumnResult,
 } from "@nola/calc-core";
 const fixed = (n: number) => (Number.isFinite(n) ? n.toFixed(1) : "—");
 export function ColumnSection({ input }: { input: RectangularColumnInput }) {
@@ -262,6 +265,112 @@ export function ColumnBiaxialPlot({
       </text>
       <text x="27" y={py(1)} fontSize="11">
         1
+      </text>
+    </svg>
+  );
+}
+
+/**
+ * φMnx–φMny load contour at the combination's Pu (3D strain compatibility,
+ * ACI 318-19 22.2), with the linear screen and the demand ray.
+ */
+export function ColumnBiaxialContourPlot({
+  input,
+  result,
+  check,
+}: {
+  input: RectangularColumnInput;
+  result: RectangularColumnResult;
+  check: ColumnCheck | undefined;
+}) {
+  if (!check || !check.load.included)
+    return <p>Select an included combination.</p>;
+  const contour = biaxialContour(biaxialSection(input), check.load.pu, 72);
+  if (contour.length < 8)
+    return (
+      <p>
+        No moment capacity at Pu = {fixed(check.load.pu)} kN. Review the axial
+        demand.
+      </p>
+    );
+  const cap = (axis: "x" | "y", direction: 1 | -1) => {
+    const curve = result.curves.find(
+      (c) => c.axis === axis && c.direction === direction,
+    );
+    return curve ? (columnCapacityAt(input, curve, check.load.pu) ?? 0) : 0;
+  };
+  const diamond = [
+    [cap("x", 1), 0],
+    [0, cap("y", 1)],
+    [-cap("x", -1), 0],
+    [0, -cap("y", -1)],
+  ];
+  const r = Math.max(
+    1e-9,
+    ...contour.map((p) => Math.hypot(p.mx, p.my)),
+    Math.hypot(check.mux, check.muy) * 1.1,
+  );
+  const s = 130 / r;
+  const X = (v: number) => 170 + v * s,
+    Y = (v: number) => 165 - v * s;
+  const path =
+    contour
+      .map(
+        (p, i) => `${i ? "L" : "M"}${X(p.mx).toFixed(1)} ${Y(p.my).toFixed(1)}`,
+      )
+      .join("") + "Z";
+  const over = (check.biaxialRatio ?? Infinity) > 1;
+  return (
+    <svg
+      viewBox="0 0 340 340"
+      role="img"
+      aria-label={`3D biaxial load contour at Pu ${fixed(check.load.pu)} kN for ${check.load.id}; DCR ${check.biaxialRatio === null ? "—" : check.biaxialRatio.toFixed(3)}`}
+    >
+      <path d="M30 165H310M170 25V305" stroke="#c4ccd3" />
+      <path d={path} fill="#edf7f3" stroke="#147d73" strokeWidth="2" />
+      <path
+        d={
+          diamond
+            .map(([a, b], i) => `${i ? "L" : "M"}${X(a!)} ${Y(b!)}`)
+            .join("") + "Z"
+        }
+        fill="none"
+        stroke="#8a97a3"
+        strokeDasharray="5 4"
+      />
+      {check.biaxial ? (
+        <line
+          x1={170}
+          y1={165}
+          x2={X(check.biaxial.mx)}
+          y2={Y(check.biaxial.my)}
+          stroke="#8058a4"
+          strokeDasharray="2 3"
+        />
+      ) : null}
+      <circle
+        cx={X(check.mux)}
+        cy={Y(check.muy)}
+        r="5"
+        fill={over ? "#bc514c" : "#8058a4"}
+      />
+      <text x={X(check.mux) + 7} y={Y(check.muy) - 7} fontSize="11">
+        {check.load.id}
+      </text>
+      <text x={X(diamond[0]![0]!) + 3} y="178" fontSize="10">
+        {fixed(diamond[0]![0]!)}
+      </text>
+      <text x="174" y={Y(diamond[1]![1]!) - 4} fontSize="10">
+        {fixed(diamond[1]![1]!)}
+      </text>
+      <text x="306" y="158" fontSize="11" textAnchor="end">
+        φMnx
+      </text>
+      <text x="176" y="34" fontSize="11">
+        φMny (kN·m)
+      </text>
+      <text x="12" y="332" fontSize="10">
+        Solid: 3D contour at Pu · Dashed: linear screen · Dot: demand
       </text>
     </svg>
   );

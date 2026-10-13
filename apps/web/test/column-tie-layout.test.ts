@@ -71,3 +71,30 @@ describe("column estimate geometry and adoption", () => {
     expect(draft.quantity?.zones[0].crossXPositions).toEqual([0]);
   });
 });
+
+describe("cross-tie 135° hook geometry (ACI 318-19 25.3.2, 25.7.1.6)", () => {
+  it("turns both tails away from the leg into the core at 45°", async () => {
+    const { crossTieHookPath } = await import("../src/lib/column-tie-layout");
+    // Bars at x = 100 and 300 on transverse line y = 200, bend radius 20, tail 60/√2.
+    const r = 20,
+      ext = 60 / Math.SQRT2,
+      q = r / Math.SQRT2;
+    const nums = crossTieHookPath(100, 300, 200, r, ext)
+      .match(/-?\d+(\.\d+)?/g)!
+      .map(Number);
+    const [tx1, ty1, sx1, sy1] = nums;
+    const [sx2, sy2, tx2, ty2] = nums.slice(-4);
+    const legY = 200 + r;
+    // Hook starts after a 135° wrap: upper-outer quadrant of each bar.
+    expect(sx1).toBeCloseTo(100 - q);
+    expect(sy1).toBeCloseTo(200 - q);
+    expect(sx2).toBeCloseTo(300 + q);
+    // Tails point away from the leg (smaller y) and inward at exactly 45°.
+    expect(ty1).toBeLessThan(sy1);
+    expect(ty2).toBeLessThan(sy2);
+    expect(tx1 - sx1).toBeCloseTo(sy1 - ty1);
+    expect(sx2 - tx2).toBeCloseTo(sy2 - ty2);
+    expect(Math.hypot(tx1 - sx1, ty1 - sy1)).toBeCloseTo(60);
+    expect(Math.max(ty1, ty2)).toBeLessThan(legY);
+  });
+});

@@ -1,7 +1,10 @@
 import {
+  biaxialContour,
+  biaxialSection,
   defaultReportStyle,
   slabPrimaryAxisX,
   type ReportStyle,
+  type TransverseResult,
 } from "@nola/calc-core";
 import type {
   RectangularColumnInput,
@@ -226,4 +229,102 @@ export function slabFigures(
     210,
   );
   return [...plans, { title: "Sections A–A / B–B", svg: combined }];
+}
+
+/** φMnx–φMny contour at the governing Pu (3D strain compatibility). */
+export function columnBiaxialFigure(
+  i: RectangularColumnInput,
+  r: RectangularColumnResult,
+  style: ReportStyle = defaultReportStyle,
+): ReportFigure | null {
+  const g = r.governing;
+  if (!g) return null;
+  const pts = biaxialContour(biaxialSection(i), g.load.pu, 72);
+  if (pts.length < 8) return null;
+  const { primary: blue, text: ink } = style.colors;
+  const rmax = Math.max(
+    1e-9,
+    ...pts.map((p) => Math.hypot(p.mx, p.my)),
+    Math.hypot(g.mux, g.muy) * 1.1,
+  );
+  const s = 68 / rmax;
+  const X = (v: number) => 125 + v * s,
+    Y = (v: number) => 80 - v * s;
+  const body =
+    line(45, 80, 205, 80, ink, 0.5) +
+    line(125, 8, 125, 152, ink, 0.5) +
+    `<polygon points="${pts.map((p) => `${X(p.mx).toFixed(2)},${Y(p.my).toFixed(2)}`).join(" ")}" fill="${style.colors.tint}" stroke="${blue}" stroke-width="1.4"/>` +
+    (g.biaxial
+      ? line(125, 80, X(g.biaxial.mx), Y(g.biaxial.my), ink, 0.6, "2 2")
+      : "") +
+    `<circle cx="${X(g.mux)}" cy="${Y(g.muy)}" r="3" fill="${style.colors.gold}" stroke="${ink}"/>` +
+    text(8, 12, `Pu = ${g.load.pu.toFixed(0)} kN (${g.load.id})`) +
+    text(207, 83, "Mx") +
+    text(129, 14, "My") +
+    text(
+      8,
+      165,
+      `3D DCR ${g.biaxialRatio?.toFixed(3) ?? "-"}; Bresler ${g.bresler.applicable ? (g.bresler.ratio ?? 0).toFixed(3) : "n/a"}`,
+    );
+  return {
+    title: "Biaxial Load Contour At Governing Pu",
+    svg: svg(body, style),
+  };
+}
+
+/** Confinement elevation: lo zones and spacing over the clear height. */
+export function columnTieElevationFigure(
+  clearHeight: number,
+  d: TransverseResult,
+  style: ReportStyle = defaultReportStyle,
+): ReportFigure {
+  const { lo, sEnd, sMid } = d.adopted;
+  const ink = style.colors.text,
+    end = style.colors.gold,
+    H = 130,
+    top = 20,
+    S = H / clearHeight;
+  const Y = (z: number) => top + H - z * S;
+  const confined = d.seismic && lo > 0;
+  const full = confined && (d.fullHeight || 2 * lo >= clearHeight);
+  let body = `<rect x="70" y="${top}" width="40" height="${H}" fill="${style.colors.tint}" stroke="${ink}" stroke-width="0.6"/>`;
+  const ties = (a: number, b: number, sp: number, color: string) => {
+    const n = Math.max(1, Math.ceil((b - a) / sp));
+    for (let k = 0; k <= n; k++) {
+      const yy = Y(a + ((b - a) * k) / n);
+      body += line(72, yy, 108, yy, color, 0.7);
+    }
+  };
+  if (!confined || full)
+    ties(0, clearHeight, confined ? sEnd : sMid, confined ? end : teal);
+  else {
+    ties(0, lo, sEnd, end);
+    ties(lo, clearHeight - lo, sMid, teal);
+    ties(clearHeight - lo, clearHeight, sEnd, end);
+  }
+  body += text(
+    120,
+    top + 10,
+    confined
+      ? full
+        ? `Full height @ ${sEnd}`
+        : `lo ${lo} @ ${sEnd}`
+      : `@ ${sMid}`,
+  );
+  if (confined && !full) {
+    body += text(120, top + H / 2, `@ ${sMid}`);
+    body += text(120, top + H - 4, `lo ${lo} @ ${sEnd}`);
+  }
+  body += text(8, top + H / 2, `lu ${clearHeight}`);
+  body += text(
+    8,
+    168,
+    `Legs ${d.layout.legsX} x ${d.layout.legsY}; hx ${d.layout.hx.toFixed(0)} mm`,
+  );
+  return {
+    title: confined
+      ? "Confinement Zones (Clear Height)"
+      : "Tie Spacing (Clear Height)",
+    svg: svg(body, style),
+  };
 }

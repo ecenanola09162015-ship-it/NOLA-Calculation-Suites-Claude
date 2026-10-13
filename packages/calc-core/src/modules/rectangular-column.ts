@@ -1,4 +1,17 @@
 /** Development engine: rectangular tied sections, SI units, compression-positive. */
+import {
+  biaxialCapacityAt,
+  biaxialSection,
+  breslerReciprocal,
+  type BiaxialCapacity,
+  type BreslerResult,
+} from "./column-biaxial";
+import {
+  columnSlendernessSchema,
+  slenderDirection,
+  type ColumnSlendernessInput,
+  type SlenderDirectionResult,
+} from "./column-slenderness";
 export type ColumnCode = "ACI 318-19" | "NSCP 2015";
 export interface ColumnBar {
   x: number;
@@ -12,6 +25,12 @@ export interface ColumnLoad {
   mx: number;
   my: number;
   included: boolean;
+  /** Smaller end moments for Cm (same diagram sign as Mu ⇒ single curvature). */
+  m1x?: number | null;
+  m1y?: number | null;
+  /** Factored shears (kN): Vux along x, Vuy along y. */
+  vx?: number | null;
+  vy?: number | null;
 }
 export interface RectangularColumnInput {
   code: ColumnCode;
@@ -24,6 +43,7 @@ export interface RectangularColumnInput {
   tieDiameter: number;
   bars: ColumnBar[];
   loads: ColumnLoad[];
+  slenderness?: ColumnSlendernessInput;
 }
 export interface ColumnState {
   c: number;
@@ -41,10 +61,20 @@ export interface ColumnCurve {
 }
 export interface ColumnCheck {
   load: ColumnLoad;
+  /** Design moments after slenderness magnification (kN·m). */
+  mux: number;
+  muy: number;
+  slenderness: { x: SlenderDirectionResult; y: SlenderDirectionResult } | null;
   capacityX: number | null;
   capacityY: number | null;
   axialRatio: number;
+  /** Linear screen |Mux|/φMnx + |Muy|/φMny at constant Pu (reference only). */
   interaction: number | null;
+  /** Governing biaxial check: 3D strain compatibility, radial at constant Pu. */
+  biaxial: BiaxialCapacity | null;
+  biaxialRatio: number | null;
+  /** Bresler reciprocal load cross-check. */
+  bresler: BreslerResult;
   outcome:
     "within-screening-envelope" | "outside-screening-envelope" | "not-checked";
 }
@@ -168,6 +198,20 @@ export function validateRectangularColumn(input: RectangularColumnInput) {
       throw new Error(
         "Each load needs a label and finite Pu, Mux and Muy values.",
       );
+  for (const load of input.loads)
+    if (
+      [load.m1x, load.m1y, load.vx, load.vy].some(
+        (v) => v !== null && v !== undefined && !Number.isFinite(v),
+      )
+    )
+      throw new Error(`${load.id}: M1 and Vu values must be finite or blank.`);
+  if (input.slenderness) {
+    const parsed = columnSlendernessSchema.safeParse(input.slenderness);
+    if (!parsed.success)
+      throw new Error(
+        "Slenderness inputs: ℓu 0–50,000 mm, k 0.5–5, βdns 0–1, Q 0–0.9.",
+      );
+  }
 }
 export function columnStrainState(
   input: RectangularColumnInput,
@@ -331,8 +375,10 @@ export function analyzeRectangularColumn(
   );
   const warnings = [
     "Development calculation: independent engineering review is pending.",
-    "Short, non-slender rectangular tied sections with centrally symmetric reinforcement only. Slenderness, P–Δ, shear, seismic confinement, tie spacing, development and splices are excluded.",
-    "Biaxial results use the spreadsheet’s linear interaction screening at constant Pu, not a full biaxial strain-compatibility surface.",
+    input.slenderness?.enabled
+      ? "Slenderness by moment magnification (ACI 318-19 6.6.4). Rectangular tied sections with centrally symmetric reinforcement only."
+      : "Slenderness is not considered: valid only for short columns (ACI 318-19 6.2.5.1). Rectangular tied sections with centrally symmetric reinforcement only.",
+    "Biaxial strength by 3D strain compatibility with a rotated neutral axis, radial at constant Pu (governing). Bresler reciprocal and the linear screen are shown for reference.",
     "Bars are represented by concentrated areas at their centers; displaced concrete is subtracted when a bar center is within the compression block.",
   ];
   if (steelArea / grossArea < 0.01 || steelArea / grossArea > 0.08)
@@ -352,22 +398,54 @@ export function analyzeRectangularColumn(
     warnings.push(
       "One or more bar locations do not satisfy the declared clear cover and tie diameter. Review the reinforcement layout.",
     );
+  const section = biaxialSection(input);
+  const slender = input.slenderness?.enabled ? input.slenderness : null;
   const checks: ColumnCheck[] = input.loads.map((load) => {
-    if (!load.included)
-      return {
-        load,
-        capacityX: null,
-        capacityY: null,
-        axialRatio: 0,
-        interaction: null,
-        outcome: "not-checked",
-      };
+    const sl = slender
+      ? {
+          x: slenderDirection(input, slender, "x", load.pu, load.mx, load.m1x),
+          y: slenderDirection(input, slender, "y", load.pu, load.my, load.m1y),
+        }
+      : null;
+    const mux = sl ? sl.x.mc : load.mx,
+      muy = sl ? sl.y.mc : load.my;
+    const empty: ColumnCheck = {
+      load,
+      mux,
+      muy,
+      slenderness: sl,
+      capacityX: null,
+      capacityY: null,
+      axialRatio: 0,
+      interaction: null,
+      biaxial: null,
+      biaxialRatio: null,
+      bresler: {
+        applicable: false,
+        pnx: null,
+        pny: null,
+        po: 0,
+        pni: null,
+        ratio: null,
+        note: "Not checked.",
+      },
+      outcome: "not-checked",
+    };
+    if (!load.included) return empty;
     const axialRatio = load.pu >= 0 ? load.pu / axialCap : load.pu / tensionCap;
+    if (!Number.isFinite(mux) || !Number.isFinite(muy))
+      return {
+        ...empty,
+        axialRatio,
+        interaction: null,
+        biaxialRatio: Infinity,
+        outcome: "outside-screening-envelope",
+      };
     const cx = columnCapacityAt(
       input,
       curves.find(
         (curve) =>
-          curve.axis === "x" && curve.direction === (load.mx >= 0 ? 1 : -1),
+          curve.axis === "x" && curve.direction === (mux >= 0 ? 1 : -1),
       )!,
       load.pu,
     );
@@ -375,30 +453,34 @@ export function analyzeRectangularColumn(
       input,
       curves.find(
         (curve) =>
-          curve.axis === "y" && curve.direction === (load.my >= 0 ? 1 : -1),
+          curve.axis === "y" && curve.direction === (muy >= 0 ? 1 : -1),
       )!,
       load.pu,
     );
-    const rx =
-      load.mx === 0 ? 0 : cx && cx > 0 ? Math.abs(load.mx) / cx : Infinity;
-    const ry =
-      load.my === 0 ? 0 : cy && cy > 0 ? Math.abs(load.my) / cy : Infinity;
+    const rx = mux === 0 ? 0 : cx && cx > 0 ? Math.abs(mux) / cx : Infinity;
+    const ry = muy === 0 ? 0 : cy && cy > 0 ? Math.abs(muy) / cy : Infinity;
     const interaction = rx + ry;
+    const biaxial = biaxialCapacityAt(section, load.pu, mux, muy);
+    const biaxialRatio = biaxial ? biaxial.ratio : Infinity;
+    const bresler = breslerReciprocal(section, load.pu, mux, muy);
     return {
-      load,
+      ...empty,
       capacityX: cx,
       capacityY: cy,
       axialRatio,
       interaction: Number.isFinite(interaction) ? interaction : null,
+      biaxial,
+      biaxialRatio,
+      bresler,
       outcome:
-        axialRatio <= 1 && interaction <= 1
+        axialRatio <= 1 && biaxialRatio <= 1
           ? "within-screening-envelope"
           : "outside-screening-envelope",
     };
   });
   const included = checks.filter((check) => check.load.included);
   const score = (check: ColumnCheck) =>
-    Math.max(check.axialRatio, check.interaction ?? Infinity);
+    Math.max(check.axialRatio, check.biaxialRatio ?? Infinity);
   const governing = included.reduce<ColumnCheck | null>(
     (best, check) => (!best || score(check) > score(best) ? check : best),
     null,
