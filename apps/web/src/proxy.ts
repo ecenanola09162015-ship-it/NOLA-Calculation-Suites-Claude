@@ -6,6 +6,7 @@ const isPublicRoute = createRouteMatcher([
   "/login(.*)",
   "/register(.*)",
   "/brand/nola-logo.png",
+  "/brand/nola-report-logo.png",
   "/api/health",
 ]);
 const authConfigured = Boolean(

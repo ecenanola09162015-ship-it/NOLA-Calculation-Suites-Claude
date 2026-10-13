@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import type { ReportData } from "../lib/reports/data";
+import { REPORT_NOLA_LOGO_PATH } from "../lib/reports/logos";
 export function ReportExportControls({
   disabled,
   onData,
@@ -20,10 +21,10 @@ export function ReportExportControls({
     try {
       const data = await onData();
       const { generateCalculationPdf } = await import("../lib/reports/pdf");
-      const settings = data.project?.reportSettings;
-      let nolaLogo = settings?.nolaLogo ?? undefined;
-      if (!nolaLogo) {
-        const response = await fetch("/brand/nola-logo.png");
+      // The Ñola logo is permanent on every report and cannot be replaced.
+      let nolaLogo: string;
+      {
+        const response = await fetch(REPORT_NOLA_LOGO_PATH);
         if (!response.ok) throw Error("The Ñola Logo Could Not Be Loaded.");
         const blob = await response.blob();
         nolaLogo = await new Promise<string>((resolve, reject) => {
