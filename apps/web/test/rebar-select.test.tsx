@@ -100,3 +100,48 @@ describe("rebar dropdowns", () => {
     expect(slab).toContain("Rebar standard");
   });
 });
+
+describe("saved drafts keep the rebar standard and grade", () => {
+  it("round-trips through the column and slab schemas", async () => {
+    const { columnDraftSchema, slabInputSchema, defaultSlabInput } =
+      await import("@nola/calc-core");
+    const column = columnDraftSchema.safeParse({
+      kind: "rc-column",
+      version: 1,
+      scopeConfirmed: true,
+      input: {
+        code: "ACI 318-19",
+        width: 400,
+        depth: 400,
+        fc: 28,
+        fy: 420,
+        es: 200000,
+        cover: 40,
+        tieDiameter: 10,
+        rebarStandard: "ASTM",
+        gradeId: "A706-60",
+        bars: [
+          [-140, -140],
+          [140, -140],
+          [140, 140],
+          [-140, 140],
+        ].map(([x, y]) => ({ x, y, diameter: 25.48 })),
+        loads: [
+          { id: "U1", description: "", pu: 900, mx: 40, my: 0, included: true },
+        ],
+      },
+    });
+    expect(column.success).toBe(true);
+    expect(column.data?.input).toMatchObject({
+      rebarStandard: "ASTM",
+      gradeId: "A706-60",
+    });
+    const slab = slabInputSchema.safeParse({
+      ...defaultSlabInput(),
+      rebarStandard: "PNS49",
+      gradeId: "PNS-420W",
+    });
+    expect(slab.success).toBe(true);
+    expect(slab.data).toMatchObject({ gradeId: "PNS-420W" });
+  });
+});
