@@ -41,6 +41,8 @@ export const columnInputSchema = z
       .min(1)
       .max(500),
     slenderness: columnSlendernessSchema.optional(),
+    rebarStandard: z.enum(["PNS49", "ASTM"]).optional(),
+    gradeId: z.string().max(20).nullable().optional(),
   })
   .refine(
     (input) =>

@@ -122,6 +122,8 @@ export const slabInputSchema = z
     h: z.number().min(70).max(1000),
     fc: z.number().min(17).max(70),
     fy: z.number().min(200).max(420),
+    rebarStandard: z.enum(["PNS49", "ASTM"]).optional(),
+    gradeId: z.string().max(20).nullable().optional(),
     es: z.number().min(150000).max(220000),
     unitWeight: z.number().min(20).max(26),
     nu: z.number().min(0.1).max(0.3),

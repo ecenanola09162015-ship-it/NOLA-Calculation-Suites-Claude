@@ -25,6 +25,11 @@ import type { ProjectRecord, CalculationDraftRecord } from "@/lib/projects";
 import { ReportExportControls } from "./report-export-controls";
 import { SlabQuantityPanel } from "./slab-quantity-panel";
 import { SlabPlan, SlabSection } from "./slab-diagrams";
+import {
+  RebarGradeSelect,
+  RebarSizeSelect,
+  RebarStandardSelect,
+} from "./rebar-select";
 const fmt = (n: number | null | undefined, p = 2) =>
   n === null || n === undefined || !Number.isFinite(n)
     ? "—"
@@ -215,21 +220,14 @@ export function SlabWorkspace({
                     {excluded && <small>One-way: excluded</small>}
                   </th>
                   <td>
-                    <input
-                      aria-label={`${group} ${layer} diameter`}
-                      type="number"
-                      min="6"
-                      max="40"
-                      value={Number.isFinite(b.diameter) ? b.diameter : ""}
+                    <RebarSizeSelect
+                      ariaLabel={`${group} ${layer} diameter`}
+                      standard={input.rebarStandard ?? "PNS49"}
+                      value={b.diameter}
+                      min={6}
+                      max={40}
                       disabled={excluded}
-                      onChange={(e) =>
-                        editBar(
-                          group,
-                          layer,
-                          "diameter",
-                          e.target.value === "" ? NaN : Number(e.target.value),
-                        )
-                      }
+                      onChange={(d) => editBar(group, layer, "diameter", d)}
                     />
                   </td>
                   <td>
@@ -523,11 +521,17 @@ export function SlabWorkspace({
               unit="MPa"
               onChange={(v) => change("fc", v)}
             />
-            <Numeric
-              label="Steel fy"
-              value={input.fy}
-              unit="MPa"
-              onChange={(v) => change("fy", v)}
+            <RebarStandardSelect
+              value={input.rebarStandard ?? "PNS49"}
+              onChange={(rebarStandard) => update({ ...input, rebarStandard })}
+            />
+            <RebarGradeSelect
+              label="Steel grade (fy)"
+              standard={input.rebarStandard ?? "PNS49"}
+              fy={input.fy}
+              gradeId={input.gradeId}
+              maxFy={420}
+              onChange={(fy, gradeId) => update({ ...input, fy, gradeId })}
             />
           </div>
           <p className="slabClassification">

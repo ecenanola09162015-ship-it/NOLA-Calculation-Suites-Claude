@@ -1,4 +1,6 @@
 import {
+  rebarDesignation,
+  rebarGradeLabel,
   columnDesignChecks,
   columnTransverseChecks,
   slabDesignChecks,
@@ -131,6 +133,7 @@ export function columnReportData(
 ): ReportData {
   const g = result.governing;
   const t = transverse ?? null;
+  const std = input.rebarStandard ?? "PNS49";
   const checks = [...columnDesignChecks(result), ...columnTransverseChecks(t)];
   const slender = !!input.slenderness?.enabled;
   const shearOn = !!t && (!!tieDesign?.shear.enabled || t.seismic);
@@ -144,7 +147,10 @@ export function columnReportData(
   const summary = [
     section("Materials", [
       ["Approved By", project?.approvedBy ?? "Not Set"],
-      ["Concrete / Steel", `fc = ${f(input.fc)} MPa; fy = ${f(input.fy)} MPa`],
+      [
+        "Concrete / Steel",
+        `fc = ${f(input.fc)} MPa; ${rebarGradeLabel(std, input.fy, input.gradeId)}, fy = ${f(input.fy)} MPa (${std === "ASTM" ? "ASTM A615/A706" : "PNS 49"})`,
+      ],
       [
         "Elastic Modulus / Cover",
         `Es = ${f(input.es, 0)} MPa; cover = ${f(input.cover, 0)} mm`,
@@ -157,17 +163,18 @@ export function columnReportData(
       ],
       [
         "Longitudinal Bars",
-        [...barGroups].map(([d, n]) => `${n}-D${d}`).join("; ") +
-          `; As = ${f(result.steelArea, 0)} mm²`,
+        [...barGroups]
+          .map(([d, n]) => `${n}-${rebarDesignation(std, d)}`)
+          .join("; ") + `; As = ${f(result.steelArea, 0)} mm²`,
       ],
       t && tieDesign
         ? [
             "Ties (Design)",
-            `D${tieDesign.tie.diameter} hoop + cross-ties, ${t.layout.legsX} x ${t.layout.legsY} legs; ${t.seismic ? `lo ${t.adopted.lo} mm @ ${t.adopted.sEnd}; outside lo @ ${t.adopted.sMid} mm` : `@ ${t.adopted.sMid} mm`}`,
+            `${rebarDesignation(std, tieDesign.tie.diameter)} ${rebarGradeLabel(std, tieDesign.tie.fyt, tieDesign.tie.gradeId)} hoop + cross-ties, ${t.layout.legsX} x ${t.layout.legsY} legs; ${t.seismic ? `lo ${t.adopted.lo} mm @ ${t.adopted.sEnd}; outside lo @ ${t.adopted.sMid} mm` : `@ ${t.adopted.sMid} mm`}`,
           ]
         : [
             "Ties",
-            `D${input.tieDiameter}; estimating spacing ${quantity.enabled ? quantity.zones.map((z) => z.name + ": " + z.spacing + " mm").join("; ") : "Not Defined In Design Inputs"}`,
+            `${rebarDesignation(std, input.tieDiameter)}; estimating spacing ${quantity.enabled ? quantity.zones.map((z) => z.name + ": " + z.spacing + " mm").join("; ") : "Not Defined In Design Inputs"}`,
           ],
       [
         "Steel Ratio",
@@ -595,7 +602,7 @@ export function slabReportData(
       ["Approved By", project?.approvedBy ?? "Not Set"],
       [
         "Concrete / Steel",
-        `fc = ${f(input.fc)} MPa; fy = ${f(input.fy)} MPa; Es = ${f(input.es, 0)} MPa`,
+        `fc = ${f(input.fc)} MPa; ${rebarGradeLabel(input.rebarStandard ?? "PNS49", input.fy, input.gradeId)}, fy = ${f(input.fy)} MPa; Es = ${f(input.es, 0)} MPa`,
       ],
       [
         "Cover",
@@ -612,7 +619,7 @@ export function slabReportData(
       ],
       ...r.bars.map((b) => [
         b.group.toUpperCase() + " " + b.layer,
-        `D${b.diameter} @ ${b.spacing} mm; z = ${f(b.z, 1)} mm`,
+        `${rebarDesignation(input.rebarStandard ?? "PNS49", b.diameter)} @ ${b.spacing} mm; z = ${f(b.z, 1)} mm`,
       ]),
     ]),
     section("Governing Loads And Results", [

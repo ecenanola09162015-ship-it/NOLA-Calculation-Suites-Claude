@@ -18,6 +18,7 @@ export const columnQuantitySchema = z.object({
         spacing: finite.min(20).max(2000),
         diameter: finite.min(6).max(40),
         fy: finite.min(200).max(700),
+        gradeId: z.string().max(20).nullable().optional(),
         hoops: finite.int().min(1).max(8),
         legsX: finite.int().min(2).max(16),
         legsY: finite.int().min(2).max(16),

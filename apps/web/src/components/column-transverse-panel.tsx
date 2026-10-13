@@ -8,6 +8,8 @@ import type {
 import { ColumnTieSection } from "./column-tie-section";
 import { DesignStatus } from "./design-review-panel";
 import { NumberField, fmt } from "./column-ui";
+import { RebarGradeSelect, RebarSizeSelect } from "./rebar-select";
+import type { RebarStandard } from "@nola/calc-core";
 import type { DesignCheckPolicy } from "@nola/calc-core";
 
 type Props = {
@@ -39,22 +41,29 @@ function designZone(value: ColumnTieDesignInput, design: TransverseResult) {
 function TieArrangementFields({
   value,
   onChange,
-}: Pick<Props, "value" | "onChange">) {
+  standard,
+}: Pick<Props, "value" | "onChange"> & { standard: RebarStandard }) {
   const tie = (k: keyof ColumnTieDesignInput["tie"], v: number) =>
     onChange({ ...value, tie: { ...value.tie, [k]: v } });
   return (
     <div className="rcFields">
-      <NumberField
+      <RebarSizeSelect
         label="Tie diameter"
-        unit="mm"
+        standard={standard}
         value={value.tie.diameter}
+        min={6}
+        max={40}
         onChange={(v) => tie("diameter", v)}
       />
-      <NumberField
-        label="Tie fyt"
-        unit="MPa"
-        value={value.tie.fyt}
-        onChange={(v) => tie("fyt", v)}
+      <RebarGradeSelect
+        label="Tie grade (fyt)"
+        standard={standard}
+        fy={value.tie.fyt}
+        gradeId={value.tie.gradeId}
+        maxFy={700}
+        onChange={(fyt, gradeId) =>
+          onChange({ ...value, tie: { ...value.tie, fyt, gradeId } })
+        }
       />
       <NumberField
         label="Interior cross-ties ∥ X"
@@ -392,7 +401,11 @@ export function ColumnShearPanel(props: Props) {
         </p>
       ) : (
         <>
-          <TieArrangementFields value={value} onChange={onChange} />
+          <TieArrangementFields
+            value={value}
+            onChange={onChange}
+            standard={input.rebarStandard ?? "PNS49"}
+          />
           {error ? <p className="rcAlert">{error}</p> : null}
           {design ? (
             <>
@@ -550,7 +563,11 @@ export function ColumnConfinementPanel(props: Props) {
             </label>
           ) : null}
           {!value.shear.enabled ? (
-            <TieArrangementFields value={value} onChange={onChange} />
+            <TieArrangementFields
+              value={value}
+              onChange={onChange}
+              standard={input.rebarStandard ?? "PNS49"}
+            />
           ) : (
             <p className="rcMuted">
               Tie arrangement is set in panel 05: D{value.tie.diameter}, fyt{" "}

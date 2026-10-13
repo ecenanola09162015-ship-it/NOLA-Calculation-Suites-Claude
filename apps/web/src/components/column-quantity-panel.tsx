@@ -9,6 +9,7 @@ import {
   type RectangularColumnInput,
 } from "@nola/calc-core";
 import { ColumnTieSection } from "./column-tie-section";
+import { RebarGradeSelect, RebarSizeSelect } from "./rebar-select";
 import {
   adoptSectionTieDiameter,
   crossTiePositions,
@@ -294,44 +295,71 @@ export function ColumnQuantityPanel({
                       ] as const
                     ).map((k) => (
                       <td key={k}>
-                        <input
-                          aria-label={`Zone ${i + 1} ${k === "interiorX" ? "interior X cross-ties" : k === "interiorY" ? "interior Y cross-ties" : k}`}
-                          type="number"
-                          step={
-                            k === "hoops" || k.startsWith("interior")
-                              ? 1
-                              : "any"
-                          }
-                          min={
-                            k === "hoops"
-                              ? 1
-                              : k.startsWith("interior")
-                                ? 0
-                                : undefined
-                          }
-                          value={
-                            k === "interiorX"
-                              ? Number.isFinite(z.legsX - 2 * z.hoops)
-                                ? z.legsX - 2 * z.hoops
-                                : ""
-                              : k === "interiorY"
-                                ? Number.isFinite(z.legsY - 2 * z.hoops)
-                                  ? z.legsY - 2 * z.hoops
+                        {k === "diameter" ? (
+                          <RebarSizeSelect
+                            ariaLabel={`Zone ${i + 1} diameter`}
+                            standard={section.rebarStandard ?? "PNS49"}
+                            value={z.diameter}
+                            min={6}
+                            max={40}
+                            onChange={(v) => zone(i, "diameter", v)}
+                          />
+                        ) : k === "fy" ? (
+                          <RebarGradeSelect
+                            ariaLabel={`Zone ${i + 1} fy`}
+                            standard={section.rebarStandard ?? "PNS49"}
+                            fy={z.fy}
+                            gradeId={z.gradeId}
+                            maxFy={700}
+                            onChange={(fy, gradeId) =>
+                              onChange({
+                                ...value,
+                                zones: value.zones.map((v, j) =>
+                                  j === i ? { ...v, fy, gradeId } : v,
+                                ),
+                              })
+                            }
+                          />
+                        ) : (
+                          <input
+                            aria-label={`Zone ${i + 1} ${k === "interiorX" ? "interior X cross-ties" : k === "interiorY" ? "interior Y cross-ties" : k}`}
+                            type="number"
+                            step={
+                              k === "hoops" || k.startsWith("interior")
+                                ? 1
+                                : "any"
+                            }
+                            min={
+                              k === "hoops"
+                                ? 1
+                                : k.startsWith("interior")
+                                  ? 0
+                                  : undefined
+                            }
+                            value={
+                              k === "interiorX"
+                                ? Number.isFinite(z.legsX - 2 * z.hoops)
+                                  ? z.legsX - 2 * z.hoops
                                   : ""
-                                : Number.isFinite(z[k])
-                                  ? z[k]
-                                  : ""
-                          }
-                          onChange={(e) =>
-                            zone(
-                              i,
-                              k,
-                              e.target.value === ""
-                                ? NaN
-                                : Number(e.target.value),
-                            )
-                          }
-                        />
+                                : k === "interiorY"
+                                  ? Number.isFinite(z.legsY - 2 * z.hoops)
+                                    ? z.legsY - 2 * z.hoops
+                                    : ""
+                                  : Number.isFinite(z[k])
+                                    ? z[k]
+                                    : ""
+                            }
+                            onChange={(e) =>
+                              zone(
+                                i,
+                                k,
+                                e.target.value === ""
+                                  ? NaN
+                                  : Number(e.target.value),
+                              )
+                            }
+                          />
+                        )}
                         {k === "interiorX" || k === "interiorY" ? (
                           <small className="cqDerivedLegs">
                             Total {k === "interiorX" ? "X" : "Y"} legs:{" "}

@@ -11,6 +11,7 @@
  */
 import { z } from "zod";
 import { biaxialRawStateAt, biaxialSection } from "./column-biaxial";
+import { rebarGradeFor } from "../rebar-catalogue";
 import type {
   ColumnBar,
   ColumnLoad,
@@ -38,6 +39,7 @@ export const columnTieDesignSchema = z.object({
     /** Interior cross-ties parallel to x / y (in addition to the hoop). */
     interiorX: finite.int().min(0).max(14),
     interiorY: finite.int().min(0).max(14),
+    gradeId: z.string().max(20).nullable().optional(),
   }),
   override: z.object({
     lo: nullablePositive,
@@ -734,6 +736,35 @@ export function designColumnTransverse(
       detail: "0.01 ≤ ρg ≤ 0.06",
       clause: "ACI 318-19 18.7.4.1",
     });
+    // 20.2.2.5: SMF longitudinal bars must be weldable/low-alloy (A706-type)
+    // unless A615-type bars meet the 20.2.2.5(b) mill-test conditions.
+    const grade = rebarGradeFor(
+      input.rebarStandard ?? "PNS49",
+      input.fy,
+      input.gradeId,
+    );
+    if (!grade)
+      checks.push({
+        id: "smf:grade",
+        label: `Longitudinal bar grade (custom fy ${input.fy} MPa)`,
+        dcr: null,
+        detail:
+          "Custom steel: confirm it is ASTM A706 / PNS W-grade, or A615-type meeting 20.2.2.5(b).",
+        clause: "ACI 318-19 20.2.2.5",
+      });
+    else if (!grade.weldable)
+      checks.push({
+        id: "smf:grade",
+        label: `Longitudinal bar ${grade.label} is not weldable / low-alloy`,
+        dcr: 1.05,
+        detail:
+          "SMF longitudinal bars shall be ASTM A706 (PNS W grade). A615-type bars are permitted only where mill certificates show actual fy ≤ fy + 125 MPa and actual tensile / actual yield ≥ 1.25 (20.2.2.5(b)). Record the basis in remarks, or select a weldable grade.",
+        clause: "ACI 318-19 20.2.2.5",
+      });
+    else
+      notes.push(
+        `Longitudinal bars ${grade.label} are weldable / low-alloy: 20.2.2.5 satisfied.`,
+      );
     for (const [axis, sum] of [
       ["x", conf?.sumMnbX ?? null],
       ["y", conf?.sumMnbY ?? null],
@@ -815,6 +846,7 @@ export function adoptTieDesignToQuantity<
   const base = {
     diameter: tie.diameter,
     fy: tie.fyt,
+    gradeId: tie.gradeId ?? null,
     hoops: 1,
     legsX: design.layout.legsX,
     legsY: design.layout.legsY,
