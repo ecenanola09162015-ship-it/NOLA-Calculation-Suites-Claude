@@ -1,5 +1,6 @@
 import {
   columnDesignChecks,
+  columnTransverseChecks,
   slabDesignChecks,
   slabMinimumSteelRatio,
   slabClauses,
@@ -13,12 +14,19 @@ import {
   type RectangularColumnInput,
   type RectangularColumnResult,
   type ColumnQuantityInput,
+  type ColumnTieDesignInput,
+  type TransverseResult,
   type SlabInput,
   type SlabResult,
   type SlabQuantityInput,
 } from "@nola/calc-core";
 import type { ProjectRecord } from "../projects";
-import { columnFigures, slabFigures } from "./figures";
+import {
+  columnBiaxialFigure,
+  columnFigures,
+  columnTieElevationFigure,
+  slabFigures,
+} from "./figures";
 export type Cell = { text: string; color?: string };
 export type ReportSection = {
   title: string;
@@ -43,6 +51,10 @@ export type ReportData = {
   criticalNotes: string[];
   generatedAt: string;
   estimate?: ReportSection;
+  /** Simple report page budget (column: 2 when design add-ons are active). */
+  simplePageLimit?: 1 | 2;
+  /** Scope sentence printed in the simple-report overview. */
+  scopeNote?: string;
 };
 export const f = (n: number | null | undefined, d = 2) =>
   n == null || !Number.isFinite(n) ? "Not Evaluated" : n.toFixed(d);
@@ -66,12 +78,20 @@ const section = (
   rows: (string | Cell)[][],
   columns = ["Item", "Value"],
 ): ReportSection => ({ title, columns, rows });
-const refColumn = section("Code References — ACI 318-19", [
-  ["Axial / Flexure", "22.2, 22.4; strength factors 21.2"],
-  ["Reinforcement Limits", "10.6; detailing 10.7"],
-  ["Column Shear (Not Evaluated)", "22.5; minimum transverse steel 10.6.2"],
-  ["Tie / Hook Review", "10.7, 25.3, 25.7; seismic 18.7 (not automated)"],
-]);
+const refColumn = (shear: boolean, seismic: boolean, slender: boolean) =>
+  section("Code References — ACI 318-19", [
+    ["Axial / Flexure / Biaxial", "22.2, 22.4; strength factors 21.2"],
+    ["Reinforcement Limits", "10.6; detailing 10.7"],
+    [slender ? "Slenderness" : "Slenderness (Not Considered)", "6.2.5, 6.6.4"],
+    [
+      shear ? "Column Shear" : "Column Shear (Not Evaluated)",
+      "22.5; 10.6.2; 10.7.6.5",
+    ],
+    [
+      seismic ? "Seismic Ties" : "Tie / Hook Review",
+      seismic ? "18.4.3 / 18.7.4–18.7.6; 25.7.2" : "10.7, 25.3, 25.7",
+    ],
+  ]);
 const refSlab = section("Code References — ACI 318-19", [
   ["Flexure / Strength Factors", "22.2, 22.3, 21.2"],
   ["One-Way Shear", "Table 22.5.5.1"],
@@ -106,9 +126,15 @@ export function columnReportData(
   quantity: ColumnQuantityInput,
   policy: DesignCheckPolicy,
   remarks: DesignRemarks,
+  tieDesign?: ColumnTieDesignInput,
+  transverse?: TransverseResult | null,
 ): ReportData {
   const g = result.governing;
-  const checks = columnDesignChecks(result);
+  const t = transverse ?? null;
+  const checks = [...columnDesignChecks(result), ...columnTransverseChecks(t)];
+  const slender = !!input.slenderness?.enabled;
+  const shearOn = !!t && (!!tieDesign?.shear.enabled || t.seismic);
+  const twoPages = slender || !!t;
   const governing = checks.filter((c) =>
     c.id.startsWith((g?.load.id ?? "") + ":"),
   );
@@ -134,10 +160,15 @@ export function columnReportData(
         [...barGroups].map(([d, n]) => `${n}-D${d}`).join("; ") +
           `; As = ${f(result.steelArea, 0)} mm²`,
       ],
-      [
-        "Ties",
-        `D${input.tieDiameter}; estimating spacing ${quantity.enabled ? quantity.zones.map((z) => z.name + ": " + z.spacing + " mm").join("; ") : "Not Defined In Design Inputs"}`,
-      ],
+      t && tieDesign
+        ? [
+            "Ties (Design)",
+            `D${tieDesign.tie.diameter} hoop + cross-ties, ${t.layout.legsX} x ${t.layout.legsY} legs; ${t.seismic ? `lo ${t.adopted.lo} mm @ ${t.adopted.sEnd}; outside lo @ ${t.adopted.sMid} mm` : `@ ${t.adopted.sMid} mm`}`,
+          ]
+        : [
+            "Ties",
+            `D${input.tieDiameter}; estimating spacing ${quantity.enabled ? quantity.zones.map((z) => z.name + ": " + z.spacing + " mm").join("; ") : "Not Defined In Design Inputs"}`,
+          ],
       [
         "Steel Ratio",
         `rho = ${f(result.steelRatio * 100)}%; ${result.steelRatio >= 0.01 && result.steelRatio <= 0.08 ? "Within General 1–8% Range" : "Outside General 1–8% Range — Review Required"}`,
@@ -164,7 +195,17 @@ export function columnReportData(
             ],
           ]
         : [["Slenderness", "Not Considered (Short Column Assumed)"]]),
-      ["Vux / Vuy", "Not Supplied; Column Shear Not Evaluated"],
+      shearOn && t
+        ? [
+            "Shear (Governing)",
+            (() => {
+              const s = [...t.shear].sort((a, b) => b.dcr - a.dcr)[0];
+              return s
+                ? `${s.load} V${s.dir === "x" ? "ux" : "uy"} ${f(s.vu, 1)} kN${t.seismic ? ` (Ve x/y ${f(t.adopted.ve.x, 1)} / ${f(t.adopted.ve.y, 1)})` : ""}; phiVn ${f(s.phiVn, 1)} kN; DCR ${f(s.dcr, 3)}`
+                : "No Shear Demand";
+            })(),
+          ]
+        : ["Vux / Vuy", "Not Supplied; Column Shear Not Evaluated"],
       ...governing.map((c) => [
         c.label.replace((g?.load.id ?? "") + " · ", ""),
         {
@@ -173,6 +214,33 @@ export function columnReportData(
         },
       ]),
     ]),
+    ...(t
+      ? [
+          section(
+            t.seismic
+              ? `Shear And Confinement Design (${t.frame})`
+              : "Shear Design",
+            [
+              ...(t.seismic
+                ? [
+                    ["Zone Length lo", t.loBasis] as (string | Cell)[],
+                    [
+                      "Design Shear Ve x / y",
+                      `${f(t.adopted.ve.x, 1)} / ${f(t.adopted.ve.y, 1)} kN; ${t.ve.basis}`,
+                    ],
+                  ]
+                : []),
+              ...columnTransverseChecks(t).map((c) => [
+                c.label,
+                {
+                  text: `DCR ${f(c.dcr, 3)} | ${status(c.dcr, policy, remarks[c.id]).text}`,
+                  color: designCheckStatus(c.dcr, policy).color,
+                },
+              ]),
+            ],
+          ),
+        ]
+      : []),
   ];
   const equations = section(
     "Section Strength And Screening Equations",
@@ -287,6 +355,83 @@ export function columnReportData(
         f(p.designM),
       ]),
   );
+  const transverseSections: ReportSection[] = t
+    ? [
+        section(
+          "Transverse Reinforcement Equations",
+          [
+            [
+              "Shear Section",
+              `x: bw ${f(t.sections.x.bw, 0)}, d ${f(t.sections.x.d, 1)} mm, Av ${f(t.sections.x.av, 0)} mm²; y: bw ${f(t.sections.y.bw, 0)}, d ${f(t.sections.y.d, 1)} mm, Av ${f(t.sections.y.av, 0)} mm²`,
+              "22.5.2; 22.5.8.5.3",
+            ],
+            [
+              "Concrete Shear",
+              "Vc = max[(0.17 sqrt fc + Nu/6Ag), (0.66 rho_w^(1/3) sqrt fc + Nu/6Ag)] bw d with Av >= Av,min; else 0.66 lambda_s rho_w^(1/3) sqrt fc; Nu/6Ag <= 0.05fc; Vc <= 0.42 sqrt fc bw d",
+              "Table 22.5.5.1",
+            ],
+            [
+              "Steel Shear / Strength",
+              "Vs = Av fyt d / s (fyt <= 420 MPa); phiVn = 0.75(Vc + Vs); Vu <= phi(Vc + 0.66 sqrt fc bw d)",
+              "22.5.8.5.3; 22.5.1.2; 21.2.1",
+            ],
+            ...(t.seismic
+              ? [
+                  [
+                    "Zone Length",
+                    t.loBasis,
+                    t.frame === "SMF" ? "18.7.5.1" : "18.4.3.3",
+                  ],
+                  [
+                    "Design Shear",
+                    t.ve.basis,
+                    t.frame === "SMF" ? "18.7.6.1.1" : "18.4.3.1",
+                  ],
+                  ...t.ash.map((r) => [
+                    `Ash Legs Parallel ${r.dir.toUpperCase()}`,
+                    `bc ${f(r.bc, 0)} mm; (a) ${f(r.terms.a, 5)}, (b) ${f(r.terms.b, 5)}${r.terms.c !== null ? `, (c) ${f(r.terms.c, 5)}` : ""}; Ash ${f(r.provided, 0)} mm² => s <= ${f(r.sMax, 1)} mm`,
+                    "Table 18.7.5.4",
+                  ]),
+                ]
+              : []),
+            ...t.limits.map((l) => [
+              l.label,
+              `${t.seismic ? `lo: ${Number.isFinite(l.end) ? f(l.end, 0) : "-"} mm; ` : ""}${t.seismic ? "outside lo" : "full height"}: ${Number.isFinite(l.mid) ? f(l.mid, 0) : "-"} mm`,
+              l.clause,
+            ]),
+            [
+              "Adopted",
+              `${t.seismic ? `lo ${t.adopted.lo} mm @ ${t.adopted.sEnd} mm; ` : ""}@ ${t.adopted.sMid} mm; recommended ${t.seismic ? `${t.recommended.lo} / ${t.recommended.sEnd} / ` : ""}${t.recommended.sMid}`,
+              "Designer selection",
+            ],
+          ],
+          ["Check / Equation", "Substitution / Result", "Reference"],
+        ),
+        section(
+          "Shear By Combination",
+          t.shear.map((c) => [
+            c.load,
+            t.seismic ? (c.zone === "end" ? "lo" : "mid") : "all",
+            c.dir,
+            f(c.vu, 1),
+            f(c.vc, 1) + (c.vcZero ? " (Vc=0)" : ""),
+            f(c.vs, 1),
+            f(c.phiVn, 1),
+            f(c.dcr, 3),
+          ]),
+          [
+            "Combo",
+            "Zone",
+            "Dir",
+            "Vu kN",
+            "Vc kN",
+            "Vs kN",
+            "phiVn kN",
+            "DCR",
+          ],
+        ),
+      ]
+    : [];
   let estimate: ReportSection | undefined;
   const extra: ReportSection[] = [];
   if (quantity.enabled) {
@@ -334,10 +479,25 @@ export function columnReportData(
     policy,
     remarks,
     summary,
-    figures: columnFigures(input, result, project?.reportSettings?.style),
+    figures: [
+      ...columnFigures(input, result, project?.reportSettings?.style),
+      ...(twoPages
+        ? [columnBiaxialFigure(input, result, project?.reportSettings?.style)]
+        : []),
+      ...(t && tieDesign
+        ? [
+            columnTieElevationFigure(
+              t.seismic ? tieDesign.confinement.clearHeight : 3000,
+              t,
+              project?.reportSettings?.style,
+            ),
+          ]
+        : []),
+    ].filter((x): x is ReportFigure => !!x),
     checks: checkTable(checks, policy, remarks),
     sections: [
       equations,
+      ...transverseSections,
       section("All Load Combinations", loadRows, [
         "Combo",
         "Use",
@@ -375,11 +535,22 @@ export function columnReportData(
       ),
       ...extra,
     ],
-    references: refColumn,
+    references: refColumn(shearOn, !!t?.seismic, slender),
+    simplePageLimit: twoPages ? 2 : 1,
+    scopeNote: `Rectangular Tied Column. ${slender ? "Slenderness By Moment Magnification." : "Short Column (Slenderness Not Considered)."} ${shearOn ? "Shear Designed." : "Shear Not Evaluated."} ${t?.seismic ? `${t.frame} Confinement Designed.` : "Seismic Confinement Not Evaluated."}`,
     criticalNotes: result.warnings.slice(4),
     limitations: [
       ...result.warnings,
-      "Column shear and seismic tie compliance are not evaluated; tie quantities are estimating inputs only.",
+      ...(t
+        ? t.notes
+        : [
+            "Column shear and seismic tie compliance are not evaluated; tie quantities are estimating inputs only.",
+          ]),
+      ...(t
+        ? [
+            "Transverse design excludes splice location/length (18.7.4.3), joint shear (18.8) and development; confirm hook engagement and fit in detailing.",
+          ]
+        : []),
       ...(quantity.enabled ? columnQuantityLimitations : []),
     ],
     generatedAt: new Date().toISOString(),

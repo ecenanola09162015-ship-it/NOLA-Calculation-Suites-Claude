@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   analyzeRectangularColumn,
   defaultDesignCheckPolicy,
@@ -9,6 +9,11 @@ import {
   parseColumnLoads,
   columnDraftSchema,
   defaultColumnQuantity,
+  defaultColumnTieDesign,
+  designColumnTransverse,
+  adoptTieDesignToQuantity,
+  columnTransverseChecks,
+  type ColumnTieDesignInput,
   type ColumnQuantityInput,
   type RectangularColumnInput,
   type RectangularColumnResult,
@@ -24,6 +29,11 @@ import {
 import { ReportExportControls } from "./report-export-controls";
 import { ColumnQuantityPanel } from "./column-quantity-panel";
 import { NumberField, fmt } from "./column-ui";
+import {
+  ColumnConfinementPanel,
+  ColumnShearPanel,
+  ColumnTieDesignSummary,
+} from "./column-transverse-panel";
 import {
   ColumnSlendernessInputs,
   ColumnSlendernessResults,
@@ -123,6 +133,16 @@ export function RectangularColumnWorkspace({
     restored.success && restored.data.quantity
       ? restored.data.quantity
       : defaultColumnQuantity(initial.tieDiameter),
+  );
+  const [tieDesign, setTieDesign] = useState<ColumnTieDesignInput>(() =>
+    restored.success && restored.data.tieDesign
+      ? restored.data.tieDesign
+      : defaultColumnTieDesign(
+          restored.success ? restored.data.input : initial,
+          restored.success && restored.data.quantity
+            ? restored.data.quantity.height - restored.data.quantity.beamDepth
+            : 2500,
+        ),
   );
   const [scope, setScope] = useState(
     restored.success ? restored.data.scopeConfirmed : false,
@@ -253,6 +273,7 @@ export function RectangularColumnWorkspace({
         input,
         scopeConfirmed: scope,
         quantity,
+        tieDesign,
       });
       if (!parsed.success)
         throw new Error(
@@ -285,6 +306,7 @@ export function RectangularColumnWorkspace({
         input,
         scopeConfirmed: scope,
         quantity,
+        tieDesign,
         designPolicy: policy,
         remarks,
         reviewCompleted: !!result,
@@ -296,8 +318,7 @@ export function RectangularColumnWorkspace({
         );
       if (
         result &&
-        missingJudgmentRemarks(columnDesignChecks(result), policy, remarks)
-          .length
+        missingJudgmentRemarks(reviewChecks, policy, remarks).length
       )
         throw Error("Add Remarks For Each Amber Design Check Before Saving.");
       const response = await fetch("/api/calculations", {
@@ -332,6 +353,33 @@ export function RectangularColumnWorkspace({
     }
   }
   const check = result?.checks.find((c) => c.load.id === selected);
+  const transverse = useMemo(() => {
+    if (!result || (!tieDesign.shear.enabled && !tieDesign.confinement.enabled))
+      return { design: null, error: "" };
+    try {
+      return { design: designColumnTransverse(input, tieDesign), error: "" };
+    } catch (e) {
+      return {
+        design: null,
+        error:
+          e instanceof Error && !e.message.startsWith("[")
+            ? e.message
+            : "Complete valid tie inputs: diameter 6–40 mm, fyt 200–700 MPa, ℓu ≥ 300 mm, whole cross-tie counts.",
+      };
+    }
+  }, [result, input, tieDesign]);
+  const reviewChecks = result
+    ? [
+        ...columnDesignChecks(result),
+        ...columnTransverseChecks(transverse.design),
+      ]
+    : [];
+  const showShear = tieDesign.shear.enabled || tieDesign.confinement.enabled;
+  function updateTie(next: ColumnTieDesignInput) {
+    editVersion.current++;
+    setTieDesign(next);
+    setSaved(false);
+  }
   return (
     <div className="rcWorkspace">
       <div className="rcToolbar">
@@ -367,13 +415,7 @@ export function RectangularColumnWorkspace({
           disabled={!result}
           onData={async () => {
             if (!result) throw Error("Calculate The Column First.");
-            if (
-              missingJudgmentRemarks(
-                columnDesignChecks(result),
-                policy,
-                remarks,
-              ).length
-            )
+            if (missingJudgmentRemarks(reviewChecks, policy, remarks).length)
               throw Error(
                 "Record Engineering Judgment Remarks Before Exporting.",
               );
@@ -386,6 +428,8 @@ export function RectangularColumnWorkspace({
               quantity,
               policy,
               remarks,
+              tieDesign,
+              transverse.design,
             );
           }}
         />
@@ -605,7 +649,10 @@ export function RectangularColumnWorkspace({
             Copy Excel cells and paste below. Values must be in{" "}
             <strong>kN and kN·m</strong>. Supports Pu / Mux / Muy; Label / Pu /
             Mux / Muy; or LC No / Description / Pu / Mux / Muy / Include.
-            Workbook headers are accepted.
+            Workbook headers are accepted. With headers, optional Vux / Vuy and
+            M1x / M1y columns are read; ETABS V2 / V3 and M2 / M3 map to Vux /
+            Vuy and Mux / Muy for the default column orientation (local 2 =
+            global X). ETABS P is not read: enter Pu with compression positive.
           </p>
           <label>
             Excel cells
@@ -667,6 +714,12 @@ export function RectangularColumnWorkspace({
                 <th>Pu (kN)</th>
                 <th>Mux (kN·m)</th>
                 <th>Muy (kN·m)</th>
+                {showShear ? (
+                  <>
+                    <th>Vux (kN)</th>
+                    <th>Vuy (kN)</th>
+                  </>
+                ) : null}
                 {input.slenderness?.enabled ? (
                   <>
                     <th>M1x (kN·m)</th>
@@ -718,40 +771,43 @@ export function RectangularColumnWorkspace({
                       />
                     </td>
                   ))}
-                  {input.slenderness?.enabled
-                    ? (["m1x", "m1y"] as const).map((key) => (
-                        <td key={key}>
-                          <input
-                            type="number"
-                            step="any"
-                            aria-label={`Combination ${i + 1} ${key}`}
-                            placeholder="blank"
-                            value={
-                              typeof load[key] === "number" &&
-                              Number.isFinite(load[key])
-                                ? (load[key] as number)
-                                : ""
-                            }
-                            onChange={(e) =>
-                              update({
-                                ...input,
-                                loads: input.loads.map((l, j) =>
-                                  j === i
-                                    ? {
-                                        ...l,
-                                        [key]:
-                                          e.target.value === ""
-                                            ? null
-                                            : Number(e.target.value),
-                                      }
-                                    : l,
-                                ),
-                              })
-                            }
-                          />
-                        </td>
-                      ))
-                    : null}
+                  {[
+                    ...(showShear ? (["vx", "vy"] as const) : []),
+                    ...(input.slenderness?.enabled
+                      ? (["m1x", "m1y"] as const)
+                      : []),
+                  ].map((key) => (
+                    <td key={key}>
+                      <input
+                        type="number"
+                        step="any"
+                        aria-label={`Combination ${i + 1} ${key}`}
+                        placeholder="blank"
+                        value={
+                          typeof load[key] === "number" &&
+                          Number.isFinite(load[key])
+                            ? (load[key] as number)
+                            : ""
+                        }
+                        onChange={(e) =>
+                          update({
+                            ...input,
+                            loads: input.loads.map((l, j) =>
+                              j === i
+                                ? {
+                                    ...l,
+                                    [key]:
+                                      e.target.value === ""
+                                        ? null
+                                        : Number(e.target.value),
+                                  }
+                                : l,
+                            ),
+                          })
+                        }
+                      />
+                    </td>
+                  ))}
                   <td>
                     <button
                       aria-label={`Remove combination ${i + 1}`}
@@ -798,7 +854,7 @@ export function RectangularColumnWorkspace({
             </p>
           </div>
           <DesignReviewPanel
-            checks={columnDesignChecks(result)}
+            checks={reviewChecks}
             policy={policy}
             remarks={remarks}
             onChange={(next) => {
@@ -1035,6 +1091,50 @@ export function RectangularColumnWorkspace({
           </p>
         </section>
       )}
+      {result ? (
+        <>
+          <ColumnShearPanel
+            input={input}
+            value={tieDesign}
+            onChange={updateTie}
+            design={transverse.design}
+            error={transverse.error}
+            policy={policy}
+          />
+          <ColumnConfinementPanel
+            input={input}
+            value={tieDesign}
+            onChange={updateTie}
+            design={transverse.design}
+            error={transverse.error}
+            policy={policy}
+          />
+          <ColumnTieDesignSummary
+            value={tieDesign}
+            onChange={updateTie}
+            design={transverse.design}
+            quantity={quantity}
+            onAdopt={() => {
+              if (!transverse.design) return;
+              editVersion.current++;
+              setQuantity(
+                adoptTieDesignToQuantity(
+                  { ...quantity, enabled: true },
+                  tieDesign.tie,
+                  transverse.design,
+                ),
+              );
+              setSaved(false);
+              setMessage(
+                "Adopted tie design written to the Quantity Estimate. Checked cut lengths were cleared.",
+              );
+              document
+                .getElementById("column-quantity")
+                ?.scrollIntoView({ behavior: "smooth" });
+            }}
+          />
+        </>
+      ) : null}
       {result ? (
         <ColumnQuantityPanel
           section={input}
