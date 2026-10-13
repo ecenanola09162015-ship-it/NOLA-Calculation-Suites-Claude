@@ -53,7 +53,13 @@ describe("rebar dropdowns", () => {
   });
   it("disables sizes and grades a module does not support", () => {
     const sizes = renderToStaticMarkup(
-      <RebarSizeSelect standard="PNS49" value={12} onChange={noop} max={40} />,
+      <RebarSizeSelect
+        standard="PNS49"
+        value={12}
+        onChange={noop}
+        max={40}
+        label="Bar"
+      />,
     );
     expect(sizes).toMatch(
       /value="D50" disabled="">D50 \(50 mm\) — not supported here/,
@@ -64,10 +70,18 @@ describe("rebar dropdowns", () => {
         fy={420}
         onChange={noop}
         maxFy={420}
+        label="Grade"
       />,
     );
     expect(grades).toMatch(/value="PNS-550" disabled=""/);
     expect(grades).toContain("Grade 420W · fy 420 (max 540) · weldable");
+  });
+  it("uses short option text in compact table cells", () => {
+    const html = renderToStaticMarkup(
+      <RebarSizeSelect standard="PNS49" value={12} onChange={noop} max={40} />,
+    );
+    expect(html).toContain(">D12</option>");
+    expect(html).toMatch(/value="D50" disabled="">D50 \(n\/a\)/);
   });
   it("selects the saved grade id, defaulting old drafts to the plain grade", () => {
     expect(

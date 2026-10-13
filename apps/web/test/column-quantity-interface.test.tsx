@@ -53,7 +53,9 @@ describe("optional column estimate UI", () => {
       "minimum inside bend",
     ])
       expect(h).toContain(label);
-    expect(h).toContain("Adopt Section Tie Diameter");
+    expect(h).toContain("Tie size and grade follow Section &amp; Materials");
+    expect(h).toContain('aria-label="Zone 1 override tie"');
+    expect(h).not.toContain("Adopt Section Tie Diameter");
     const figures = h.slice(h.indexOf('aria-label="Column elevation'));
     expect(figures.indexOf("Beam-column joint dimension-scaled")).toBeLessThan(
       figures.indexOf("Upper zone dimension-scaled"),

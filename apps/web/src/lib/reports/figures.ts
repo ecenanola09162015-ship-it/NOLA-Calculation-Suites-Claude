@@ -328,3 +328,47 @@ export function columnTieElevationFigure(
     svg: svg(body, style),
   };
 }
+
+/** Tie arrangement at the lo zone (hoop, cross-ties, bars) with spacing. */
+export function columnTieSectionFigure(
+  i: RectangularColumnInput,
+  d: TransverseResult,
+  tieDiameter: number,
+  style: ReportStyle = defaultReportStyle,
+): ReportFigure {
+  const { primary: blue, text: ink } = style.colors;
+  const tie = style.colors.gold;
+  const scale = 112 / Math.max(i.width, i.depth);
+  const X = (x: number) => 125 + x * scale,
+    Y = (y: number) => 75 - y * scale;
+  const hw = i.width / 2 - i.cover - tieDiameter / 2,
+    hd = i.depth / 2 - i.cover - tieDiameter / 2;
+  const tw = Math.max(1, tieDiameter * scale);
+  let body = `<rect x="${X(-i.width / 2)}" y="${Y(i.depth / 2)}" width="${i.width * scale}" height="${i.depth * scale}" fill="${style.colors.tint}" stroke="${ink}" stroke-width="0.6"/>`;
+  body += `<rect x="${X(-hw)}" y="${Y(hd)}" width="${2 * hw * scale}" height="${2 * hd * scale}" rx="${3}" fill="none" stroke="${tie}" stroke-width="${tw}"/>`;
+  for (const y of d.layout.crossX)
+    body += line(X(-hw), Y(y), X(hw), Y(y), tie, tw);
+  for (const x of d.layout.crossY)
+    body += line(X(x), Y(hd), X(x), Y(-hd), tie, tw);
+  body += i.bars
+    .map(
+      (b) =>
+        `<circle cx="${X(b.x)}" cy="${Y(b.y)}" r="${Math.max(1.2, (b.diameter * scale) / 2)}" fill="${blue}"/>`,
+    )
+    .join("");
+  const s = d.seismic ? d.adopted.sEnd : d.adopted.sMid;
+  body += text(
+    8,
+    156,
+    `${d.layout.legsX} legs ∥X, ${d.layout.legsY} legs ∥Y; hx ${d.layout.hx.toFixed(0)} mm`,
+  );
+  body += text(
+    8,
+    168,
+    d.seismic ? `Within lo = ${d.adopted.lo} mm: s = ${s} mm` : `s = ${s} mm`,
+  );
+  return {
+    title: d.seismic ? "Tie Section Within lo" : "Tie Section",
+    svg: svg(body, style),
+  };
+}

@@ -27,6 +27,7 @@ import {
   columnBiaxialFigure,
   columnFigures,
   columnTieElevationFigure,
+  columnTieSectionFigure,
   slabFigures,
 } from "./figures";
 export type Cell = { text: string; color?: string };
@@ -138,8 +139,12 @@ export function columnReportData(
   const slender = !!input.slenderness?.enabled;
   const shearOn = !!t && (!!tieDesign?.shear.enabled || t.seismic);
   const twoPages = slender || !!t;
-  const governing = checks.filter((c) =>
-    c.id.startsWith((g?.load.id ?? "") + ":"),
+  // Summary shows one biaxial flexure row: the 3D strain-compatibility check
+  // (exact; it passes whenever the conservative linear screen passes).
+  // Bresler and the linear screen stay in the complete report.
+  const governing = checks.filter(
+    (c) =>
+      c.id.startsWith((g?.load.id ?? "") + ":") && !c.id.endsWith(":bresler"),
   );
   const barGroups = new Map<number, number>();
   for (const bar of input.bars)
@@ -496,6 +501,12 @@ export function columnReportData(
             columnTieElevationFigure(
               t.seismic ? tieDesign.confinement.clearHeight : 3000,
               t,
+              project?.reportSettings?.style,
+            ),
+            columnTieSectionFigure(
+              input,
+              t,
+              tieDesign.tie.diameter,
               project?.reportSettings?.style,
             ),
           ]

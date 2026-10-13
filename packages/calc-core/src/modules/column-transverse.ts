@@ -631,11 +631,13 @@ export function designColumnTransverse(
     const bx = biaxialShear.reduce((a, b) => Math.max(a, b.sum), 0);
     checks.push({
       id: "shear:biaxial",
-      label: "Biaxial shear vux/φvnx + vuy/φvny ≤ 1.5",
+      label: biaxialShear.length
+        ? `Biaxial shear Σ = ${bx.toFixed(3)} vs limit 1.5`
+        : "Biaxial shear (interaction not required)",
       dcr: biaxialShear.length ? bx / 1.5 : 0,
       detail: biaxialShear.length
-        ? `max sum ${bx.toFixed(3)}`
-        : "Both ratios ≤ 0.5 not exceeded together: interaction may be neglected.",
+        ? `vux/φvnx + vuy/φvny = ${bx.toFixed(3)} ${bx <= 1.5 ? "≤" : ">"} 1.5 ⇒ DCR = Σ/1.5 = ${(bx / 1.5).toFixed(3)}. ${bx <= 1.5 ? "Satisfied." : "Reduce tie spacing or add legs."}`
+        : "Ratios do not both exceed 0.5: interaction may be neglected (22.5.1.10).",
       clause: "ACI 318-19 22.5.1.10, 22.5.1.11",
     });
   }

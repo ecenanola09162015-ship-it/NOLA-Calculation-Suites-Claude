@@ -10,6 +10,8 @@ import {
   columnDraftSchema,
   defaultColumnQuantity,
   defaultColumnTieDesign,
+  rebarDesignation,
+  syncColumnQuantityTies,
   designColumnTransverse,
   adoptTieDesignToQuantity,
   columnTransverseChecks,
@@ -176,12 +178,49 @@ export function RectangularColumnWorkspace({
   const [preview, setPreview] = useState<ColumnLoad[] | null>(null);
   const [pasteError, setPasteError] = useState("");
   const [nX, setNX] = useState(4),
-    [nY, setNY] = useState(4),
-    [diameter, setDiameter] = useState(25);
+    [nY, setNY] = useState(4);
   const standard = input.rebarStandard ?? "PNS49";
+  // Main bar size: Materials value, else the most common bar in the layout.
+  const diameter =
+    input.barDiameter ??
+    (() => {
+      const counts = new Map<number, number>();
+      for (const b of input.bars)
+        counts.set(b.diameter, (counts.get(b.diameter) ?? 0) + 1);
+      return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 25;
+    })();
+  const tieSteel = {
+    diameter: input.tieDiameter,
+    fy: input.tieFyt ?? tieDesign.tie.fyt ?? 420,
+    gradeId:
+      input.tieFyt === undefined ? tieDesign.tie.gradeId : input.tieGradeId,
+  };
+  // Shear/confinement design always uses the Materials tie.
+  const effectiveTie: ColumnTieDesignInput = {
+    ...tieDesign,
+    tie: {
+      ...tieDesign.tie,
+      diameter: tieSteel.diameter,
+      fyt: tieSteel.fy,
+      gradeId: tieSteel.gradeId ?? null,
+    },
+  };
+  function changeQuantity(next: ColumnQuantityInput, tie = tieSteel) {
+    setQuantity(syncColumnQuantityTies(next, tie));
+  }
   function update(next: RectangularColumnInput) {
     editVersion.current++;
     setInput(next);
+    if (
+      next.tieDiameter !== input.tieDiameter ||
+      next.tieFyt !== input.tieFyt ||
+      next.tieGradeId !== input.tieGradeId
+    )
+      changeQuantity(quantity, {
+        diameter: next.tieDiameter,
+        fy: next.tieFyt ?? tieSteel.fy,
+        gradeId: next.tieFyt === undefined ? tieSteel.gradeId : next.tieGradeId,
+      });
     setResult(null);
     setSaved(false);
     setMessage("Inputs changed. Calculate again to update results.");
@@ -253,13 +292,24 @@ export function RectangularColumnWorkspace({
       );
       return;
     }
+    // Coordinates to 0.1 mm; rounding is symmetric so central symmetry holds.
+    const r1 = (v: number) =>
+      (Math.sign(v) * Math.round(Math.abs(v) * 10)) / 10;
     const bars = [];
     for (let i = 0; i < nX; i++)
       for (const sign of [-1, 1])
-        bars.push({ x: -x + (2 * x * i) / (nX - 1), y: sign * y, diameter });
+        bars.push({
+          x: r1(-x + (2 * x * i) / (nX - 1)),
+          y: r1(sign * y),
+          diameter,
+        });
     for (let i = 1; i < nY - 1; i++)
       for (const sign of [-1, 1])
-        bars.push({ x: sign * x, y: -y + (2 * y * i) / (nY - 1), diameter });
+        bars.push({
+          x: r1(sign * x),
+          y: r1(-y + (2 * y * i) / (nY - 1)),
+          diameter,
+        });
     update({ ...input, bars });
   }
   function calculate() {
@@ -277,7 +327,7 @@ export function RectangularColumnWorkspace({
         input,
         scopeConfirmed: scope,
         quantity,
-        tieDesign,
+        tieDesign: effectiveTie,
       });
       if (!parsed.success)
         throw new Error(
@@ -310,7 +360,7 @@ export function RectangularColumnWorkspace({
         input,
         scopeConfirmed: scope,
         quantity,
-        tieDesign,
+        tieDesign: effectiveTie,
         designPolicy: policy,
         remarks,
         reviewCompleted: !!result,
@@ -361,7 +411,7 @@ export function RectangularColumnWorkspace({
     if (!result || (!tieDesign.shear.enabled && !tieDesign.confinement.enabled))
       return { design: null, error: "" };
     try {
-      return { design: designColumnTransverse(input, tieDesign), error: "" };
+      return { design: designColumnTransverse(input, effectiveTie), error: "" };
     } catch (e) {
       return {
         design: null,
@@ -371,6 +421,7 @@ export function RectangularColumnWorkspace({
             : "Complete valid tie inputs: diameter 6–40 mm, fyt 200–700 MPa, ℓu ≥ 300 mm, whole cross-tie counts.",
       };
     }
+    // effectiveTie is derived from input and tieDesign.
   }, [result, input, tieDesign]);
   const reviewChecks = result
     ? [
@@ -378,7 +429,8 @@ export function RectangularColumnWorkspace({
         ...columnTransverseChecks(transverse.design),
       ]
     : [];
-  const showShear = tieDesign.shear.enabled || tieDesign.confinement.enabled;
+  // Vux / Vuy are always shown and pasted, with or without shear design.
+  const showShear = true;
   function updateTie(next: ColumnTieDesignInput) {
     editVersion.current++;
     setTieDesign(next);
@@ -432,7 +484,7 @@ export function RectangularColumnWorkspace({
               quantity,
               policy,
               remarks,
-              tieDesign,
+              effectiveTie,
               transverse.design,
             );
           }}
@@ -498,11 +550,37 @@ export function RectangularColumnWorkspace({
               onChange={(fy, gradeId) => update({ ...input, fy, gradeId })}
             />
             <RebarSizeSelect
+              label="Main bar size"
+              standard={standard}
+              value={diameter}
+              onChange={(d) =>
+                update({
+                  ...input,
+                  barDiameter: d,
+                  // Bars of the previous main size follow; other sizes stay.
+                  bars: input.bars.map((b) =>
+                    b.diameter === diameter ? { ...b, diameter: d } : b,
+                  ),
+                })
+              }
+            />
+            <RebarSizeSelect
               label="Tie diameter"
               standard={standard}
               value={input.tieDiameter}
+              min={6}
               max={40}
               onChange={(tieDiameter) => update({ ...input, tieDiameter })}
+            />
+            <RebarGradeSelect
+              label="Tie steel grade (fyt)"
+              standard={standard}
+              fy={tieSteel.fy}
+              gradeId={tieSteel.gradeId}
+              maxFy={700}
+              onChange={(tieFyt, tieGradeId) =>
+                update({ ...input, tieFyt, tieGradeId })
+              }
             />
           </div>
           <label className="rcCheckbox">
@@ -547,12 +625,10 @@ export function RectangularColumnWorkspace({
                 value={nY}
                 onChange={setNY}
               />
-              <RebarSizeSelect
-                label="Bar Size"
-                standard={standard}
-                value={diameter}
-                onChange={setDiameter}
-              />
+              <p className="rcMuted">
+                Bar size: {rebarDesignation(standard, diameter)} from Section
+                &amp; Materials.
+              </p>
             </div>
             <button className="suiteSecondary" onClick={generateBars}>
               Replace bar layout
@@ -567,7 +643,7 @@ export function RectangularColumnWorkspace({
           Editing positions changes the interaction curves.
         </p>
         <div className="rcTableWrap">
-          <table>
+          <table className="rcInputTable">
             <thead>
               <tr>
                 <th>Bar</th>
@@ -646,7 +722,7 @@ export function RectangularColumnWorkspace({
           onClick={() =>
             update({
               ...input,
-              bars: [...input.bars, { x: 0, y: 0, diameter: 25 }],
+              bars: [...input.bars, { x: 0, y: 0, diameter }],
             })
           }
         >
@@ -711,7 +787,11 @@ export function RectangularColumnWorkspace({
               <p>
                 {preview.length} combinations ready. First: {preview[0]?.id}, Pu{" "}
                 {fmt(preview[0]?.pu ?? 0)} kN, Mux {fmt(preview[0]?.mx ?? 0)},
-                Muy {fmt(preview[0]?.my ?? 0)} kN·m.
+                Muy {fmt(preview[0]?.my ?? 0)} kN·m
+                {preview.some((l) => l.vx != null || l.vy != null)
+                  ? `, Vux ${fmt(preview[0]?.vx ?? null)}, Vuy ${fmt(preview[0]?.vy ?? null)} kN`
+                  : " (no Vux / Vuy columns found)"}
+                .
               </p>
               <div className="rcActions">
                 <button
@@ -743,7 +823,7 @@ export function RectangularColumnWorkspace({
             }
           }}
         >
-          <table>
+          <table className="rcInputTable">
             <thead>
               <tr>
                 <th>Use</th>
@@ -1133,7 +1213,7 @@ export function RectangularColumnWorkspace({
         <>
           <ColumnShearPanel
             input={input}
-            value={tieDesign}
+            value={effectiveTie}
             onChange={updateTie}
             design={transverse.design}
             error={transverse.error}
@@ -1141,24 +1221,24 @@ export function RectangularColumnWorkspace({
           />
           <ColumnConfinementPanel
             input={input}
-            value={tieDesign}
+            value={effectiveTie}
             onChange={updateTie}
             design={transverse.design}
             error={transverse.error}
             policy={policy}
           />
           <ColumnTieDesignSummary
-            value={tieDesign}
+            value={effectiveTie}
             onChange={updateTie}
             design={transverse.design}
             quantity={quantity}
             onAdopt={() => {
               if (!transverse.design) return;
               editVersion.current++;
-              setQuantity(
+              changeQuantity(
                 adoptTieDesignToQuantity(
                   { ...quantity, enabled: true },
-                  tieDesign.tie,
+                  effectiveTie.tie,
                   transverse.design,
                 ),
               );
@@ -1179,7 +1259,7 @@ export function RectangularColumnWorkspace({
           value={quantity}
           onChange={(next) => {
             editVersion.current++;
-            setQuantity(next);
+            changeQuantity(next);
             setSaved(false);
           }}
         />

@@ -19,6 +19,8 @@ export const columnQuantitySchema = z.object({
         diameter: finite.min(6).max(40),
         fy: finite.min(200).max(700),
         gradeId: z.string().max(20).nullable().optional(),
+        /** Zone keeps its own tie size/grade instead of following Materials. */
+        override: z.boolean().optional(),
         hoops: finite.int().min(1).max(8),
         legsX: finite.int().min(2).max(16),
         legsY: finite.int().min(2).max(16),
@@ -301,4 +303,35 @@ export function estimateColumnQuantity(
     concrete,
     ratio: (longitudinal + shear) / concrete,
   };
+}
+
+/**
+ * Materials tie size/grade flow into every estimate zone that is not marked
+ * as an override. A zone whose diameter changes loses its checked cut lengths.
+ */
+export function syncColumnQuantityTies(
+  value: ColumnQuantityInput,
+  tie: { diameter: number; fy: number; gradeId?: string | null },
+): ColumnQuantityInput {
+  let changed = false;
+  const zones = value.zones.map((z) => {
+    if (z.override) return z;
+    const same =
+      z.diameter === tie.diameter &&
+      z.fy === tie.fy &&
+      (z.gradeId ?? null) === (tie.gradeId ?? null);
+    if (same) return z;
+    changed = true;
+    const resize = z.diameter !== tie.diameter;
+    return {
+      ...z,
+      diameter: tie.diameter,
+      fy: tie.fy,
+      gradeId: tie.gradeId ?? null,
+      ...(resize
+        ? { hoopLength: null, crossXLength: null, crossYLength: null }
+        : {}),
+    };
+  });
+  return changed ? { ...value, zones } : value;
 }
