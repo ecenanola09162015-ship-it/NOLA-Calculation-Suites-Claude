@@ -19,5 +19,6 @@ export * from "./modules/column-transverse";
 export * from "./modules/slab-quantity";
 
 export * from "./design-review";
+export * from "./rebar-catalogue";
 export * from "./report-settings";
 export * from "./code-clauses";

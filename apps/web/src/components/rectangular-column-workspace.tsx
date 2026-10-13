@@ -30,6 +30,11 @@ import { ReportExportControls } from "./report-export-controls";
 import { ColumnQuantityPanel } from "./column-quantity-panel";
 import { NumberField, fmt } from "./column-ui";
 import {
+  RebarGradeSelect,
+  RebarSizeSelect,
+  RebarStandardSelect,
+} from "./rebar-select";
+import {
   ColumnConfinementPanel,
   ColumnShearPanel,
   ColumnTieDesignSummary,
@@ -108,10 +113,8 @@ const fields = [
   ["width", "Width b", "mm"],
   ["depth", "Depth h", "mm"],
   ["fc", "Concrete f′c", "MPa"],
-  ["fy", "Steel fy", "MPa"],
   ["es", "Steel Es", "MPa"],
   ["cover", "Clear cover to ties", "mm"],
-  ["tieDiameter", "Tie diameter", "mm"],
 ] as const;
 export function RectangularColumnWorkspace({
   project,
@@ -175,6 +178,7 @@ export function RectangularColumnWorkspace({
   const [nX, setNX] = useState(4),
     [nY, setNY] = useState(4),
     [diameter, setDiameter] = useState(25);
+  const standard = input.rebarStandard ?? "PNS49";
   function update(next: RectangularColumnInput) {
     editVersion.current++;
     setInput(next);
@@ -472,6 +476,10 @@ export function RectangularColumnWorkspace({
             </p>
           )}
           <div className="rcFields">
+            <RebarStandardSelect
+              value={standard}
+              onChange={(rebarStandard) => update({ ...input, rebarStandard })}
+            />
             {fields.map(([key, label, unit]) => (
               <NumberField
                 key={key}
@@ -481,6 +489,21 @@ export function RectangularColumnWorkspace({
                 onChange={(value) => update({ ...input, [key]: value })}
               />
             ))}
+            <RebarGradeSelect
+              label="Longitudinal steel grade (fy)"
+              standard={standard}
+              fy={input.fy}
+              gradeId={input.gradeId}
+              maxFy={550}
+              onChange={(fy, gradeId) => update({ ...input, fy, gradeId })}
+            />
+            <RebarSizeSelect
+              label="Tie diameter"
+              standard={standard}
+              value={input.tieDiameter}
+              max={40}
+              onChange={(tieDiameter) => update({ ...input, tieDiameter })}
+            />
           </div>
           <label className="rcCheckbox">
             <input
@@ -524,9 +547,9 @@ export function RectangularColumnWorkspace({
                 value={nY}
                 onChange={setNY}
               />
-              <NumberField
-                label="Bar Diameter"
-                unit="mm"
+              <RebarSizeSelect
+                label="Bar Size"
+                standard={standard}
                 value={diameter}
                 onChange={setDiameter}
               />
@@ -550,7 +573,7 @@ export function RectangularColumnWorkspace({
                 <th>Bar</th>
                 <th>x (mm)</th>
                 <th>y (mm)</th>
-                <th>Diameter (mm)</th>
+                <th>Bar size</th>
                 <th>Remove</th>
               </tr>
             </thead>
@@ -558,7 +581,7 @@ export function RectangularColumnWorkspace({
               {input.bars.map((bar, i) => (
                 <tr key={i}>
                   <td>{i + 1}</td>
-                  {(["x", "y", "diameter"] as const).map((key) => (
+                  {(["x", "y"] as const).map((key) => (
                     <td key={key}>
                       <input
                         aria-label={`Bar ${i + 1} ${key}`}
@@ -584,6 +607,21 @@ export function RectangularColumnWorkspace({
                       />
                     </td>
                   ))}
+                  <td>
+                    <RebarSizeSelect
+                      ariaLabel={`Bar ${i + 1} diameter`}
+                      standard={standard}
+                      value={bar.diameter}
+                      onChange={(d) =>
+                        update({
+                          ...input,
+                          bars: input.bars.map((b, j) =>
+                            j === i ? { ...b, diameter: d } : b,
+                          ),
+                        })
+                      }
+                    />
+                  </td>
                   <td>
                     <button
                       aria-label={`Remove bar ${i + 1}`}

@@ -12,6 +12,7 @@ import {
   type ColumnSlendernessInput,
   type SlenderDirectionResult,
 } from "./column-slenderness";
+import type { RebarStandard } from "../rebar-catalogue";
 export type ColumnCode = "ACI 318-19" | "NSCP 2015";
 export interface ColumnBar {
   x: number;
@@ -44,6 +45,10 @@ export interface RectangularColumnInput {
   bars: ColumnBar[];
   loads: ColumnLoad[];
   slenderness?: ColumnSlendernessInput;
+  /** Bar catalogue used by the UI and report (default PNS 49). */
+  rebarStandard?: RebarStandard;
+  /** Longitudinal bar grade id from the catalogue; null = custom fy. */
+  gradeId?: string | null;
 }
 export interface ColumnState {
   c: number;

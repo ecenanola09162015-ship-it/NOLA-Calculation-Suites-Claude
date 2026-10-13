@@ -2747,3 +2747,25 @@ select {
     display: none;
   }
 }
+
+.rebarSelect,
+.rebarCustom {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.rebarCustom input {
+  width: 6.5em;
+}
+.customBadge {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #9a6300;
+  background: #fff4dc;
+  border: 1px solid #e8c77a;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
