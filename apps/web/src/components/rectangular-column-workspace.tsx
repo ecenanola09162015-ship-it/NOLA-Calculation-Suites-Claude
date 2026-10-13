@@ -973,6 +973,10 @@ export function RectangularColumnWorkspace({
           </div>
           <DesignReviewPanel
             checks={reviewChecks}
+            primaryPrefixes={[
+              `${result.governing?.load.id ?? ""}:`,
+              "tie:",
+            ]}
             policy={policy}
             remarks={remarks}
             onChange={(next) => {

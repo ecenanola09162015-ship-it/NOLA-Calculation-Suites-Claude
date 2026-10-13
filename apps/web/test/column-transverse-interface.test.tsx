@@ -107,7 +107,8 @@ describe("shear and confinement panels", () => {
       />,
     );
     expect(sum).toContain("07 · Adopted Transverse Design");
-    expect(sum).toContain(`recommended ${design.recommended.sEnd}`);
+    expect(sum).toContain("set (or overridden) in panels 05 and 06");
+    expect(sum).toContain(`${design.adopted.lo} mm @ ${design.adopted.sEnd}`);
     expect(sum).toContain("Adopt to estimate");
   });
 });
@@ -181,5 +182,58 @@ describe("materials as the single source and report summary", () => {
     );
     const lo = data.figures.find((f) => f.title === "Tie Section Within lo")!;
     expect(lo.svg).toContain(`Within lo = ${design.adopted.lo} mm`);
+  });
+});
+
+describe("screen fit and spacing overrides", () => {
+  it("edits lo and spacing in panels 05/06 with recommended placeholders", () => {
+    const design = designColumnTransverse(input, tie);
+    const props = {
+      input,
+      value: tie,
+      onChange: () => {},
+      design,
+      error: "",
+      policy: defaultDesignCheckPolicy,
+    };
+    const shear = renderToStaticMarkup(<ColumnShearPanel {...props} />);
+    expect(shear).toContain('aria-label="Tie spacing in lo override"');
+    expect(shear).toContain(
+      `placeholder="${design.recommended.sEnd} (recommended)"`,
+    );
+    const conf = renderToStaticMarkup(<ColumnConfinementPanel {...props} />);
+    expect(conf).toContain('aria-label="Confinement length lo override"');
+    expect(conf).toContain('aria-label="Design shear Ve x override"');
+    // Overridden value: badge, reset button, and the checks use it.
+    const over = { ...tie, override: { ...tie.override, sEnd: 125 } };
+    const d2 = designColumnTransverse(input, over);
+    const html = renderToStaticMarkup(
+      <ColumnShearPanel {...props} value={over} design={d2} />,
+    );
+    expect(html).toContain('value="125"');
+    expect(html).toContain(">Override</em>");
+    expect(html).toContain(`Use ${d2.recommended.sEnd}`);
+    expect(d2.adopted.sEnd).toBe(125);
+  });
+  it("prints overrides with the recommended value in the report", () => {
+    const over = { ...tie, override: { ...tie.override, sEnd: 125 } };
+    const d = designColumnTransverse(input, over);
+    const data = columnReportData(
+      undefined,
+      "C-04",
+      input,
+      analyzeRectangularColumn(input),
+      { ...defaultColumnQuantity(), enabled: false },
+      defaultDesignCheckPolicy,
+      {},
+      over,
+      d,
+    );
+    const ties = data.summary
+      .flatMap((s) => s.rows)
+      .find((r) => String(r[0]) === "Ties (Design)")!;
+    expect(String(ties[1])).toContain(
+      `@ 125 (designer override; recommended ${d.recommended.sEnd})`,
+    );
   });
 });

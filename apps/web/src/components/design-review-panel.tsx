@@ -31,12 +31,23 @@ export function DesignReviewPanel({
   policy,
   remarks,
   onChange,
+  primaryPrefixes,
 }: {
   checks: DesignCheck[];
   policy: DesignCheckPolicy;
   remarks: DesignRemarks;
   onChange: (r: DesignRemarks) => void;
+  /** Check-id prefixes shown up front (e.g. the governing combination). */
+  primaryPrefixes?: string[];
 }) {
+  const isPrimary = (c: DesignCheck) =>
+    !primaryPrefixes || primaryPrefixes.some((p) => c.id.startsWith(p));
+  const primary = checks.filter(isPrimary);
+  const secondary = checks.filter((c) => !isPrimary(c));
+  const finite = secondary
+    .map((c) => c.dcr)
+    .filter((v): v is number => v !== null && Number.isFinite(v));
+  const secondaryWorst = finite.length ? Math.max(...finite) : null;
   const active = checks.filter(
     (c) => designCheckStatus(c.dcr, policy).id === "judgment",
   );
@@ -47,39 +58,19 @@ export function DesignReviewPanel({
         Workflow Status Bands Do Not Waive Mandatory Code Or Detailing
         Requirements. “Not Evaluated” Does Not Mean Pass.
       </p>
-      <div className="rcTableWrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Check</th>
-              <th>Code Reference</th>
-              <th>DCR</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {checks.map((c) => (
-              <tr key={c.id}>
-                <th scope="row">
-                  {c.label}
-                  {c.detail ? <p className="slabMuted">{c.detail}</p> : null}
-                </th>
-                <td className="designClause">{c.clause}</td>
-                <td>
-                  {c.dcr === null
-                    ? (c.invalidLabel ?? "—")
-                    : Number.isFinite(c.dcr)
-                      ? c.dcr.toFixed(3)
-                      : (c.invalidLabel ?? "No Available Capacity")}
-                </td>
-                <td>
-                  <DesignStatus dcr={c.dcr} policy={policy} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <ReviewTable checks={primary} policy={policy} />
+      {secondary.length ? (
+        <details className="designReviewMore">
+          <summary>
+            Show All Combinations ({secondary.length} More Checks
+            {secondaryWorst !== null
+              ? `, Highest DCR ${secondaryWorst.toFixed(3)}`
+              : ""}
+            )
+          </summary>
+          <ReviewTable checks={secondary} policy={policy} />
+        </details>
+      ) : null}
       {active.length ? (
         <div className="judgmentRemarks">
           <h3>Engineering Judgment Remarks</h3>
@@ -121,5 +112,55 @@ export function DesignReviewPanel({
         {policy.judgmentThrough}.
       </p>
     </section>
+  );
+}
+
+function ReviewTable({
+  checks,
+  policy,
+}: {
+  checks: DesignCheck[];
+  policy: DesignCheckPolicy;
+}) {
+  return (
+    <div className="rcTableWrap">
+      <table>
+        <colgroup>
+          <col className="dcCheck" />
+          <col className="dcClause" />
+          <col className="dcValue" />
+          <col className="dcStatus" />
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Check</th>
+            <th>Code Reference</th>
+            <th>DCR</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {checks.map((c) => (
+            <tr key={c.id}>
+              <th scope="row">
+                {c.label}
+                {c.detail ? <p className="slabMuted">{c.detail}</p> : null}
+              </th>
+              <td className="designClause">{c.clause}</td>
+              <td>
+                {c.dcr === null
+                  ? (c.invalidLabel ?? "—")
+                  : Number.isFinite(c.dcr)
+                    ? c.dcr.toFixed(3)
+                    : (c.invalidLabel ?? "No Available Capacity")}
+              </td>
+              <td>
+                <DesignStatus dcr={c.dcr} policy={policy} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

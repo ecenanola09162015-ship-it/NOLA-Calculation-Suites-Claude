@@ -135,6 +135,11 @@ export function columnReportData(
   const g = result.governing;
   const t = transverse ?? null;
   const std = input.rebarStandard ?? "PNS49";
+  // Designer overrides are printed beside the adopted value for traceability.
+  const ov = (k: "lo" | "sEnd" | "sMid") =>
+    t && tieDesign?.override[k] != null
+      ? ` (designer override; recommended ${t.recommended[k]})`
+      : "";
   const checks = [...columnDesignChecks(result), ...columnTransverseChecks(t)];
   const slender = !!input.slenderness?.enabled;
   const shearOn = !!t && (!!tieDesign?.shear.enabled || t.seismic);
@@ -175,7 +180,7 @@ export function columnReportData(
       t && tieDesign
         ? [
             "Ties (Design)",
-            `${rebarDesignation(std, tieDesign.tie.diameter)} ${rebarGradeLabel(std, tieDesign.tie.fyt, tieDesign.tie.gradeId)} hoop + cross-ties, ${t.layout.legsX} x ${t.layout.legsY} legs; ${t.seismic ? `lo ${t.adopted.lo} mm @ ${t.adopted.sEnd}; outside lo @ ${t.adopted.sMid} mm` : `@ ${t.adopted.sMid} mm`}`,
+            `${rebarDesignation(std, tieDesign.tie.diameter)} ${rebarGradeLabel(std, tieDesign.tie.fyt, tieDesign.tie.gradeId)} hoop + cross-ties, ${t.layout.legsX} x ${t.layout.legsY} legs; ${t.seismic ? `lo ${t.adopted.lo} mm${ov("lo")} @ ${t.adopted.sEnd}${ov("sEnd")}; outside lo @ ${t.adopted.sMid} mm${ov("sMid")}` : `@ ${t.adopted.sMid} mm${ov("sMid")}`}`,
           ]
         : [
             "Ties",

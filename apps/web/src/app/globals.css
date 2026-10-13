@@ -2817,3 +2817,99 @@ select {
 .slabNumeric {
   max-width: 260px;
 }
+
+/* Screen fit: workspaces never grow wider than the screen. A wide table
+   scrolls inside its own wrapper instead of widening the page. */
+.rcWorkspace,
+.rcResults,
+.slabWorkspace {
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  max-width: 100%;
+}
+.rcWorkspace > *,
+.rcResults > *,
+.slabWorkspace > *,
+.rcWorkspace fieldset,
+.slabWorkspace fieldset {
+  min-width: 0;
+}
+.rcWorkspace fieldset {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #dde6eb;
+  border-radius: 8px;
+}
+.rcWorkspace fieldset legend {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 0 4px;
+}
+.rcWorkspace td input:not([type="checkbox"]),
+.rcWorkspace td select {
+  width: 6em;
+}
+.rcWorkspace td:nth-child(3) input[type="text"],
+.rcWorkspace td:nth-child(3) input:not([type]) {
+  width: 10em;
+}
+.rcWorkspace th,
+.rcWorkspace td {
+  padding: 6px;
+}
+
+/* Design Review: fixed proportions, wrapping text. */
+.designReviewPanel table {
+  table-layout: fixed;
+}
+.designReviewPanel th,
+.designReviewPanel td {
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+.designReviewPanel col.dcCheck {
+  width: 35%;
+}
+.designReviewPanel col.dcClause {
+  width: 35%;
+}
+.designReviewPanel col.dcValue {
+  width: 10%;
+}
+.designReviewPanel col.dcStatus {
+  width: 20%;
+}
+.designReviewMore {
+  margin-top: 8px;
+}
+.designReviewMore > summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 0;
+}
+.linkButton {
+  border: none;
+  background: none;
+  color: #087987;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0 2px;
+  text-decoration: underline;
+}
+.spacingOverrides {
+  border-top: 1px dashed #dde6eb;
+  margin-top: 10px;
+  padding-top: 6px;
+}
+/* Any grid/flex child inside the modules may shrink below its content, so
+   1fr tracks fit the screen; controls and drawings never exceed their box. */
+.rcWorkspace :where(div, section, figure, label, fieldset, details),
+.slabWorkspace :where(div, section, figure, label, fieldset, details) {
+  min-width: 0;
+}
+.rcWorkspace :where(input, select, textarea, svg, img),
+.slabWorkspace :where(input, select, textarea, svg, img) {
+  max-width: 100%;
+}
