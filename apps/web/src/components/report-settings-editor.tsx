@@ -76,7 +76,7 @@ export function ReportSettingsEditor({
           />
         </label>
       ))}
-      {(["companyLogo", "nolaLogo"] as const).map((key) => (
+      {(["companyLogo"] as const).map((key) => (
         <div key={key}>
           <label>
             {key === "companyLogo" ? "Company Logo" : "Ñola Logo"}
@@ -122,21 +122,13 @@ export function ReportSettingsEditor({
             <img
               className="logoPreview"
               src={value[key]!}
-              alt={
-                key === "companyLogo"
-                  ? "Company logo preview"
-                  : "Ñola report logo preview"
-              }
+              alt="Company logo preview"
               width={64}
               height={64}
             />
           ) : null}
           <p>
-            {value[key]
-              ? "Custom Logo Ready"
-              : key === "nolaLogo"
-                ? "Uses The Supplied Ñola Report Logo"
-                : "No Company Logo Selected"}
+            {value[key] ? "Company Logo Ready" : "No Company Logo Selected"}
           </p>
           {value[key] ? (
             <button

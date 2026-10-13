@@ -59,3 +59,39 @@ describe("report logos", () => {
     expect(html).toContain("Upper-Left Box Of The PDF Report Header");
   });
 });
+
+describe("Ñola logo is permanent", () => {
+  it("offers only a company logo upload", () => {
+    const html = renderToStaticMarkup(
+      <ReportSettingsEditor
+        value={defaultProjectReportSettings}
+        busy={false}
+        onChange={() => {}}
+        onWorking={() => {}}
+        onError={() => {}}
+      />,
+    );
+    expect(html).toContain("Company Logo");
+    expect(html).not.toContain("Ñola Logo");
+    expect(html.match(/type="file"/g)).toHaveLength(1);
+  });
+  it("ignores a previously stored Ñola upload when building the PDF", async () => {
+    const { generateCalculationPdf } = await import("../src/lib/reports/pdf");
+    const { reportFixtures } = await import("./helpers/reports");
+    const data = reportFixtures().column;
+    const png =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==";
+    for (const f of data.figures) f.png = png;
+    data.project!.reportSettings = {
+      ...data.project!.reportSettings!,
+      nolaLogo: "data:image/png;base64,AAAA",
+    };
+    // A broken stored Ñola upload must not be read at all.
+    const r = await generateCalculationPdf(data, {
+      type: "simple",
+      paper: "A4",
+      nolaLogo: png,
+    });
+    expect(r.pageCount).toBeGreaterThan(0);
+  });
+});

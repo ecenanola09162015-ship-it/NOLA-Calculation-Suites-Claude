@@ -234,7 +234,8 @@ async function build(
   const company = await embed(
       options.companyLogo ?? settings.companyLogo ?? undefined,
     ),
-    nola = await embed(options.nolaLogo ?? settings.nolaLogo ?? undefined);
+    // The Ñola logo is fixed (supplied by the export); a stored upload is ignored.
+    nola = await embed(options.nolaLogo);
   const figures = await Promise.all(
     data.figures.map(async (f) => ({
       title: f.title,

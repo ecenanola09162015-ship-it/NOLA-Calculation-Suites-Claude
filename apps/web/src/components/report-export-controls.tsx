@@ -21,9 +21,9 @@ export function ReportExportControls({
     try {
       const data = await onData();
       const { generateCalculationPdf } = await import("../lib/reports/pdf");
-      const settings = data.project?.reportSettings;
-      let nolaLogo = settings?.nolaLogo ?? undefined;
-      if (!nolaLogo) {
+      // The Ñola logo is permanent on every report and cannot be replaced.
+      let nolaLogo: string;
+      {
         const response = await fetch(REPORT_NOLA_LOGO_PATH);
         if (!response.ok) throw Error("The Ñola Logo Could Not Be Loaded.");
         const blob = await response.blob();
