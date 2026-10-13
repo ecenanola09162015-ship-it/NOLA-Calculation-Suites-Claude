@@ -22,7 +22,15 @@ export function ColumnTieSection({
   const { width: w, depth: h, cover: c } = section;
   const d = zone.diameter,
     inset = c + d / 2;
-  const hook = columnHookGeometry(d, basis);
+  // A size outside a basis's range falls back to the 135° geometry for the
+  // drawing; the estimate and checks report the range problem.
+  let hook: ReturnType<typeof columnHookGeometry>;
+  try {
+    hook = columnHookGeometry(d, basis);
+  } catch {
+    hook = columnHookGeometry(Math.min(Math.max(d, 9.5), 25.4), "aci135");
+  }
+  const ninety = hook.crossTieSecondAngle === 90 ? hook.crossTieEnds[1] : null;
   const radius = (hook.insideBend ?? 4 * d) / 2 + d / 2;
   const left = inset,
     right = w - inset,
@@ -97,7 +105,14 @@ export function ColumnTieSection({
               <path
                 key={`x${i}`}
                 strokeDasharray={x.valid ? undefined : "8 5"}
-                d={crossTieHookPath(a, b, py, radius, ext)}
+                d={crossTieHookPath(
+                  a,
+                  b,
+                  py,
+                  radius,
+                  ext,
+                  ninety ? { ext: ninety, at: i % 2 ? "a" : "b" } : undefined,
+                )}
               />
             );
           })}
@@ -120,7 +135,14 @@ export function ColumnTieSection({
               <path
                 key={`y${i}`}
                 strokeDasharray={y.valid ? undefined : "8 5"}
-                d={crossTieHookPath(a, b, px, radius, ext)}
+                d={crossTieHookPath(
+                  a,
+                  b,
+                  px,
+                  radius,
+                  ext,
+                  ninety ? { ext: ninety, at: i % 2 ? "b" : "a" } : undefined,
+                )}
                 transform="matrix(0 1 1 0 0 0)"
               />
             );
@@ -159,9 +181,9 @@ export function ColumnTieSection({
         </small>
       ) : null}
       <small>
-        Dimensions And Diameters To Scale. 135° Hook Tails Turn Away From The Leg Into The Core At 45°
-        (ACI 318-19 25.3.2, 25.7.1.6). Bend Fit And Bar Engagement Require
-        Review.
+        {ninety
+          ? "Dimensions And Diameters To Scale. Crossties: 135° Seismic Hook One End, 90° Hook (6db) The Other; 90° Ends Alternate End For End On Consecutive Crossties (ACI 318-14 / NSCP 2015 Crosstie Definition, 18.7.5.2(c) / 418.7.5.2(c)). Hoops: 135° Both Ends. Bend Fit And Bar Engagement Require Review."
+          : "Dimensions And Diameters To Scale. 135° Hook Tails Turn Away From The Leg Into The Core At 45° (ACI 318-19 25.3.2, 25.7.1.6). Bend Fit And Bar Engagement Require Review."}
       </small>
     </>
   );

@@ -1589,6 +1589,7 @@ export function SlabWorkspace({
       )}
       {r ? (
         <DesignReviewPanel
+          module="slab"
           checks={slabDesignChecks(input, r)}
           policy={policy}
           remarks={remarks}

@@ -1,4 +1,6 @@
+import { OVERRIDE_COLOR } from "../override-style";
 import {
+  columnHookBasisLabel,
   rebarDesignation,
   rebarGradeLabel,
   columnDesignChecks,
@@ -138,6 +140,13 @@ export function columnReportData(
     t && tieDesign?.override[k] != null
       ? ` (designer override; recommended ${t.recommended[k]})`
       : "";
+  const overridden = {
+    lo: tieDesign?.override.lo != null,
+    sEnd: tieDesign?.override.sEnd != null,
+    sMid: tieDesign?.override.sMid != null,
+  };
+  const anyOverride =
+    !!t && (overridden.lo || overridden.sEnd || overridden.sMid);
   const checks = [...columnDesignChecks(result), ...columnTransverseChecks(t)];
   const slender = !!input.slenderness?.enabled;
   const shearOn = !!t && (!!tieDesign?.shear.enabled || t.seismic);
@@ -178,7 +187,10 @@ export function columnReportData(
       t && tieDesign
         ? [
             "Ties (Design)",
-            `${rebarDesignation(std, tieDesign.tie.diameter)} ${rebarGradeLabel(std, tieDesign.tie.fyt, tieDesign.tie.gradeId)} hoop + cross-ties, ${t.layout.legsX} x ${t.layout.legsY} legs; ${t.seismic ? `lo ${t.adopted.lo} mm${ov("lo")} @ ${t.adopted.sEnd}${ov("sEnd")}; outside lo @ ${t.adopted.sMid} mm${ov("sMid")}` : `@ ${t.adopted.sMid} mm${ov("sMid")}`}`,
+            {
+              text: `${rebarDesignation(std, tieDesign.tie.diameter)} ${rebarGradeLabel(std, tieDesign.tie.fyt, tieDesign.tie.gradeId)} hoop + cross-ties, ${t.layout.legsX} x ${t.layout.legsY} legs${t.midSeparate ? ` in lo, ${t.layoutMid.legsX} x ${t.layoutMid.legsY} outside lo` : ""}; ${t.seismic ? `lo ${t.adopted.lo} mm${ov("lo")} @ ${t.adopted.sEnd}${ov("sEnd")}; outside lo @ ${t.adopted.sMid} mm${ov("sMid")}` : `@ ${t.adopted.sMid} mm${ov("sMid")}`}`,
+              ...(anyOverride ? { color: OVERRIDE_COLOR } : {}),
+            },
           ]
         : [
             "Ties",
@@ -460,6 +472,15 @@ export function columnReportData(
         "Longitudinal / Shear Weight",
         `${f(q.longitudinalPercent)}% / ${f(q.shearPercent)}%`,
       ],
+      [
+        "Hook Basis",
+        columnHookBasisLabel[quantity.hookBasis] +
+          (quantity.hookBasis === "aci14x90"
+            ? " — crosstie 135° max(6db, 75) + 90° 6db; 90° ends alternated (ACI 318-14 / NSCP 2015 Ch. 2 / 402, 18.7.5.2(c) / 418.7.5.2(c), 25.3.4 / 425.3.4)"
+            : quantity.hookBasis === "aci135"
+              ? " — max(6db, 75) each end (ACI 318-19 25.3.4)"
+              : ""),
+      ],
     ]);
     extra.push(
       section(
@@ -505,6 +526,7 @@ export function columnReportData(
               t.seismic ? tieDesign.confinement.clearHeight : 3000,
               t,
               project?.reportSettings?.style,
+              overridden,
             ),
             columnTieSectionFigure(
               input,
@@ -512,6 +534,17 @@ export function columnReportData(
               tieDesign.tie.diameter,
               project?.reportSettings?.style,
             ),
+            ...(t.midSeparate
+              ? [
+                  columnTieSectionFigure(
+                    input,
+                    t,
+                    tieDesign.tie.diameter,
+                    project?.reportSettings?.style,
+                    "mid",
+                  ),
+                ]
+              : []),
           ]
         : []),
     ].filter((x): x is ReportFigure => !!x),

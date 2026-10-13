@@ -71,7 +71,7 @@ describe("project context and review reporting", () => {
     );
     for (const band of Object.values(defaultDesignCheckPolicy.bands))
       expect(html).toContain(band.label);
-    expect(html).toContain("Axial Remarks");
+    expect(html).toContain("Axial Other Reason");
     expect(html).toContain("Recorded Engineering Remarks");
     expect(html).toContain("Reviewed load envelope.");
     expect(html).not.toContain("Revise");

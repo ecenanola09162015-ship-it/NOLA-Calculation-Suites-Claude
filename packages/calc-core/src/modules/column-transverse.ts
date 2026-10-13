@@ -39,7 +39,16 @@ export const columnTieDesignSchema = z.object({
     /** Interior cross-ties parallel to x / y (in addition to the hoop). */
     interiorX: finite.int().min(0).max(14),
     interiorY: finite.int().min(0).max(14),
+    /**
+     * Optional arrangement outside lo (seismic frames only). null / absent =
+     * same as the lo zone. Inside lo, 18.7.5.2–18.7.5.4 govern; outside lo,
+     * 18.7.5.5, 25.7.2 and shear (22.5) govern.
+     */
+    midInteriorX: finite.int().min(0).max(14).nullable().optional(),
+    midInteriorY: finite.int().min(0).max(14).nullable().optional(),
     gradeId: z.string().max(20).nullable().optional(),
+    /** Hook basis shared with the estimate (see columnHookGeometry). */
+    hookBasis: z.enum(["allowance8db", "aci135", "aci14x90"]).optional(),
   }),
   override: z.object({
     lo: nullablePositive,
@@ -131,20 +140,19 @@ export interface ConfinementLayout {
   hx: number;
   /** Max clear distance from an unsupported bar to a supported one. */
   maxUnsupportedClear: number;
+  /** Interior bar pairs that a cross-tie can engage, per direction. */
+  availableX: number;
+  availableY: number;
 }
 export function confinementLayout(
   bars: ColumnBar[],
   interiorX: number,
   interiorY: number,
 ): ConfinementLayout {
-  const crossX = pickCrossTies(
-    crossTieCandidatePositions(bars, "X"),
-    interiorX,
-  );
-  const crossY = pickCrossTies(
-    crossTieCandidatePositions(bars, "Y"),
-    interiorY,
-  );
+  const candX = crossTieCandidatePositions(bars, "X");
+  const candY = crossTieCandidatePositions(bars, "Y");
+  const crossX = pickCrossTies(candX, interiorX);
+  const crossY = pickCrossTies(candY, interiorY);
   const xmin = Math.min(...bars.map((b) => b.x)),
     xmax = Math.max(...bars.map((b) => b.x)),
     ymin = Math.min(...bars.map((b) => b.y)),
@@ -191,6 +199,8 @@ export function confinementLayout(
     nl: supported.filter(Boolean).length,
     hx,
     maxUnsupportedClear: clear,
+    availableX: candX.length,
+    availableY: candY.length,
   };
 }
 
@@ -303,8 +313,14 @@ export interface ShearZoneCheck {
 export interface TransverseResult {
   frame: "OMF" | "IMF" | "SMF" | null;
   seismic: boolean;
+  /** lo zone (or full height when not seismic). */
   sections: { x: ShearDirection; y: ShearDirection };
   layout: ConfinementLayout;
+  /** Outside lo; the same objects as above unless a mid arrangement is set. */
+  sectionsMid: { x: ShearDirection; y: ShearDirection };
+  layoutMid: ConfinementLayout;
+  /** A separate arrangement outside lo is in use. */
+  midSeparate: boolean;
   barDb: number;
   /** Seismic design shear per direction (kN): x = along x (from Mpr about y). */
   ve: { x: number; y: number; basis: string; mprX: number; mprY: number };
@@ -335,6 +351,8 @@ export interface TransverseResult {
     dcr: number | null;
     detail: string;
     clause: string;
+    /** Shown instead of a number when dcr is not finite. */
+    invalidLabel?: string;
   }[];
   notes: string[];
 }
@@ -426,6 +444,44 @@ export function designColumnTransverse(
   const loAdopted = t.override.lo ?? lo;
   if (seismic && 2 * loAdopted >= lu) fullHeight = true;
 
+  // Arrangement outside lo (only meaningful when lo zones and a mid-height
+  // zone both exist).
+  const midSeparate =
+    seismic &&
+    !fullHeight &&
+    (t.tie.midInteriorX != null || t.tie.midInteriorY != null);
+  const layoutMid = midSeparate
+    ? confinementLayout(
+        input.bars,
+        t.tie.midInteriorX ?? t.tie.interiorX,
+        t.tie.midInteriorY ?? t.tie.interiorY,
+      )
+    : layout;
+  const sxM = midSeparate
+    ? shearSection(input, "x", layoutMid.legsX, t.tie.diameter)
+    : sx;
+  const syM = midSeparate
+    ? shearSection(input, "y", layoutMid.legsY, t.tie.diameter)
+    : sy;
+  const secsFor = (zone: "end" | "mid") =>
+    zone === "end" ? [sx, sy] : [sxM, syM];
+  for (const [lay, where] of [
+    [layout, seismic ? "in lo" : "full height"],
+    ...(midSeparate ? [[layoutMid, "outside lo"] as const] : []),
+  ] as const) {
+    const req =
+      where === "outside lo"
+        ? [
+            t.tie.midInteriorX ?? t.tie.interiorX,
+            t.tie.midInteriorY ?? t.tie.interiorY,
+          ]
+        : [t.tie.interiorX, t.tie.interiorY];
+    if (req[0]! > lay.availableX || req[1]! > lay.availableY)
+      notes.push(
+        `Cross-ties ${where}: requested ${req[0]} ∥ X / ${req[1]} ∥ Y; only ${lay.availableX} / ${lay.availableY} interior bar pairs can be engaged (25.7.2.3), so ${lay.crossX.length} / ${lay.crossY.length} are placed.`,
+      );
+  }
+
   // Spacing limits (mm): end zone and mid-height.
   const limits: TransverseResult["limits"] = [];
   const general = Math.min(16 * barDb, 48 * t.tie.diameter, hmin);
@@ -503,7 +559,7 @@ export function designColumnTransverse(
     let sReq = Infinity,
       sMaxV = Infinity,
       sAvMin = Infinity;
-    for (const sec of [sx, sy])
+    for (const sec of secsFor(zone))
       for (const l of loads) {
         const vu = zoneDemand(l, sec.dir);
         const vcZero =
@@ -568,7 +624,7 @@ export function designColumnTransverse(
       const s = zone === "end" ? adopted.sEnd : adopted.sMid;
       for (const l of loads) {
         const pair: Record<string, ShearZoneCheck> = {};
-        for (const sec of [sx, sy]) {
+        for (const sec of secsFor(zone)) {
           const vu = zoneDemand(l, sec.dir);
           const avMin = avMinPerS(fc, sec.bw, t.tie.fyt) * s;
           const avMinOk = sec.av >= avMin - 1e-9;
@@ -615,7 +671,7 @@ export function designColumnTransverse(
           id: `shear:${zone}:${dir}`,
           label: `Shear V${dir === "x" ? "ux" : "uy"} · ${zoneLabel(zone)} (${g.load})`,
           dcr: g.dcr,
-          detail: `Vu ${g.vu.toFixed(1)} kN; Vc ${g.vc.toFixed(1)}${g.vcZero ? " (Vc = 0, 18.7.6.2.1)" : ""}; Vs ${g.vs.toFixed(1)}; φVn ${g.phiVn.toFixed(1)} kN; s = ${zone === "end" ? adopted.sEnd : adopted.sMid} mm`,
+          detail: `Vu ${g.vu.toFixed(1)} kN; φVn ${g.phiVn.toFixed(1)} kN\nVc ${g.vc.toFixed(1)}${g.vcZero ? " (Vc = 0, 18.7.6.2.1)" : ""}; Vs ${g.vs.toFixed(1)} kN\n${secsFor(zone).find((x) => x.dir === dir)!.legs} legs at s = ${zone === "end" ? adopted.sEnd : adopted.sMid} mm`,
           clause:
             "ACI 318-19 22.5.1.1; Vc Table 22.5.5.1; Vs 22.5.8.5.3; φ 0.75",
         });
@@ -636,8 +692,8 @@ export function designColumnTransverse(
         : "Biaxial shear (interaction not required)",
       dcr: biaxialShear.length ? bx / 1.5 : 0,
       detail: biaxialShear.length
-        ? `vux/φvnx + vuy/φvny = ${bx.toFixed(3)} ${bx <= 1.5 ? "≤" : ">"} 1.5 ⇒ DCR = Σ/1.5 = ${(bx / 1.5).toFixed(3)}. ${bx <= 1.5 ? "Satisfied." : "Reduce tie spacing or add legs."}`
-        : "Ratios do not both exceed 0.5: interaction may be neglected (22.5.1.10).",
+        ? `vux/φvnx + vuy/φvny = ${bx.toFixed(3)} ${bx <= 1.5 ? "≤" : ">"} 1.5\nDCR = Σ/1.5 = ${(bx / 1.5).toFixed(3)}\n${bx <= 1.5 ? "Satisfied." : "Reduce tie spacing or add legs."}`
+        : "Ratios do not both exceed 0.5:\ninteraction may be neglected (22.5.1.10).",
       clause: "ACI 318-19 22.5.1.10, 22.5.1.11",
     });
   }
@@ -694,16 +750,24 @@ export function designColumnTransverse(
     id: "ties:support",
     label: "Lateral support of bars (≤ 150 mm clear)",
     dcr: layout.maxUnsupportedClear / 150,
-    detail: `Max clear distance from an unsupported bar to a supported bar ${layout.maxUnsupportedClear.toFixed(0)} mm`,
+    detail: `Max clear distance from an unsupported bar\nto a supported bar ${layout.maxUnsupportedClear.toFixed(0)} mm${midSeparate ? " (lo zone)" : ""}`,
     clause: "ACI 318-19 25.7.2.3",
   });
+  if (midSeparate)
+    checks.push({
+      id: "ties:support-mid",
+      label: "Lateral support of bars outside lo (≤ 150 mm clear)",
+      dcr: layoutMid.maxUnsupportedClear / 150,
+      detail: `Outside lo: ${layoutMid.legsX} legs ∥ X, ${layoutMid.legsY} legs ∥ Y\nMax clear distance from an unsupported bar ${layoutMid.maxUnsupportedClear.toFixed(0)} mm`,
+      clause: "ACI 318-19 25.7.2.3, 18.7.5.5",
+    });
   if (frame === "SMF") {
     for (const r of ash)
       checks.push({
         id: `ash:${r.dir}`,
         label: `Ash legs ∥ ${r.dir} (bc ${r.bc.toFixed(0)} mm)`,
         dcr: (r.ratio * adopted.sEnd * r.bc) / r.provided,
-        detail: `Required Ash/(s bc) ${r.ratio.toFixed(5)} = max(a ${r.terms.a.toFixed(5)}, b ${r.terms.b.toFixed(5)}${r.terms.c !== null ? `, c ${r.terms.c.toFixed(5)}` : ""}); provided ${r.provided.toFixed(0)} mm² at s ${adopted.sEnd}`,
+        detail: `Required Ash/(s bc) = ${r.ratio.toFixed(5)}\n= max(a ${r.terms.a.toFixed(5)}, b ${r.terms.b.toFixed(5)}${r.terms.c !== null ? `, c ${r.terms.c.toFixed(5)}` : ""})\nProvided Ash ${r.provided.toFixed(0)} mm² at s = ${adopted.sEnd} mm`,
         clause: "ACI 318-19 18.7.5.4, Table 18.7.5.4",
       });
     checks.push({
@@ -711,7 +775,7 @@ export function designColumnTransverse(
       label: `hx = ${layout.hx.toFixed(0)} mm`,
       dcr: layout.hx / (highAxial ? 200 : 350),
       detail: highAxial
-        ? "Pu > 0.3Ag f′c or f′c > 70 MPa: hx ≤ 200 mm and every bar supported"
+        ? "Pu > 0.3Ag f′c or f′c > 70 MPa:\nhx ≤ 200 mm and every bar supported"
         : "hx ≤ 350 mm",
       clause: "ACI 318-19 18.7.5.2",
     });
@@ -722,7 +786,25 @@ export function designColumnTransverse(
         dcr: layout.supported.every(Boolean) ? 0 : Infinity,
         detail: `${layout.nl} of ${input.bars.length} bars supported`,
         clause: "ACI 318-19 18.7.5.2(f)",
+        invalidLabel: "Not Satisfied",
       });
+    // ACI 318-19 18.7.5.2(f): with high axial load every perimeter bar is
+    // supported by a hoop corner or a seismic hook, so crossties need 135°
+    // hooks at both ends. ACI 318-14 / NSCP 2015 has no such clause.
+    if (highAxial && t.tie.hookBasis === "aci14x90")
+      checks.push({
+        id: "smf:crosstie-hooks",
+        label: "135° + 90° crossties not permitted",
+        dcr: Infinity,
+        invalidLabel: "Not Permitted",
+        detail:
+          "Pu > 0.3Ag f′c or f′c > 70 MPa:\nACI 318-19 18.7.5.2(f) requires seismic (135°) hooks at both ends of every crosstie.\nSelect the ACI 318-19 · 135° both ends hook basis in the estimate.",
+        clause: "ACI 318-19 18.7.5.2(f)",
+      });
+    else if (t.tie.hookBasis === "aci14x90")
+      notes.push(
+        "Crossties 135° + 90° per ACI 318-14 / NSCP 2015 crosstie definition (Ch. 2 / 402); 90° ends alternate end for end on consecutive crossties (18.7.5.2(c) / 418.7.5.2(c)). Consistent with the ACI 318-19 crosstie definition; 18.7.5.2(f) does not apply (Pu ≤ 0.3Ag f′c, f′c ≤ 70 MPa).",
+      );
     checks.push({
       id: "smf:geometry",
       label: "SMF section geometry",
@@ -751,7 +833,7 @@ export function designColumnTransverse(
         label: `Longitudinal bar grade (custom fy ${input.fy} MPa)`,
         dcr: null,
         detail:
-          "Custom steel: confirm it is ASTM A706 / PNS W-grade, or A615-type meeting 20.2.2.5(b).",
+          "Custom steel grade.\nConfirm it is ASTM A706 / PNS W grade, or A615-type meeting 20.2.2.5(b).",
         clause: "ACI 318-19 20.2.2.5",
       });
     else if (!grade.weldable)
@@ -760,7 +842,7 @@ export function designColumnTransverse(
         label: `Longitudinal bar ${grade.label} is not weldable / low-alloy`,
         dcr: 1.05,
         detail:
-          "SMF longitudinal bars shall be ASTM A706 (PNS W grade). A615-type bars are permitted only where mill certificates show actual fy ≤ fy + 125 MPa and actual tensile / actual yield ≥ 1.25 (20.2.2.5(b)). Record the basis in remarks, or select a weldable grade.",
+          "SMF longitudinal bars: ASTM A706 / PNS W grade required (20.2.2.5).\nA615-type permitted only if mill certificates show actual fy ≤ fy + 125 MPa and actual tensile / actual yield ≥ 1.25 (20.2.2.5(b)).\nRecord the basis in remarks, or select a weldable grade.",
         clause: "ACI 318-19 20.2.2.5",
       });
     else
@@ -780,7 +862,7 @@ export function designColumnTransverse(
           id: `smf:scwb:${axis}`,
           label: `Strong column–weak beam about ${axis}`,
           dcr: mnc > 0 ? (1.2 * sum) / (2 * mnc) : Infinity,
-          detail: `ΣMnc = 2 × ${mnc.toFixed(1)} (lowest over Pu, same column above and below) vs 1.2ΣMnb = ${(1.2 * sum).toFixed(1)} kN·m`,
+          detail: `ΣMnc = 2 × ${mnc.toFixed(1)} kN·m (lowest over Pu, same column above and below)\n1.2ΣMnb = ${(1.2 * sum).toFixed(1)} kN·m`,
           clause: "ACI 318-19 18.7.3.2",
         });
       }
@@ -801,6 +883,9 @@ export function designColumnTransverse(
     seismic,
     sections: { x: sx, y: sy },
     layout,
+    sectionsMid: { x: sxM, y: syM },
+    layoutMid,
+    midSeparate,
     barDb,
     ve: { ...ve, basis, mprX, mprY },
     lo,
@@ -845,15 +930,17 @@ export function adoptTieDesignToQuantity<
   },
 >(quantity: Q, tie: ColumnTieDesignInput["tie"], design: TransverseResult): Q {
   const joint = quantity.height - quantity.beamDepth;
+  const arrangement = (l: ConfinementLayout) => ({
+    legsX: l.legsX,
+    legsY: l.legsY,
+    crossXPositions: l.crossX,
+    crossYPositions: l.crossY,
+  });
   const base = {
     diameter: tie.diameter,
     fy: tie.fyt,
     gradeId: tie.gradeId ?? null,
     hoops: 1,
-    legsX: design.layout.legsX,
-    legsY: design.layout.legsY,
-    crossXPositions: design.layout.crossX,
-    crossYPositions: design.layout.crossY,
     hoopLength: null,
     crossXLength: null,
     crossYLength: null,
@@ -882,8 +969,18 @@ export function adoptTieDesignToQuantity<
       end: quantity.height,
       spacing: confined ? sEnd : sMid,
     });
+  // Middle zone takes the arrangement outside lo; lo zones and the joint
+  // (18.7.5.1 continues lo reinforcement through it) take the lo layout.
   return {
     ...quantity,
-    zones: zones.map((z) => ({ ...z, ...base })),
+    zones: zones.map((z) => ({
+      ...z,
+      ...base,
+      ...arrangement(
+        z.name === "Middle zone" || !confined
+          ? (design.layoutMid ?? design.layout)
+          : design.layout,
+      ),
+    })),
   } as Q;
 }
