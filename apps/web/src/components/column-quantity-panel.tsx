@@ -5,16 +5,14 @@ import {
   editColumnTieArrangement,
   defaultColumnTieZones,
   columnQuantityLimitations,
+  rebarDesignation,
+  rebarGradeLabel,
   type ColumnQuantityInput,
   type RectangularColumnInput,
 } from "@nola/calc-core";
 import { ColumnTieSection } from "./column-tie-section";
 import { RebarGradeSelect, RebarSizeSelect } from "./rebar-select";
-import {
-  adoptSectionTieDiameter,
-  crossTiePositions,
-  zoneColor,
-} from "../lib/column-tie-layout";
+import { crossTiePositions, zoneColor } from "../lib/column-tie-layout";
 const f = (v: number, p = 2) =>
   Number.isFinite(v)
     ? v.toLocaleString("en-US", {
@@ -54,7 +52,6 @@ export function ColumnQuantityPanel({
   value: ColumnQuantityInput;
   onChange: (q: ColumnQuantityInput) => void;
 }) {
-  const [adoptOpen, setAdoptOpen] = useState(false);
   const [diameter, setDiameter] = useState("all"),
     [grade, setGrade] = useState("all"),
     [fn, setFn] = useState("all");
@@ -169,13 +166,6 @@ export function ColumnQuantityPanel({
             <button
               type="button"
               className="suiteSecondary"
-              onClick={() => setAdoptOpen(true)}
-            >
-              Adopt Section Tie Diameter · Ø{section.tieDiameter} mm
-            </button>
-            <button
-              type="button"
-              className="suiteSecondary"
               onClick={() => {
                 if (
                   Number.isFinite(value.height) &&
@@ -217,38 +207,20 @@ export function ColumnQuantityPanel({
               Add Zone
             </button>
           </div>
-          {adoptOpen ? (
-            <div
-              className="cqAdoptConfirm"
-              role="region"
-              aria-label="Confirm Section Tie Diameter Adoption"
-            >
-              <h3>Adopt Section Tie Diameter?</h3>
-              <p>
-                Apply Ø{section.tieDiameter} mm From Section &amp; Materials To
-                All {value.zones.length} Zones. Spacing, fy And Counts Are
-                Retained. Checked Cutting-Length Overrides Will Be Cleared
-                Because The Diameter Has Changed.
-              </p>
-              <button
-                type="button"
-                className="suitePrimary"
-                onClick={() => {
-                  onChange(adoptSectionTieDiameter(value, section.tieDiameter));
-                  setAdoptOpen(false);
-                }}
-              >
-                Confirm Adoption
-              </button>
-              <button
-                type="button"
-                className="suiteSecondary"
-                onClick={() => setAdoptOpen(false)}
-              >
-                Cancel
-              </button>
-            </div>
-          ) : null}
+          <p className="rcMuted">
+            Tie size and grade follow Section &amp; Materials (
+            {rebarDesignation(
+              section.rebarStandard ?? "PNS49",
+              section.tieDiameter,
+            )}
+            ,{" "}
+            {rebarGradeLabel(
+              section.rebarStandard ?? "PNS49",
+              section.tieFyt ?? 420,
+              section.tieGradeId,
+            )}
+            ). Tick Override in a zone to give it its own tie.
+          </p>
           <div className="cqScroll">
             <table>
               <caption>
@@ -266,6 +238,7 @@ export function ColumnQuantityPanel({
                     "Hoops / Set",
                     "Interior X Cross-Ties / Set",
                     "Interior Y Cross-Ties / Set",
+                    "Override Tie",
                     "",
                   ].map((s, i) => (
                     <th key={i}>{s}</th>
@@ -302,6 +275,7 @@ export function ColumnQuantityPanel({
                             value={z.diameter}
                             min={6}
                             max={40}
+                            disabled={!z.override}
                             onChange={(v) => zone(i, "diameter", v)}
                           />
                         ) : k === "fy" ? (
@@ -311,6 +285,7 @@ export function ColumnQuantityPanel({
                             fy={z.fy}
                             gradeId={z.gradeId}
                             maxFy={700}
+                            disabled={!z.override}
                             onChange={(fy, gradeId) =>
                               onChange({
                                 ...value,
@@ -374,6 +349,23 @@ export function ColumnQuantityPanel({
                         ) : null}
                       </td>
                     ))}
+                    <td>
+                      <input
+                        type="checkbox"
+                        aria-label={`Zone ${i + 1} override tie`}
+                        checked={!!z.override}
+                        onChange={(e) =>
+                          onChange({
+                            ...value,
+                            zones: value.zones.map((v, j) =>
+                              j === i
+                                ? { ...v, override: e.target.checked }
+                                : v,
+                            ),
+                          })
+                        }
+                      />
+                    </td>
                     <td>
                       <button
                         type="button"

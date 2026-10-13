@@ -8,8 +8,11 @@ import type {
 import { ColumnTieSection } from "./column-tie-section";
 import { DesignStatus } from "./design-review-panel";
 import { NumberField, fmt } from "./column-ui";
-import { RebarGradeSelect, RebarSizeSelect } from "./rebar-select";
-import type { RebarStandard } from "@nola/calc-core";
+import {
+  rebarDesignation,
+  rebarGradeLabel,
+  type RebarStandard,
+} from "@nola/calc-core";
 import type { DesignCheckPolicy } from "@nola/calc-core";
 
 type Props = {
@@ -47,24 +50,11 @@ function TieArrangementFields({
     onChange({ ...value, tie: { ...value.tie, [k]: v } });
   return (
     <div className="rcFields">
-      <RebarSizeSelect
-        label="Tie diameter"
-        standard={standard}
-        value={value.tie.diameter}
-        min={6}
-        max={40}
-        onChange={(v) => tie("diameter", v)}
-      />
-      <RebarGradeSelect
-        label="Tie grade (fyt)"
-        standard={standard}
-        fy={value.tie.fyt}
-        gradeId={value.tie.gradeId}
-        maxFy={700}
-        onChange={(fyt, gradeId) =>
-          onChange({ ...value, tie: { ...value.tie, fyt, gradeId } })
-        }
-      />
+      <p className="rcMuted tieFromMaterials">
+        Tie {rebarDesignation(standard, value.tie.diameter)},{" "}
+        {rebarGradeLabel(standard, value.tie.fyt, value.tie.gradeId)} (fyt{" "}
+        {value.tie.fyt} MPa) from Section &amp; Materials.
+      </p>
       <NumberField
         label="Interior cross-ties ∥ X"
         value={value.tie.interiorX}
@@ -570,9 +560,13 @@ export function ColumnConfinementPanel(props: Props) {
             />
           ) : (
             <p className="rcMuted">
-              Tie arrangement is set in panel 05: D{value.tie.diameter}, fyt{" "}
-              {value.tie.fyt} MPa, {value.tie.interiorX} / {value.tie.interiorY}{" "}
-              interior cross-ties.
+              Tie{" "}
+              {rebarDesignation(
+                input.rebarStandard ?? "PNS49",
+                value.tie.diameter,
+              )}{" "}
+              from Section &amp; Materials; {value.tie.interiorX} /{" "}
+              {value.tie.interiorY} interior cross-ties set in panel 05.
             </p>
           )}
           {error ? <p className="rcAlert">{error}</p> : null}

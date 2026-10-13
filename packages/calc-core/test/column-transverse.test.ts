@@ -233,3 +233,53 @@ describe("load import with shears and end moments", () => {
     expect(b[0]).toMatchObject({ mx: 60, my: 30, vx: 12, vy: 34 });
   });
 });
+
+describe("Materials tie flows into the estimate", () => {
+  it("syncs every zone except overrides and clears checked lengths on resize", async () => {
+    const { syncColumnQuantityTies } = await import("../src");
+    const q = { ...defaultColumnQuantity(10), enabled: true };
+    q.zones[0]!.hoopLength = 1800;
+    q.zones[1] = { ...q.zones[1]!, override: true, diameter: 12, fy: 280 };
+    const next = syncColumnQuantityTies(q, {
+      diameter: 12,
+      fy: 420,
+      gradeId: "PNS-420W",
+    });
+    expect(next.zones[0]).toMatchObject({
+      diameter: 12,
+      fy: 420,
+      gradeId: "PNS-420W",
+      hoopLength: null,
+    });
+    expect(next.zones[1]).toMatchObject({
+      diameter: 12,
+      fy: 280,
+      override: true,
+    });
+    // Already in sync: same object back (no needless re-render or save).
+    expect(
+      syncColumnQuantityTies(next, {
+        diameter: 12,
+        fy: 420,
+        gradeId: "PNS-420W",
+      }),
+    ).toBe(next);
+  });
+  it("biaxial shear row states the sum against the 1.5 limit", () => {
+    const both = {
+      ...input,
+      loads: [{ ...input.loads[0]!, vx: 300, vy: 300 }],
+    };
+    const r = designColumnTransverse(
+      both,
+      tie({
+        override: { lo: null, sEnd: null, sMid: 175, veX: null, veY: null },
+      }),
+    );
+    const c = r.checks.find((x) => x.id === "shear:biaxial")!;
+    const sum = r.biaxialShear[0]!.sum;
+    expect(c.label).toBe(`Biaxial shear Σ = ${sum.toFixed(3)} vs limit 1.5`);
+    expect(c.detail).toContain("≤ 1.5");
+    expect(c.dcr).toBeCloseTo(sum / 1.5, 9);
+  });
+});

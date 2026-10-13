@@ -144,3 +144,42 @@ describe("column simple report with design add-ons", () => {
     expect(doc.getPageCount()).toBeLessThanOrEqual(2);
   });
 });
+
+describe("materials as the single source and report summary", () => {
+  it("shows Vux / Vuy and the materials bar and tie fields without shear design", () => {
+    const html = renderToStaticMarkup(
+      <RectangularColumnWorkspace cloudReady={false} onSaved={() => {}} />,
+    );
+    expect(html).toContain("Vux (kN)");
+    expect(html).toContain("Vuy (kN)");
+    expect(html).toContain("Main bar size");
+    expect(html).toContain("Tie steel grade (fyt)");
+    expect(html).toContain("from Section &amp; Materials");
+    expect(html).not.toContain("position: sticky");
+  });
+  it("prints one biaxial row (3D) in the summary and a tie section within lo", () => {
+    const result = analyzeRectangularColumn(input);
+    const design = designColumnTransverse(input, tie);
+    const data = columnReportData(
+      undefined,
+      "C-03",
+      input,
+      result,
+      { ...defaultColumnQuantity(), enabled: false },
+      defaultDesignCheckPolicy,
+      {},
+      tie,
+      design,
+    );
+    const summaryRows = data.summary.flatMap((s) =>
+      s.rows.map((r) => String(r[0])),
+    );
+    expect(summaryRows.some((r) => r.includes("Biaxial 3D"))).toBe(true);
+    expect(summaryRows.some((r) => r.includes("Bresler"))).toBe(false);
+    expect(data.checks.rows.some((r) => String(r[0]).includes("Bresler"))).toBe(
+      true,
+    );
+    const lo = data.figures.find((f) => f.title === "Tie Section Within lo")!;
+    expect(lo.svg).toContain(`Within lo = ${design.adopted.lo} mm`);
+  });
+});

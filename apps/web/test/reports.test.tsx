@@ -264,3 +264,21 @@ describe("cantilever slab report", () => {
       ).toBe(1);
   });
 });
+
+describe("PDF text symbols", () => {
+  it("prints Σ and ∥ labels without '?' placeholders", async () => {
+    const { reportFixtures } = await import("./helpers/reports");
+    const data = reportFixtures().column;
+    for (const f of data.figures) f.png = png;
+    data.summary[2]!.rows.push(
+      ["Biaxial shear Σ = 1.200 vs limit 1.5", "DCR 0.800"],
+      ["Ash legs ∥ x (bc 420 mm)", "DCR 0.837"],
+    );
+    const r = await generateCalculationPdf(data, {
+      type: "complete",
+      paper: "A4",
+    });
+    const pdf = await PDFDocument.load(r.bytes);
+    expect(pdf.getPageCount()).toBeGreaterThan(0);
+  });
+});

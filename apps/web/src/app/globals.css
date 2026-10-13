@@ -1826,10 +1826,7 @@ select {
 }
 .slabGrid {
   display: grid;
-  grid-template-columns: minmax(330px, 0.9fr) minmax(460px, 1.8fr) minmax(
-      210px,
-      0.65fr
-    );
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.8fr) minmax(0, 0.65fr);
   gap: 14px;
   align-items: start;
 }
@@ -2568,9 +2565,7 @@ select {
 }
 
 .activeProjectHeader {
-  position: sticky;
-  top: 0;
-  z-index: 25;
+  position: static;
   background: #f5fafc;
   border: 1px solid #cbdbe4;
   border-left: 5px solid #176b80;
@@ -2786,4 +2781,39 @@ select {
   border: 1px solid #e8c77a;
   border-radius: 4px;
   padding: 1px 5px;
+}
+
+
+/* Compact inputs: fields keep a sensible width instead of stretching. */
+.rcFields {
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+}
+.rcFields input:not([type="checkbox"]),
+.rcFields select {
+  max-width: 260px;
+}
+.rcWorkspace table.rcInputTable,
+.cqPanel table {
+  width: auto;
+  max-width: 100%;
+}
+.rcWorkspace td input:not([type="checkbox"]),
+.rcWorkspace td select {
+  width: 7.5em;
+  min-width: 0;
+}
+.rcWorkspace td:nth-child(3) input[type="text"],
+.rcWorkspace td:nth-child(3) input:not([type]) {
+  width: 14em;
+  min-width: 0;
+}
+.rcWorkspace td .rebarSelect select {
+  width: auto;
+}
+.slabNumeric input,
+.slabWorkspace select {
+  max-width: 220px;
+}
+.slabNumeric {
+  max-width: 260px;
 }

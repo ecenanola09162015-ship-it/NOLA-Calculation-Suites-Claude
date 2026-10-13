@@ -107,10 +107,12 @@ export function RebarSizeSelect({
           const out = s.calcDiameter < min || s.calcDiameter > max;
           return (
             <option key={s.label} value={s.label} disabled={out}>
-              {standard === "ASTM"
-                ? `${s.label} (${s.nominal} mm, ${s.area} mm²)`
-                : `${s.label} (${s.nominal} mm)`}
-              {out ? " — not supported here" : ""}
+              {!label
+                ? s.label
+                : standard === "ASTM"
+                  ? `${s.label} (${s.nominal} mm, ${s.area} mm²)`
+                  : `${s.label} (${s.nominal} mm)`}
+              {out ? (label ? " — not supported here" : " (n/a)") : ""}
             </option>
           );
         })}
@@ -179,10 +181,11 @@ export function RebarGradeSelect({
           const out = g.fy > maxFy;
           return (
             <option key={g.id} value={g.id} disabled={out}>
-              {g.label} · fy {g.fy}
-              {g.fyMax ? ` (max ${g.fyMax})` : ""}
-              {g.weldable ? " · weldable" : ""}
-              {out ? " — not supported here" : ""}
+              {g.label}
+              {label ? ` · fy ${g.fy}` : ""}
+              {label && g.fyMax ? ` (max ${g.fyMax})` : ""}
+              {label && g.weldable ? " · weldable" : ""}
+              {out ? (label ? " — not supported here" : " (n/a)") : ""}
             </option>
           );
         })}
