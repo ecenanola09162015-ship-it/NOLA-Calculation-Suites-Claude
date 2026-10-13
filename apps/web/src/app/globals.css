@@ -2935,3 +2935,25 @@ select {
   margin: 0;
   flex: 1 1 240px;
 }
+.duplicatePrompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid #d99a00;
+  border-left-width: 4px;
+  border-radius: 5px;
+  background: #fff7e0;
+  color: #5c4100;
+  font-size: 13px;
+}
+.duplicatePrompt p {
+  margin: 0;
+  flex: 1 1 100%;
+}
+.duplicatePrompt .dangerAction {
+  background: #b3261e;
+  border-color: #b3261e;
+}

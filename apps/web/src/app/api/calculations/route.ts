@@ -12,7 +12,7 @@ import {
   defaultDesignCheckPolicy,
 } from "@nola/calc-core";
 import { isDatabaseConfigured } from "@/lib/env";
-import { saveCalculationDraft } from "@/lib/projects";
+import { DuplicateNameError, saveCalculationDraft } from "@/lib/projects";
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export async function POST(request: Request) {
   const { userId } = await auth();
@@ -60,6 +60,7 @@ export async function POST(request: Request) {
     typeof body.title !== "string" ||
     !body.title.trim() ||
     body.title.length > 100 ||
+    (body.overwrite !== undefined && typeof body.overwrite !== "boolean") ||
     !body.payload
   )
     return NextResponse.json(
@@ -125,9 +126,25 @@ export async function POST(request: Request) {
       moduleSlug: body.moduleSlug,
       title: body.title.trim(),
       payload: body.payload,
+      overwrite: body.overwrite === true,
     });
     return NextResponse.json({ draft }, { status: body.id ? 200 : 201 });
   } catch (error) {
+    // Same title in this project and module: the client asks the user to
+    // overwrite, save under the suggested name, or cancel.
+    if (error instanceof DuplicateNameError)
+      return NextResponse.json(
+        {
+          error: error.message,
+          duplicate: {
+            id: error.existing.id,
+            title: error.existing.name,
+            updatedAt: error.existing.updatedAt,
+            suggestion: error.suggestion,
+          },
+        },
+        { status: 409 },
+      );
     if (error instanceof Error && /not found|this account/.test(error.message))
       return NextResponse.json(
         { error: "Project or calculation is unavailable for this account." },
