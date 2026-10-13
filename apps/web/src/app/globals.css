@@ -3098,3 +3098,65 @@ label.isOverride input {
     color: #475467;
   }
 }
+
+/* Materials: diameter (left) paired with its steel grade (right). */
+.rcFields.rcSteelPairs {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0;
+}
+@media (max-width: 560px) {
+  .rcFields.rcSteelPairs {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.rcCalculateBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #dbe5eb;
+}
+
+/* Tickable engineering-judgment reasons (amber checks). */
+.judgmentReasons {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid #d99a00;
+  border-left-width: 4px;
+  border-radius: 6px;
+  background: #fffaf0;
+  min-width: 0;
+}
+.judgmentReasons.isDone {
+  border-color: #9cc7cb;
+  background: #f6fbfb;
+}
+.judgmentReasons legend {
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.judgmentReasons .judgmentGroup {
+  font-weight: 500;
+  color: #597384;
+}
+.judgmentReasons .rcCheckbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 6px 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+.judgmentReasons .rcCheckbox span {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.judgmentReasons textarea {
+  width: 100%;
+  min-height: 60px;
+  box-sizing: border-box;
+}

@@ -47,6 +47,8 @@ export const columnTieDesignSchema = z.object({
     midInteriorX: finite.int().min(0).max(14).nullable().optional(),
     midInteriorY: finite.int().min(0).max(14).nullable().optional(),
     gradeId: z.string().max(20).nullable().optional(),
+    /** Hook basis shared with the estimate (see columnHookGeometry). */
+    hookBasis: z.enum(["allowance8db", "aci135", "aci14x90"]).optional(),
   }),
   override: z.object({
     lo: nullablePositive,
@@ -349,6 +351,8 @@ export interface TransverseResult {
     dcr: number | null;
     detail: string;
     clause: string;
+    /** Shown instead of a number when dcr is not finite. */
+    invalidLabel?: string;
   }[];
   notes: string[];
 }
@@ -782,7 +786,25 @@ export function designColumnTransverse(
         dcr: layout.supported.every(Boolean) ? 0 : Infinity,
         detail: `${layout.nl} of ${input.bars.length} bars supported`,
         clause: "ACI 318-19 18.7.5.2(f)",
+        invalidLabel: "Not Satisfied",
       });
+    // ACI 318-19 18.7.5.2(f): with high axial load every perimeter bar is
+    // supported by a hoop corner or a seismic hook, so crossties need 135°
+    // hooks at both ends. ACI 318-14 / NSCP 2015 has no such clause.
+    if (highAxial && t.tie.hookBasis === "aci14x90")
+      checks.push({
+        id: "smf:crosstie-hooks",
+        label: "135° + 90° crossties not permitted",
+        dcr: Infinity,
+        invalidLabel: "Not Permitted",
+        detail:
+          "Pu > 0.3Ag f′c or f′c > 70 MPa:\nACI 318-19 18.7.5.2(f) requires seismic (135°) hooks at both ends of every crosstie.\nSelect the ACI 318-19 · 135° both ends hook basis in the estimate.",
+        clause: "ACI 318-19 18.7.5.2(f)",
+      });
+    else if (t.tie.hookBasis === "aci14x90")
+      notes.push(
+        "Crossties 135° + 90° per ACI 318-14 / NSCP 2015 crosstie definition (Ch. 2 / 402); 90° ends alternate end for end on consecutive crossties (18.7.5.2(c) / 418.7.5.2(c)). Consistent with the ACI 318-19 crosstie definition; 18.7.5.2(f) does not apply (Pu ≤ 0.3Ag f′c, f′c ≤ 70 MPa).",
+      );
     checks.push({
       id: "smf:geometry",
       label: "SMF section geometry",

@@ -1,4 +1,12 @@
 "use client";
+import { useState } from "react";
+import {
+  composeRemark,
+  GROUP_LABEL,
+  parseRemark,
+  reasonGroup,
+  reasonsFor,
+} from "../lib/judgment-reasons";
 import {
   designCheckStatus,
   type DesignCheck,
@@ -34,6 +42,7 @@ export function DesignReviewPanel({
   primaryPrefixes,
   title = "DCR-Based Design Checks",
   compact = false,
+  module = "column",
 }: {
   checks: DesignCheck[];
   policy: DesignCheckPolicy;
@@ -44,6 +53,8 @@ export function DesignReviewPanel({
   title?: string;
   /** Panel use (05/06): omit the workflow note and policy footer. */
   compact?: boolean;
+  /** Picks the tickable reason list. */
+  module?: "column" | "slab";
 }) {
   const isPrimary = (c: DesignCheck) =>
     !primaryPrefixes || primaryPrefixes.some((p) => c.id.startsWith(p));
@@ -85,20 +96,23 @@ export function DesignReviewPanel({
       {active.length ? (
         <div className="judgmentRemarks">
           <h3>Engineering Judgment Remarks</h3>
-          <p>Record A Reason For Each Amber Check Before Saving.</p>
+          <p>
+            Tick At Least One Reason (Or Write One Under “Other”) For Each Amber
+            Check Before Saving.
+          </p>
           {active.map((c) => (
-            <label key={c.id}>
-              {c.label}
-              <textarea
-                aria-label={`${c.label} Remarks`}
-                maxLength={2000}
-                required
-                value={remarks[c.id] ?? ""}
-                onChange={(e) =>
-                  onChange({ ...remarks, [c.id]: e.target.value })
-                }
-              />
-            </label>
+            <JudgmentReasons
+              key={c.id}
+              check={c}
+              module={module}
+              remarks={remarks}
+              onChange={onChange}
+              siblings={active.filter(
+                (o) =>
+                  o.id !== c.id &&
+                  reasonGroup(o.id, module) === reasonGroup(c.id, module),
+              )}
+            />
           ))}
         </div>
       ) : null}
@@ -177,5 +191,94 @@ function ReviewTable({
         </tbody>
       </table>
     </div>
+  );
+}
+
+/**
+ * Tickable reasons for one amber check. "Other" reveals a note box. The
+ * selection is stored as the remark text (see lib/judgment-reasons).
+ */
+function JudgmentReasons({
+  check,
+  module,
+  remarks,
+  onChange,
+  siblings,
+}: {
+  check: DesignCheck;
+  module: "column" | "slab";
+  remarks: DesignRemarks;
+  onChange: (r: DesignRemarks) => void;
+  /** Other amber checks of the same group (for "apply to all"). */
+  siblings: DesignCheck[];
+}) {
+  const group = reasonGroup(check.id, module);
+  const options = reasonsFor(group);
+  const { ticked, note } = parseRemark(remarks[check.id], options);
+  const [otherOpen, setOtherOpen] = useState(false);
+  const other = otherOpen || !!note;
+  const set = (nextTicked: string[], nextNote: string) =>
+    onChange({ ...remarks, [check.id]: composeRemark(nextTicked, nextNote) });
+  const done = !!(remarks[check.id] ?? "").trim();
+  return (
+    <fieldset className={`judgmentReasons ${done ? "isDone" : ""}`}>
+      <legend>
+        {check.label}
+        <span className="judgmentGroup"> · {GROUP_LABEL[group]}</span>
+      </legend>
+      {options.map((o) => (
+        <label key={o} className="rcCheckbox">
+          <input
+            type="checkbox"
+            checked={ticked.includes(o)}
+            onChange={(e) =>
+              set(
+                e.target.checked
+                  ? options.filter((x) => x === o || ticked.includes(x))
+                  : ticked.filter((x) => x !== o),
+                note,
+              )
+            }
+          />
+          <span>{o}</span>
+        </label>
+      ))}
+      <label className="rcCheckbox">
+        <input
+          type="checkbox"
+          checked={other}
+          onChange={(e) => {
+            setOtherOpen(e.target.checked);
+            if (!e.target.checked) set(ticked, "");
+          }}
+        />
+        <span>Other (write a reason)</span>
+      </label>
+      {other ? (
+        <textarea
+          aria-label={`${check.label} Other Reason`}
+          maxLength={2000}
+          value={note}
+          onChange={(e) => set(ticked, e.target.value)}
+        />
+      ) : null}
+      {siblings.length && done ? (
+        <button
+          type="button"
+          className="linkButton"
+          onClick={() =>
+            onChange({
+              ...remarks,
+              ...Object.fromEntries(
+                siblings.map((s) => [s.id, remarks[check.id]!]),
+              ),
+            })
+          }
+        >
+          Apply these reasons to all {siblings.length + 1} amber{" "}
+          {GROUP_LABEL[group].toLowerCase()} checks
+        </button>
+      ) : null}
+    </fieldset>
   );
 }

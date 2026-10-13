@@ -148,6 +148,9 @@ export function ColumnQuantityPanel({
                 }
               >
                 <option value="aci135">ACI 318-19 · 135° both ends</option>
+                <option value="aci14x90">
+                  ACI 318-14 / NSCP 2015 · crossties 135° + 90° (alternated)
+                </option>
                 <option value="allowance8db">
                   Designer allowance · 8db each end
                 </option>

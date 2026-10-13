@@ -997,7 +997,7 @@ export function ColumnConfinementPanel(props: Props) {
                   <ColumnTieSection
                     section={input}
                     zone={designZone(value, design)}
-                    basis="aci135"
+                    basis={value.tie.hookBasis ?? "aci135"}
                     color="#b45309"
                   />
                 </figure>
@@ -1018,7 +1018,7 @@ export function ColumnConfinementPanel(props: Props) {
                     <ColumnTieSection
                       section={input}
                       zone={designZone(value, design, "mid")}
-                      basis="aci135"
+                      basis={value.tie.hookBasis ?? "aci135"}
                       color="#007f86"
                     />
                   </figure>
