@@ -6,14 +6,18 @@ import type {
   TransverseResult,
 } from "@nola/calc-core";
 import { ColumnTieSection } from "./column-tie-section";
-import { DesignStatus } from "./design-review-panel";
+import { DesignReviewPanel, DesignStatus } from "./design-review-panel";
 import { NumberField, fmt } from "./column-ui";
 import {
   rebarDesignation,
   rebarGradeLabel,
   type RebarStandard,
 } from "@nola/calc-core";
-import type { DesignCheckPolicy } from "@nola/calc-core";
+import {
+  columnTransverseChecks,
+  type DesignCheckPolicy,
+  type DesignRemarks,
+} from "@nola/calc-core";
 
 type Props = {
   input: RectangularColumnInput;
@@ -22,6 +26,8 @@ type Props = {
   design: TransverseResult | null;
   error: string;
   policy: DesignCheckPolicy;
+  remarks: DesignRemarks;
+  onRemarksChange: (next: DesignRemarks) => void;
 };
 
 /** Zone-like object so the estimate's section drawing can be reused. */
@@ -330,42 +336,12 @@ function ElevationFigure({
   );
 }
 
-function ChecksTable({
-  rows,
-  policy,
-}: {
-  rows: TransverseResult["checks"];
-  policy: DesignCheckPolicy;
-}) {
-  return (
-    <div className="rcTableWrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Check</th>
-            <th>Detail</th>
-            <th>Reference</th>
-            <th>DCR</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((c) => (
-            <tr key={c.id}>
-              <th scope="row">{c.label}</th>
-              <td>{c.detail}</td>
-              <td className="designClause">{c.clause}</td>
-              <td>{fmt(c.dcr, 3)}</td>
-              <td>
-                <DesignStatus dcr={c.dcr} policy={policy} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
+/** Panel 05 rows: shear strength, section limit, Av,min, spacing (22.5, 10.6, 10.7). */
+export const shearReviewChecks = (design: TransverseResult | null) =>
+  columnTransverseChecks(design).filter((c) => c.id.startsWith("tie:shear"));
+/** Panel 06 rows: Ash, hx, so, lo, SCWB, Ve, weldability (Chapter 18, 25.7). */
+export const confinementReviewChecks = (design: TransverseResult | null) =>
+  columnTransverseChecks(design).filter((c) => !c.id.startsWith("tie:shear"));
 
 type OverrideKey = keyof ColumnTieDesignInput["override"];
 /** Spacing / lo / Ve overrides shared by panels 05 and 06 (one set of values). */
@@ -460,7 +436,7 @@ function SpacingOverrides({
       </div>
       <p className="rcMuted">
         Blank uses the recommended value (rounded down to 25 mm for spacing).
-        Overrides are re-checked immediately here and in the Design Review.
+        Overrides are re-checked immediately in this panel’s checks.
       </p>
     </div>
   );
@@ -469,7 +445,7 @@ function SpacingOverrides({
 export function ColumnShearPanel(props: Props) {
   const { input, value, onChange, design, error, policy } = props;
   const on = value.shear.enabled;
-  const rows = design?.checks.filter((c) => c.id.startsWith("shear")) ?? [];
+  const rows = shearReviewChecks(design);
   return (
     <section className={`rcPanel cqPanel ${on ? "" : "cqDisabled"}`}>
       <h2>05 · Shear Design</h2>
@@ -516,7 +492,14 @@ export function ColumnShearPanel(props: Props) {
                   <ShearDirectionFigure input={input} design={design} dir="x" />
                 </figure>
               </div>
-              <ChecksTable rows={rows} policy={policy} />
+              <DesignReviewPanel
+                title="Shear Checks"
+                compact
+                checks={rows}
+                policy={policy}
+                remarks={props.remarks}
+                onChange={props.onRemarksChange}
+              />
               <details>
                 <summary>All combinations · {design.shear.length} rows</summary>
                 <div className="rcTableWrap">
@@ -587,7 +570,7 @@ export function ColumnConfinementPanel(props: Props) {
   const c = value.confinement;
   const set = (next: Partial<ColumnTieDesignInput["confinement"]>) =>
     onChange({ ...value, confinement: { ...c, ...next } });
-  const rows = design?.checks.filter((x) => !x.id.startsWith("shear")) ?? [];
+  const rows = confinementReviewChecks(design);
   return (
     <section className={`rcPanel cqPanel ${on ? "" : "cqDisabled"}`}>
       <h2>06 · Seismic Confinement Design</h2>
@@ -761,7 +744,14 @@ export function ColumnConfinementPanel(props: Props) {
                   </table>
                 </div>
               ) : null}
-              <ChecksTable rows={rows} policy={policy} />
+              <DesignReviewPanel
+                title="Confinement & Detailing Checks"
+                compact
+                checks={rows}
+                policy={policy}
+                remarks={props.remarks}
+                onChange={props.onRemarksChange}
+              />
               {design.notes.length ? (
                 <ul className="rcMuted">
                   {design.notes.map((n) => (
@@ -782,7 +772,12 @@ export function ColumnTieDesignSummary({
   design,
   quantity,
   onAdopt,
+  groups = [],
+  policy,
 }: {
+  /** Governing DCR per review group (flexure / shear / confinement). */
+  groups?: { label: string; panel: string; dcr: number | null }[];
+  policy?: DesignCheckPolicy;
   value: ColumnTieDesignInput;
   /** Kept for API compatibility; overrides are edited in panels 05/06. */
   onChange?: (next: ColumnTieDesignInput) => void;
@@ -806,7 +801,33 @@ export function ColumnTieDesignSummary({
     }));
   return (
     <section className="rcPanel">
-      <h2>07 · Adopted Transverse Design</h2>
+      <h2>07 · Design Summary &amp; Adopted Transverse Design</h2>
+      {groups.length && policy ? (
+        <div className="rcTableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Check group</th>
+                <th>Reviewed in</th>
+                <th>Governing DCR</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {groups.map((g) => (
+                <tr key={g.label}>
+                  <th scope="row">{g.label}</th>
+                  <td>{g.panel}</td>
+                  <td>{fmt(g.dcr, 3)}</td>
+                  <td>
+                    <DesignStatus dcr={g.dcr} policy={policy} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
       <div className="rcTableWrap">
         <table>
           <thead>
