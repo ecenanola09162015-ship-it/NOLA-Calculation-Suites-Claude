@@ -168,6 +168,8 @@ describe("column quantity estimate", () => {
       angle: 135,
       extension: 76.2,
       insideBend: 40,
+      crossTieEnds: [76.2, 76.2],
+      crossTieSecondAngle: 135,
     });
     expect(columnHookGeometry(16, "aci135").extension).toBe(96);
     expect(columnHookGeometry(20, "aci135").insideBend).toBe(120);

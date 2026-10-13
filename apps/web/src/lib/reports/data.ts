@@ -1,5 +1,6 @@
 import { OVERRIDE_COLOR } from "../override-style";
 import {
+  columnHookBasisLabel,
   rebarDesignation,
   rebarGradeLabel,
   columnDesignChecks,
@@ -470,6 +471,15 @@ export function columnReportData(
       [
         "Longitudinal / Shear Weight",
         `${f(q.longitudinalPercent)}% / ${f(q.shearPercent)}%`,
+      ],
+      [
+        "Hook Basis",
+        columnHookBasisLabel[quantity.hookBasis] +
+          (quantity.hookBasis === "aci14x90"
+            ? " — crosstie 135° max(6db, 75) + 90° 6db; 90° ends alternated (ACI 318-14 / NSCP 2015 Ch. 2 / 402, 18.7.5.2(c) / 418.7.5.2(c), 25.3.4 / 425.3.4)"
+            : quantity.hookBasis === "aci135"
+              ? " — max(6db, 75) each end (ACI 318-19 25.3.4)"
+              : ""),
       ],
     ]);
     extra.push(

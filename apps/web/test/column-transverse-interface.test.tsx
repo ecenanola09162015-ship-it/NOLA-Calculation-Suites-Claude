@@ -225,7 +225,7 @@ describe("materials as the single source and report summary", () => {
     );
     expect(html).toContain("Vux (kN)");
     expect(html).toContain("Vuy (kN)");
-    expect(html).toContain("Main bar size");
+    expect(html).toContain("Longitudinal Bar Diameter");
     expect(html).toContain("Tie steel grade (fyt)");
     expect(html).toContain("from Section &amp; Materials");
     expect(html).not.toContain("position: sticky");

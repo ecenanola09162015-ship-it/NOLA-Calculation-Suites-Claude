@@ -49,7 +49,7 @@ export interface RectangularColumnInput {
   rebarStandard?: RebarStandard;
   /** Longitudinal bar grade id from the catalogue; null = custom fy. */
   gradeId?: string | null;
-  /** Main bar size from Materials (generator default), mm. */
+  /** Longitudinal bar diameter from Materials (generator default), mm. */
   barDiameter?: number;
   /** Tie steel from Materials, adopted by shear/confinement and the estimate. */
   tieFyt?: number;

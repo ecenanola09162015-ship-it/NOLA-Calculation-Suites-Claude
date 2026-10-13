@@ -50,6 +50,8 @@ import {
   ColumnSlendernessInputs,
   ColumnSlendernessResults,
 } from "./column-slenderness-panel";
+/** New calculations start with Vux = Vuy = 400 kN (user decision); imports stay as pasted. */
+export const DEFAULT_SHEAR = 400;
 const initial: RectangularColumnInput = {
   code: "ACI 318-19",
   width: 600,
@@ -80,6 +82,8 @@ const initial: RectangularColumnInput = {
       pu: 2400,
       mx: 150,
       my: 80,
+      vx: DEFAULT_SHEAR,
+      vy: DEFAULT_SHEAR,
       included: true,
     },
     {
@@ -88,6 +92,8 @@ const initial: RectangularColumnInput = {
       pu: 3200,
       mx: 200,
       my: 120,
+      vx: DEFAULT_SHEAR,
+      vy: DEFAULT_SHEAR,
       included: true,
     },
     {
@@ -96,6 +102,8 @@ const initial: RectangularColumnInput = {
       pu: 2800,
       mx: -180,
       my: 100,
+      vx: DEFAULT_SHEAR,
+      vy: DEFAULT_SHEAR,
       included: true,
     },
     {
@@ -104,6 +112,8 @@ const initial: RectangularColumnInput = {
       pu: 3000,
       mx: 100,
       my: 180,
+      vx: DEFAULT_SHEAR,
+      vy: DEFAULT_SHEAR,
       included: true,
     },
     {
@@ -112,6 +122,8 @@ const initial: RectangularColumnInput = {
       pu: 3000,
       mx: -120,
       my: -150,
+      vx: DEFAULT_SHEAR,
+      vy: DEFAULT_SHEAR,
       included: true,
     },
   ],
@@ -186,7 +198,7 @@ export function RectangularColumnWorkspace({
   const [nX, setNX] = useState(4),
     [nY, setNY] = useState(4);
   const standard = input.rebarStandard ?? "PNS49";
-  // Main bar size: Materials value, else the most common bar in the layout.
+  // Longitudinal bar diameter: Materials value, else the most common bar in the layout.
   const diameter =
     input.barDiameter ??
     (() => {
@@ -209,6 +221,8 @@ export function RectangularColumnWorkspace({
       diameter: tieSteel.diameter,
       fyt: tieSteel.fy,
       gradeId: tieSteel.gradeId ?? null,
+      // One hook basis for the estimate, drawings and the 18.7.5.2(f) check.
+      hookBasis: quantity.hookBasis,
     },
   };
   function changeQuantity(next: ColumnQuantityInput, tie = tieSteel) {
@@ -318,7 +332,8 @@ export function RectangularColumnWorkspace({
         });
     update({ ...input, bars });
   }
-  function calculate() {
+  /** fromBottom: the button under the load table scrolls to the results. */
+  function calculate(fromBottom = false) {
     setMessage("");
     try {
       if (!scope)
@@ -343,6 +358,12 @@ export function RectangularColumnWorkspace({
         );
       const next = analyzeRectangularColumn(parsed.data.input);
       setResult(next);
+      if (fromBottom)
+        requestAnimationFrame(() =>
+          document
+            .getElementById("column-results")
+            ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+        );
       setSelected(next.governing?.load.id ?? "");
       setMessage(
         "Development calculation updated. Review all warnings before using these results.",
@@ -507,7 +528,7 @@ export function RectangularColumnWorkspace({
         >
           {busy ? "Saving…" : "Save to project"}
         </button>
-        <button className="suitePrimary" onClick={calculate}>
+        <button className="suitePrimary" onClick={() => calculate()}>
           Calculate section
         </button>
         <ReportExportControls
@@ -594,16 +615,11 @@ export function RectangularColumnWorkspace({
                 onChange={(value) => update({ ...input, [key]: value })}
               />
             ))}
-            <RebarGradeSelect
-              label="Longitudinal steel grade (fy)"
-              standard={standard}
-              fy={input.fy}
-              gradeId={input.gradeId}
-              maxFy={550}
-              onChange={(fy, gradeId) => update({ ...input, fy, gradeId })}
-            />
+          </div>
+          {/* Diameters on the left, their steel grade on the right. */}
+          <div className="rcFields rcSteelPairs">
             <RebarSizeSelect
-              label="Main bar size"
+              label="Longitudinal Bar Diameter"
               standard={standard}
               value={diameter}
               onChange={(d) =>
@@ -617,8 +633,16 @@ export function RectangularColumnWorkspace({
                 })
               }
             />
+            <RebarGradeSelect
+              label="Longitudinal steel grade (fy)"
+              standard={standard}
+              fy={input.fy}
+              gradeId={input.gradeId}
+              maxFy={550}
+              onChange={(fy, gradeId) => update({ ...input, fy, gradeId })}
+            />
             <RebarSizeSelect
-              label="Tie diameter"
+              label="Tie Diameter"
               standard={standard}
               value={input.tieDiameter}
               min={6}
@@ -801,6 +825,8 @@ export function RectangularColumnWorkspace({
                     pu: 0,
                     mx: 0,
                     my: 0,
+                    vx: DEFAULT_SHEAR,
+                    vy: DEFAULT_SHEAR,
                     included: true,
                   },
                 ],
@@ -1002,10 +1028,23 @@ export function RectangularColumnWorkspace({
           change only when you choose Replace or Append. File upload (.xlsx) is
           not included in this build.
         </p>
+        <div className="rcCalculateBar">
+          <button
+            className="suitePrimary"
+            onClick={() => calculate(true)}
+          >
+            Calculate section
+          </button>
+          <span className="rcMuted">
+            {!scope
+              ? "Tick the demand confirmation in panel 01 before calculating."
+              : "Results clear whenever an input changes."}
+          </span>
+        </div>
       </section>
       <ColumnSlendernessInputs input={input} onChange={update} />
       {result ? (
-        <section className="rcResults">
+        <section className="rcResults" id="column-results">
           <div className="rcReportHeader">
             <p>ÑOLA Calculation Suites · RC column · Development report v0.1</p>
             <h2>{title}</h2>
