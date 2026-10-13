@@ -6,14 +6,18 @@ import type {
   TransverseResult,
 } from "@nola/calc-core";
 import { ColumnTieSection } from "./column-tie-section";
-import { DesignStatus } from "./design-review-panel";
+import { DesignReviewPanel, DesignStatus } from "./design-review-panel";
 import { NumberField, fmt } from "./column-ui";
 import {
   rebarDesignation,
   rebarGradeLabel,
   type RebarStandard,
 } from "@nola/calc-core";
-import type { DesignCheckPolicy } from "@nola/calc-core";
+import {
+  columnTransverseChecks,
+  type DesignCheckPolicy,
+  type DesignRemarks,
+} from "@nola/calc-core";
 
 type Props = {
   input: RectangularColumnInput;
@@ -22,6 +26,8 @@ type Props = {
   design: TransverseResult | null;
   error: string;
   policy: DesignCheckPolicy;
+  remarks: DesignRemarks;
+  onRemarksChange: (next: DesignRemarks) => void;
 };
 
 /** Zone-like object so the estimate's section drawing can be reused. */
@@ -330,39 +336,108 @@ function ElevationFigure({
   );
 }
 
-function ChecksTable({
-  rows,
-  policy,
+/** Panel 05 rows: shear strength, section limit, Av,min, spacing (22.5, 10.6, 10.7). */
+export const shearReviewChecks = (design: TransverseResult | null) =>
+  columnTransverseChecks(design).filter((c) => c.id.startsWith("tie:shear"));
+/** Panel 06 rows: Ash, hx, so, lo, SCWB, Ve, weldability (Chapter 18, 25.7). */
+export const confinementReviewChecks = (design: TransverseResult | null) =>
+  columnTransverseChecks(design).filter((c) => !c.id.startsWith("tie:shear"));
+
+type OverrideKey = keyof ColumnTieDesignInput["override"];
+/** Spacing / lo / Ve overrides shared by panels 05 and 06 (one set of values). */
+function SpacingOverrides({
+  value,
+  onChange,
+  design,
+  keys,
 }: {
-  rows: TransverseResult["checks"];
-  policy: DesignCheckPolicy;
+  value: ColumnTieDesignInput;
+  onChange: (next: ColumnTieDesignInput) => void;
+  design: TransverseResult;
+  keys: OverrideKey[];
 }) {
+  const o = value.override;
+  const set = (k: OverrideKey, v: number) =>
+    onChange({
+      ...value,
+      override: { ...o, [k]: Number.isFinite(v) && v > 0 ? v : null },
+    });
+  const lu = value.confinement.clearHeight;
+  const field: Record<
+    OverrideKey,
+    { show: boolean; label: string; unit: string; rec: number }
+  > = {
+    lo: {
+      show: design.seismic,
+      label: "Confinement length lo",
+      unit: "mm",
+      rec: design.recommended.lo,
+    },
+    sEnd: {
+      show: design.seismic,
+      label: "Tie spacing in lo",
+      unit: "mm",
+      rec: design.recommended.sEnd,
+    },
+    sMid: {
+      show: true,
+      label: design.seismic ? "Tie spacing outside lo" : "Tie spacing",
+      unit: "mm",
+      rec: design.recommended.sMid,
+    },
+    veX: {
+      show: design.seismic,
+      label: "Design shear Ve x",
+      unit: "kN",
+      rec: +((2 * design.ve.mprY * 1000) / lu).toFixed(1),
+    },
+    veY: {
+      show: design.seismic,
+      label: "Design shear Ve y",
+      unit: "kN",
+      rec: +((2 * design.ve.mprX * 1000) / lu).toFixed(1),
+    },
+  };
+  const shown = keys.filter((k) => field[k].show);
+  if (!shown.length) return null;
   return (
-    <div className="rcTableWrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Check</th>
-            <th>Detail</th>
-            <th>Reference</th>
-            <th>DCR</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((c) => (
-            <tr key={c.id}>
-              <th scope="row">{c.label}</th>
-              <td>{c.detail}</td>
-              <td className="designClause">{c.clause}</td>
-              <td>{fmt(c.dcr, 3)}</td>
-              <td>
-                <DesignStatus dcr={c.dcr} policy={policy} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="spacingOverrides">
+      <div className="rcFields">
+        {shown.map((k) => (
+          <label key={k}>
+            {field[k].label}
+            <span className="rcUnit">{field[k].unit}</span>
+            <span className="rebarCustom">
+              <input
+                type="number"
+                step="any"
+                aria-label={`${field[k].label} override`}
+                placeholder={`${field[k].rec} (recommended)`}
+                value={o[k] ?? ""}
+                onChange={(e) =>
+                  set(k, e.target.value === "" ? NaN : Number(e.target.value))
+                }
+              />
+              {o[k] !== null ? (
+                <>
+                  <em className="customBadge">Override</em>
+                  <button
+                    type="button"
+                    className="linkButton"
+                    onClick={() => set(k, NaN)}
+                  >
+                    Use {field[k].rec}
+                  </button>
+                </>
+              ) : null}
+            </span>
+          </label>
+        ))}
+      </div>
+      <p className="rcMuted">
+        Blank uses the recommended value (rounded down to 25 mm for spacing).
+        Overrides are re-checked immediately in this panel’s checks.
+      </p>
     </div>
   );
 }
@@ -370,7 +445,7 @@ function ChecksTable({
 export function ColumnShearPanel(props: Props) {
   const { input, value, onChange, design, error, policy } = props;
   const on = value.shear.enabled;
-  const rows = design?.checks.filter((c) => c.id.startsWith("shear")) ?? [];
+  const rows = shearReviewChecks(design);
   return (
     <section className={`rcPanel cqPanel ${on ? "" : "cqDisabled"}`}>
       <h2>05 · Shear Design</h2>
@@ -398,6 +473,14 @@ export function ColumnShearPanel(props: Props) {
           />
           {error ? <p className="rcAlert">{error}</p> : null}
           {design ? (
+            <SpacingOverrides
+              value={value}
+              onChange={onChange}
+              design={design}
+              keys={["sEnd", "sMid"]}
+            />
+          ) : null}
+          {design ? (
             <>
               <div className="cqDrawings">
                 <figure>
@@ -409,7 +492,14 @@ export function ColumnShearPanel(props: Props) {
                   <ShearDirectionFigure input={input} design={design} dir="x" />
                 </figure>
               </div>
-              <ChecksTable rows={rows} policy={policy} />
+              <DesignReviewPanel
+                title="Shear Checks"
+                compact
+                checks={rows}
+                policy={policy}
+                remarks={props.remarks}
+                onChange={props.onRemarksChange}
+              />
               <details>
                 <summary>All combinations · {design.shear.length} rows</summary>
                 <div className="rcTableWrap">
@@ -480,7 +570,7 @@ export function ColumnConfinementPanel(props: Props) {
   const c = value.confinement;
   const set = (next: Partial<ColumnTieDesignInput["confinement"]>) =>
     onChange({ ...value, confinement: { ...c, ...next } });
-  const rows = design?.checks.filter((x) => !x.id.startsWith("shear")) ?? [];
+  const rows = confinementReviewChecks(design);
   return (
     <section className={`rcPanel cqPanel ${on ? "" : "cqDisabled"}`}>
       <h2>06 · Seismic Confinement Design</h2>
@@ -571,6 +661,14 @@ export function ColumnConfinementPanel(props: Props) {
           )}
           {error ? <p className="rcAlert">{error}</p> : null}
           {design ? (
+            <SpacingOverrides
+              value={value}
+              onChange={onChange}
+              design={design}
+              keys={["lo", "sEnd", "sMid", "veX", "veY"]}
+            />
+          ) : null}
+          {design ? (
             <>
               <div className="cqSummary">
                 <div>
@@ -646,7 +744,14 @@ export function ColumnConfinementPanel(props: Props) {
                   </table>
                 </div>
               ) : null}
-              <ChecksTable rows={rows} policy={policy} />
+              <DesignReviewPanel
+                title="Confinement & Detailing Checks"
+                compact
+                checks={rows}
+                policy={policy}
+                remarks={props.remarks}
+                onChange={props.onRemarksChange}
+              />
               {design.notes.length ? (
                 <ul className="rcMuted">
                   {design.notes.map((n) => (
@@ -664,25 +769,24 @@ export function ColumnConfinementPanel(props: Props) {
 
 export function ColumnTieDesignSummary({
   value,
-  onChange,
   design,
   quantity,
   onAdopt,
+  groups = [],
+  policy,
 }: {
+  /** Governing DCR per review group (flexure / shear / confinement). */
+  groups?: { label: string; panel: string; dcr: number | null }[];
+  policy?: DesignCheckPolicy;
   value: ColumnTieDesignInput;
-  onChange: (next: ColumnTieDesignInput) => void;
+  /** Kept for API compatibility; overrides are edited in panels 05/06. */
+  onChange?: (next: ColumnTieDesignInput) => void;
   design: TransverseResult | null;
   quantity: ColumnQuantityInput;
   onAdopt: () => void;
 }) {
   if (!design || (!value.shear.enabled && !value.confinement.enabled))
     return null;
-  const o = value.override;
-  const set = (k: keyof ColumnTieDesignInput["override"], v: number) =>
-    onChange({
-      ...value,
-      override: { ...o, [k]: Number.isFinite(v) && v > 0 ? v : null },
-    });
   const estClear = quantity.height - quantity.beamDepth;
   const mismatch =
     design.seismic &&
@@ -697,7 +801,33 @@ export function ColumnTieDesignSummary({
     }));
   return (
     <section className="rcPanel">
-      <h2>07 · Adopted Transverse Design</h2>
+      <h2>07 · Design Summary &amp; Adopted Transverse Design</h2>
+      {groups.length && policy ? (
+        <div className="rcTableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Check group</th>
+                <th>Reviewed in</th>
+                <th>Governing DCR</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {groups.map((g) => (
+                <tr key={g.label}>
+                  <th scope="row">{g.label}</th>
+                  <td>{g.panel}</td>
+                  <td>{fmt(g.dcr, 3)}</td>
+                  <td>
+                    <DesignStatus dcr={g.dcr} policy={policy} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
       <div className="rcTableWrap">
         <table>
           <thead>
@@ -720,49 +850,9 @@ export function ColumnTieDesignSummary({
           </tbody>
         </table>
       </div>
-      <div className="rcFields">
-        {design.seismic ? (
-          <NumberField
-            label={`lo · recommended ${design.recommended.lo}`}
-            unit="mm"
-            value={o.lo ?? NaN}
-            onChange={(v) => set("lo", v)}
-          />
-        ) : null}
-        {design.seismic ? (
-          <NumberField
-            label={`s in lo · recommended ${design.recommended.sEnd}`}
-            unit="mm"
-            value={o.sEnd ?? NaN}
-            onChange={(v) => set("sEnd", v)}
-          />
-        ) : null}
-        <NumberField
-          label={`s ${design.seismic ? "outside lo" : "full height"} · recommended ${design.recommended.sMid}`}
-          unit="mm"
-          value={o.sMid ?? NaN}
-          onChange={(v) => set("sMid", v)}
-        />
-        {design.seismic ? (
-          <>
-            <NumberField
-              label={`Ve x · calculated ${fmt((2 * design.ve.mprY * 1000) / value.confinement.clearHeight, 1)}`}
-              unit="kN"
-              value={o.veX ?? NaN}
-              onChange={(v) => set("veX", v)}
-            />
-            <NumberField
-              label={`Ve y · calculated ${fmt((2 * design.ve.mprX * 1000) / value.confinement.clearHeight, 1)}`}
-              unit="kN"
-              value={o.veY ?? NaN}
-              onChange={(v) => set("veY", v)}
-            />
-          </>
-        ) : null}
-      </div>
       <p className="rcMuted">
-        Blank fields use the recommended values (rounded down to 25 mm).
-        Overrides are re-checked in panels 05 and 06 and the Design Review.
+        Spacing and lo are set (or overridden) in panels 05 and 06; this panel
+        summarises the adopted values and writes them to the estimate.
       </p>
       <div className="cqSummary">
         {design.seismic ? (

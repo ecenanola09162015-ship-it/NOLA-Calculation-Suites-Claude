@@ -3,6 +3,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { PDFDocument } from "pdf-lib";
 import {
   analyzeRectangularColumn,
+  columnDesignChecks,
+  columnTransverseChecks,
   defaultColumnQuantity,
   defaultColumnSlenderness,
   defaultColumnTieDesign,
@@ -15,6 +17,8 @@ import {
   ColumnConfinementPanel,
   ColumnShearPanel,
   ColumnTieDesignSummary,
+  confinementReviewChecks,
+  shearReviewChecks,
 } from "../src/components/column-transverse-panel";
 import { RectangularColumnWorkspace } from "../src/components/rectangular-column-workspace";
 import { columnReportData } from "../src/lib/reports/data";
@@ -87,6 +91,8 @@ describe("shear and confinement panels", () => {
       design,
       error: "",
       policy: defaultDesignCheckPolicy,
+      remarks: {},
+      onRemarksChange: () => {},
     };
     const shear = renderToStaticMarkup(<ColumnShearPanel {...props} />);
     expect(shear).toContain("05 · Shear Design");
@@ -106,9 +112,77 @@ describe("shear and confinement panels", () => {
         onAdopt={() => {}}
       />,
     );
-    expect(sum).toContain("07 · Adopted Transverse Design");
-    expect(sum).toContain(`recommended ${design.recommended.sEnd}`);
+    expect(sum).toContain("07 · Design Summary &amp; Adopted Transverse Design");
+    expect(sum).toContain("set (or overridden) in panels 05 and 06");
+    expect(sum).toContain(`${design.adopted.lo} mm @ ${design.adopted.sEnd}`);
     expect(sum).toContain("Adopt to estimate");
+  });
+});
+
+describe("review split: flexure under results, shear / ties in 05 / 06", () => {
+  const design = designColumnTransverse(input, tie);
+  const props = {
+    input,
+    value: tie,
+    onChange: () => {},
+    design,
+    error: "",
+    policy: defaultDesignCheckPolicy,
+    remarks: {},
+    onRemarksChange: () => {},
+  };
+  it("routes every transverse check to exactly one panel", () => {
+    const shear = shearReviewChecks(design).map((c) => c.id);
+    const conf = confinementReviewChecks(design).map((c) => c.id);
+    expect(shear.length).toBeGreaterThan(0);
+    expect(conf.length).toBeGreaterThan(0);
+    expect(shear.every((id) => id.startsWith("tie:shear"))).toBe(true);
+    expect(conf.some((id) => id.startsWith("tie:shear"))).toBe(false);
+    expect([...shear, ...conf].sort()).toEqual(
+      columnTransverseChecks(design)
+        .map((c) => c.id)
+        .sort(),
+    );
+  });
+  it("flexure review contains no shear or tie rows", () => {
+    const flex = columnDesignChecks(analyzeRectangularColumn(input));
+    expect(flex.some((c) => c.id.startsWith("tie:"))).toBe(false);
+  });
+  it("panels 05 / 06 show their checks with a remarks box for amber rows", () => {
+    const shear = renderToStaticMarkup(<ColumnShearPanel {...props} />);
+    expect(shear).toContain("Shear Checks");
+    expect(shear).toContain(shearReviewChecks(design)[0].label);
+    const conf = renderToStaticMarkup(<ColumnConfinementPanel {...props} />);
+    expect(conf).toContain("Confinement &amp; Detailing Checks");
+    // A policy that puts every finite DCR in the judgment band forces remarks.
+    const strict = {
+      ...defaultDesignCheckPolicy,
+      optimizeBelow: 0.0001,
+      passThrough: 0.0002,
+      judgmentThrough: 100,
+    };
+    const amber = renderToStaticMarkup(
+      <ColumnShearPanel {...props} policy={strict} />,
+    );
+    expect(amber).toContain("Engineering Judgment Remarks");
+  });
+  it("panel 07 summarises the governing DCR per group", () => {
+    const sum = renderToStaticMarkup(
+      <ColumnTieDesignSummary
+        value={tie}
+        design={design}
+        quantity={defaultColumnQuantity()}
+        onAdopt={() => {}}
+        policy={defaultDesignCheckPolicy}
+        groups={[
+          { label: "Flexure & axial", panel: "Results", dcr: 0.812 },
+          { label: "Shear", panel: "Panel 05", dcr: 0.5 },
+        ]}
+      />,
+    );
+    expect(sum).toContain("Governing DCR");
+    expect(sum).toContain("0.812");
+    expect(sum).toContain("Panel 05");
   });
 });
 
@@ -181,5 +255,60 @@ describe("materials as the single source and report summary", () => {
     );
     const lo = data.figures.find((f) => f.title === "Tie Section Within lo")!;
     expect(lo.svg).toContain(`Within lo = ${design.adopted.lo} mm`);
+  });
+});
+
+describe("screen fit and spacing overrides", () => {
+  it("edits lo and spacing in panels 05/06 with recommended placeholders", () => {
+    const design = designColumnTransverse(input, tie);
+    const props = {
+      input,
+      value: tie,
+      onChange: () => {},
+      design,
+      error: "",
+      policy: defaultDesignCheckPolicy,
+      remarks: {},
+      onRemarksChange: () => {},
+    };
+    const shear = renderToStaticMarkup(<ColumnShearPanel {...props} />);
+    expect(shear).toContain('aria-label="Tie spacing in lo override"');
+    expect(shear).toContain(
+      `placeholder="${design.recommended.sEnd} (recommended)"`,
+    );
+    const conf = renderToStaticMarkup(<ColumnConfinementPanel {...props} />);
+    expect(conf).toContain('aria-label="Confinement length lo override"');
+    expect(conf).toContain('aria-label="Design shear Ve x override"');
+    // Overridden value: badge, reset button, and the checks use it.
+    const over = { ...tie, override: { ...tie.override, sEnd: 125 } };
+    const d2 = designColumnTransverse(input, over);
+    const html = renderToStaticMarkup(
+      <ColumnShearPanel {...props} value={over} design={d2} />,
+    );
+    expect(html).toContain('value="125"');
+    expect(html).toContain(">Override</em>");
+    expect(html).toContain(`Use ${d2.recommended.sEnd}`);
+    expect(d2.adopted.sEnd).toBe(125);
+  });
+  it("prints overrides with the recommended value in the report", () => {
+    const over = { ...tie, override: { ...tie.override, sEnd: 125 } };
+    const d = designColumnTransverse(input, over);
+    const data = columnReportData(
+      undefined,
+      "C-04",
+      input,
+      analyzeRectangularColumn(input),
+      { ...defaultColumnQuantity(), enabled: false },
+      defaultDesignCheckPolicy,
+      {},
+      over,
+      d,
+    );
+    const ties = data.summary
+      .flatMap((s) => s.rows)
+      .find((r) => String(r[0]) === "Ties (Design)")!;
+    expect(String(ties[1])).toContain(
+      `@ 125 (designer override; recommended ${d.recommended.sEnd})`,
+    );
   });
 });

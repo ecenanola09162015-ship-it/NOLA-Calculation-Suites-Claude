@@ -14,7 +14,6 @@ import {
   syncColumnQuantityTies,
   designColumnTransverse,
   adoptTieDesignToQuantity,
-  columnTransverseChecks,
   type ColumnTieDesignInput,
   type ColumnQuantityInput,
   type RectangularColumnInput,
@@ -40,6 +39,8 @@ import {
   ColumnConfinementPanel,
   ColumnShearPanel,
   ColumnTieDesignSummary,
+  confinementReviewChecks,
+  shearReviewChecks,
 } from "./column-transverse-panel";
 import {
   ColumnSlendernessInputs,
@@ -370,11 +371,8 @@ export function RectangularColumnWorkspace({
         throw new Error(
           "Complete valid numerical inputs and unique combination labels before saving.",
         );
-      if (
-        result &&
-        missingJudgmentRemarks(reviewChecks, policy, remarks).length
-      )
-        throw Error("Add Remarks For Each Amber Design Check Before Saving.");
+      if (result && missingRemarksMessage("Saving"))
+        throw Error(missingRemarksMessage("Saving"));
       const response = await fetch("/api/calculations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -423,12 +421,42 @@ export function RectangularColumnWorkspace({
     }
     // effectiveTie is derived from input and tieDesign.
   }, [result, input, tieDesign]);
-  const reviewChecks = result
-    ? [
-        ...columnDesignChecks(result),
-        ...columnTransverseChecks(transverse.design),
-      ]
+  // Flexure & axial review sits under the results; shear and confinement
+  // checks are reviewed in panels 05 / 06. Save / export validate all three.
+  const flexureChecks = result ? columnDesignChecks(result) : [];
+  const shearChecks = result ? shearReviewChecks(transverse.design) : [];
+  const confinementChecks = result
+    ? confinementReviewChecks(transverse.design)
     : [];
+  const reviewGroups = [
+    {
+      label: "Flexure & axial",
+      panel: "Results",
+      checks: flexureChecks,
+    },
+    { label: "Shear", panel: "Panel 05", checks: shearChecks },
+    {
+      label: "Confinement & detailing",
+      panel: "Panel 06",
+      checks: confinementChecks,
+    },
+  ];
+  const missingRemarksMessage = (verb: string) => {
+    const where = reviewGroups
+      .filter((g) => missingJudgmentRemarks(g.checks, policy, remarks).length)
+      .map(
+        (g) =>
+          `${g.panel === "Results" ? "Flexure & Axial Review" : g.panel} (${missingJudgmentRemarks(g.checks, policy, remarks).length})`,
+      );
+    return where.length
+      ? `Record Engineering Judgment Remarks Before ${verb}: ${where.join(", ")}.`
+      : "";
+  };
+  const changeRemarks = (next: DesignRemarks) => {
+    editVersion.current++;
+    setSaved(false);
+    setRemarks(next);
+  };
   // Vux / Vuy are always shown and pasted, with or without shear design.
   const showShear = true;
   function updateTie(next: ColumnTieDesignInput) {
@@ -471,10 +499,8 @@ export function RectangularColumnWorkspace({
           disabled={!result}
           onData={async () => {
             if (!result) throw Error("Calculate The Column First.");
-            if (missingJudgmentRemarks(reviewChecks, policy, remarks).length)
-              throw Error(
-                "Record Engineering Judgment Remarks Before Exporting.",
-              );
+            if (missingRemarksMessage("Exporting"))
+              throw Error(missingRemarksMessage("Exporting"));
             const { columnReportData } = await import("../lib/reports/data");
             return columnReportData(
               project,
@@ -972,14 +998,12 @@ export function RectangularColumnWorkspace({
             </p>
           </div>
           <DesignReviewPanel
-            checks={reviewChecks}
+            title="Flexure & Axial Review"
+            checks={flexureChecks}
+            primaryPrefixes={[`${result.governing?.load.id ?? ""}:`]}
             policy={policy}
             remarks={remarks}
-            onChange={(next) => {
-              editVersion.current++;
-              setSaved(false);
-              setRemarks(next);
-            }}
+            onChange={changeRemarks}
           />
           <div className="rcStats">
             {[
@@ -1218,6 +1242,8 @@ export function RectangularColumnWorkspace({
             design={transverse.design}
             error={transverse.error}
             policy={policy}
+            remarks={remarks}
+            onRemarksChange={changeRemarks}
           />
           <ColumnConfinementPanel
             input={input}
@@ -1226,8 +1252,23 @@ export function RectangularColumnWorkspace({
             design={transverse.design}
             error={transverse.error}
             policy={policy}
+            remarks={remarks}
+            onRemarksChange={changeRemarks}
           />
           <ColumnTieDesignSummary
+            policy={policy}
+            groups={reviewGroups
+              .filter((g) => g.checks.length)
+              .map((g) => {
+                const d = g.checks
+                  .map((c) => c.dcr)
+                  .filter((v): v is number => v !== null && !Number.isNaN(v));
+                return {
+                  label: g.label,
+                  panel: g.panel,
+                  dcr: d.length ? Math.max(...d) : null,
+                };
+              })}
             value={effectiveTie}
             onChange={updateTie}
             design={transverse.design}

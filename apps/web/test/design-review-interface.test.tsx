@@ -99,3 +99,55 @@ describe("project context and review reporting", () => {
     expect(html).toContain("Design Needs Improvement");
   });
 });
+
+describe("design review grouping", () => {
+  it("shows the governing combination first and folds the rest", async () => {
+    const { DesignReviewPanel } =
+      await import("../src/components/design-review-panel");
+    const { defaultDesignCheckPolicy } = await import("@nola/calc-core");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const checks = [
+      {
+        id: "LC1:axial",
+        label: "LC1 · Axial",
+        dcr: 0.9,
+        clause: "ACI 318-19 22.4",
+      },
+      {
+        id: "LC2:axial",
+        label: "LC2 · Axial",
+        dcr: 0.5,
+        clause: "ACI 318-19 22.4",
+      },
+      {
+        id: "LC3:axial",
+        label: "LC3 · Axial",
+        dcr: 0.7,
+        clause: "ACI 318-19 22.4",
+      },
+      {
+        id: "tie:shear:mid:y",
+        label: "Shear Vuy",
+        dcr: 0.6,
+        clause: "ACI 318-19 22.5",
+      },
+    ];
+    const html = renderToStaticMarkup(
+      <DesignReviewPanel
+        checks={checks}
+        primaryPrefixes={["LC1:", "tie:"]}
+        policy={defaultDesignCheckPolicy}
+        remarks={{}}
+        onChange={() => {}}
+      />,
+    );
+    const fold = html.indexOf(
+      "Show All Combinations (2 More Checks, Highest DCR 0.700)",
+    );
+    expect(fold).toBeGreaterThan(0);
+    expect(html.indexOf("LC1 · Axial")).toBeLessThan(fold);
+    expect(html.indexOf("Shear Vuy")).toBeLessThan(fold);
+    expect(html.indexOf("LC2 · Axial")).toBeGreaterThan(fold);
+    expect(html).toContain('<col class="dcCheck"/>');
+  });
+});
