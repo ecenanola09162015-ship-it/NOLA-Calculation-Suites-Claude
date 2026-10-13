@@ -1,22 +1,35 @@
 "use client";
+import { squareLogoLayout } from "../lib/reports/logos";
 import type { Dispatch, SetStateAction } from "react";
 import { type ProjectReportSettings } from "@nola/calc-core";
-export async function readReportLogo(file: File): Promise<string> {
+export async function readReportLogo(
+  file: File,
+  options: { square?: boolean } = {},
+): Promise<{ data: string; padded: boolean }> {
   if (!["image/png", "image/jpeg"].includes(file.type) || file.size > 5_000_000)
     throw Error("Choose A PNG Or JPEG Logo Smaller Than 5 MB.");
   const bitmap = await createImageBitmap(file);
   try {
-    let scale = Math.min(1, 512 / Math.max(bitmap.width, bitmap.height));
+    let max = 512;
     for (let attempt = 0; attempt < 5; attempt++) {
+      const fit = squareLogoLayout(bitmap.width, bitmap.height, max);
       const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      // Square logos are padded (transparent), never cropped or stretched.
+      canvas.width = options.square ? fit.side : fit.width;
+      canvas.height = options.square ? fit.side : fit.height;
       const ctx = canvas.getContext("2d");
       if (!ctx) throw Error("Logo Preview Is Not Available In This Browser.");
-      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(
+        bitmap,
+        options.square ? fit.x : 0,
+        options.square ? fit.y : 0,
+        fit.width,
+        fit.height,
+      );
       const data = canvas.toDataURL("image/png");
-      if (data.length <= 180000) return data;
-      scale *= 0.7;
+      if (data.length <= 180000)
+        return { data, padded: !!options.square && fit.padded };
+      max *= 0.7;
     }
     throw Error("Choose A Smaller Logo Image.");
   } finally {
@@ -77,8 +90,14 @@ export function ReportSettingsEditor({
                 onWorking(true);
                 onError("");
                 try {
-                  const data = await readReportLogo(file);
+                  const { data, padded } = await readReportLogo(file, {
+                    square: key === "companyLogo",
+                  });
                   onChange((previous) => ({ ...previous, [key]: data }));
+                  if (padded)
+                    onError(
+                      "Company Logo Was Not Square: It Was Padded To 1:1 Without Cropping. Upload A Square Logo For Best Results.",
+                    );
                 } catch (error) {
                   onError(
                     error instanceof Error
@@ -92,11 +111,31 @@ export function ReportSettingsEditor({
               }}
             />
           </label>
+          {key === "companyLogo" ? (
+            <small className="logoHint">
+              Use A Square Logo (1:1), PNG Or JPG, At Least 300 × 300 px.
+              Printed Only In The Upper-Left Box Of The PDF Report Header.
+              Non-Square Images Are Padded To A Square.
+            </small>
+          ) : null}
+          {value[key] ? (
+            <img
+              className="logoPreview"
+              src={value[key]!}
+              alt={
+                key === "companyLogo"
+                  ? "Company logo preview"
+                  : "Ñola report logo preview"
+              }
+              width={64}
+              height={64}
+            />
+          ) : null}
           <p>
             {value[key]
               ? "Custom Logo Ready"
               : key === "nolaLogo"
-                ? "Uses The Supplied Ñola Logo"
+                ? "Uses The Supplied Ñola Report Logo"
                 : "No Company Logo Selected"}
           </p>
           {value[key] ? (

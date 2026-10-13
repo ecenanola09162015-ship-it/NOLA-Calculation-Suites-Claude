@@ -7,7 +7,11 @@ it("serves the shared logo publicly while keeping projects and calculations prot
   vi.stubEnv("CLERK_SECRET_KEY", "");
   const { proxy } = await import("../src/proxy");
   const check = proxy as (request: NextRequest) => Response;
-  for (const path of ["/brand/nola-logo.png", "/login"])
+  for (const path of [
+    "/brand/nola-logo.png",
+    "/brand/nola-report-logo.png",
+    "/login",
+  ])
     expect(check(new NextRequest("https://nola.example" + path)).status).toBe(
       200,
     );
