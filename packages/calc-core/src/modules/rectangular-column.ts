@@ -12,6 +12,23 @@ import {
   type ColumnSlendernessInput,
   type SlenderDirectionResult,
 } from "./column-slenderness";
+import {
+  storeyClearHeights,
+  type ColumnStorey,
+} from "./column-storey";
+/** ℓu from storey geometry (with any override) replaces the typed ℓu. */
+export function slendernessWithStorey(
+  sl: ColumnSlendernessInput,
+  storey: ColumnStorey | undefined,
+): ColumnSlendernessInput {
+  if (!storey) return sl;
+  const h = storeyClearHeights(storey);
+  return {
+    ...sl,
+    x: { ...sl.x, lu: h.luX },
+    y: { ...sl.y, lu: h.luY },
+  };
+}
 import type { RebarStandard } from "../rebar-catalogue";
 export type ColumnCode = "ACI 318-19" | "NSCP 2015";
 export interface ColumnBar {
@@ -54,6 +71,8 @@ export interface RectangularColumnInput {
   /** Tie steel from Materials, adopted by shear/confinement and the estimate. */
   tieFyt?: number;
   tieGradeId?: string | null;
+  /** Storey geometry; when present it sets ℓu for slenderness (6.2.4). */
+  storey?: ColumnStorey;
 }
 export interface ColumnState {
   c: number;
@@ -409,7 +428,9 @@ export function analyzeRectangularColumn(
       "One or more bar locations do not satisfy the declared clear cover and tie diameter. Review the reinforcement layout.",
     );
   const section = biaxialSection(input);
-  const slender = input.slenderness?.enabled ? input.slenderness : null;
+  const slender = input.slenderness?.enabled
+    ? slendernessWithStorey(input.slenderness, input.storey)
+    : null;
   const checks: ColumnCheck[] = input.loads.map((load) => {
     const sl = slender
       ? {

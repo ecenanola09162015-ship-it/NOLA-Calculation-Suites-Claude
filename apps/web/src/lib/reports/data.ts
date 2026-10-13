@@ -1,6 +1,7 @@
 import { OVERRIDE_COLOR } from "../override-style";
 import {
   columnHookBasisLabel,
+  storeyClearHeights,
   rebarDesignation,
   rebarGradeLabel,
   columnDesignChecks,
@@ -23,13 +24,18 @@ import {
   type SlabInput,
   type SlabResult,
   type SlabQuantityInput,
+  slabLoadPatch,
+  slabBeamSizes,
 } from "@nola/calc-core";
+import { loadStyles } from "@/lib/load-styles";
 import type { ProjectRecord } from "../projects";
 import {
   columnBiaxialFigure,
   columnFigures,
   columnTieElevationFigure,
   columnTieSectionFigure,
+  columnStoreyFigure,
+  columnInteraction3DFigure,
   slabFigures,
 } from "./figures";
 export type Cell = { text: string; color?: string };
@@ -38,7 +44,13 @@ export type ReportSection = {
   columns: string[];
   rows: (string | Cell)[][];
 };
-export type ReportFigure = { title: string; svg: string; png?: string };
+export type ReportFigure = {
+  title: string;
+  svg: string;
+  png?: string;
+  /** Printed in the Complete report only (e.g. the 3D snapshot). */
+  completeOnly?: boolean;
+};
 export type ReportData = {
   module: string;
   title: string;
@@ -56,6 +68,8 @@ export type ReportData = {
   criticalNotes: string[];
   generatedAt: string;
   estimate?: ReportSection;
+  /** Figures printed only in the Complete report (e.g. the 3D surface). */
+  completeFigures?: ReportFigure[];
   /** Scope sentence printed in the simple-report overview. */
   scopeNote?: string;
 };
@@ -147,6 +161,12 @@ export function columnReportData(
   };
   const anyOverride =
     !!t && (overridden.lo || overridden.sEnd || overridden.sMid);
+  const storey = input.storey ?? null;
+  const sh = storey ? storeyClearHeights(storey) : null;
+  const storeyLine =
+    storey && sh
+      ? `H ${f(storey.height, 0)}; beam ∥X ${f(storey.beamX, 0)} / ∥Y ${f(storey.beamY, 0)} mm${storey.capital ? `; capital ${f(storey.capital, 0)}` : ""}${storey.bottom ? `; bottom ${f(storey.bottom, 0)}` : ""}; ℓu,x ${f(sh.luX, 0)}${storey.luOverrideX !== null ? " (override)" : ""} / ℓu,y ${f(sh.luY, 0)}${storey.luOverrideY !== null ? " (override)" : ""} mm; joint ${f(sh.joint, 0)} mm`
+      : "";
   const checks = [...columnDesignChecks(result), ...columnTransverseChecks(t)];
   const slender = !!input.slenderness?.enabled;
   const shearOn = !!t && (!!tieDesign?.shear.enabled || t.seismic);
@@ -178,6 +198,16 @@ export function columnReportData(
         "Section",
         `${input.width} x ${input.depth} mm; Ag = ${f(result.grossArea, 0)} mm²`,
       ],
+      ...(storey
+        ? [
+            [
+              "Storey Geometry",
+              storey.luOverrideX !== null || storey.luOverrideY !== null
+                ? { text: storeyLine, color: OVERRIDE_COLOR }
+                : storeyLine,
+            ] as (string | Cell)[],
+          ]
+        : []),
       [
         "Longitudinal Bars",
         [...barGroups]
@@ -517,13 +547,16 @@ export function columnReportData(
     summary,
     figures: [
       ...columnFigures(input, result, project?.reportSettings?.style),
+      ...(storey
+        ? [columnStoreyFigure(storey, project?.reportSettings?.style)]
+        : []),
       ...(twoPages
         ? [columnBiaxialFigure(input, result, project?.reportSettings?.style)]
         : []),
       ...(t && tieDesign
         ? [
             columnTieElevationFigure(
-              t.seismic ? tieDesign.confinement.clearHeight : 3000,
+              t.seismic ? t.clearHeight || tieDesign.confinement.clearHeight : 3000,
               t,
               project?.reportSettings?.style,
               overridden,
@@ -548,9 +581,34 @@ export function columnReportData(
           ]
         : []),
     ].filter((x): x is ReportFigure => !!x),
+    completeFigures: [
+      columnInteraction3DFigure(
+        input,
+        result,
+        policy,
+        project?.reportSettings?.style,
+      ),
+    ],
     checks: checkTable(checks, policy, remarks),
     sections: [
       equations,
+      ...(storey && sh
+        ? [
+            section(
+              "Storey Geometry (ACI 318-19 6.2.4, 18.7.5.1, 18.7.6.1.1, 18.8.3)",
+              [
+                ["Floor-to-floor height H (top of slab to top of slab)", `${f(storey.height, 0)} mm`],
+                ["Beam along X / along Y (depth)", `${f(storey.beamX, 0)} / ${f(storey.beamY, 0)} mm`],
+                ["Capital / drop / haunch; bottom deduction", `${f(storey.capital ?? 0, 0)} / ${f(storey.bottom ?? 0, 0)} mm`],
+                ["ℓu,x (Mux) = H − beam ∥Y − capital − bottom", `${f(sh.derivedX, 0)} mm${storey.luOverrideX !== null ? `; override ${f(storey.luOverrideX, 0)} mm` : ""}`],
+                ["ℓu,y (Muy) = H − beam ∥X − capital − bottom", `${f(sh.derivedY, 0)} mm${storey.luOverrideY !== null ? `; override ${f(storey.luOverrideY, 0)} mm` : ""}`],
+                ["Clear height for lo (larger ℓu)", `${f(sh.loClear, 0)} mm`],
+                ["Joint depth (deeper beam) / estimate clear height", `${f(sh.joint, 0)} / ${f(storey.height - sh.joint, 0)} mm`],
+              ],
+              ["Item", "Value"],
+            ),
+          ]
+        : []),
       ...transverseSections,
       section("All Load Combinations", loadRows, [
         "Combo",
@@ -618,6 +676,8 @@ export function slabReportData(
   quantity: SlabQuantityInput,
   policy: DesignCheckPolicy,
   remarks: DesignRemarks,
+  /** PNG data URL of the 3D view (Complete report only). */
+  snapshot3d?: string | null,
 ): ReportData {
   const checks = slabDesignChecks(input, r),
     flex = [...r.regions].sort((a, b) => b.dcr - a.dcr)[0],
@@ -656,11 +716,17 @@ export function slabReportData(
       ],
     ]),
     section("Section And Reinforcement", [
-      ["Geometry", `${input.lx} x ${input.ly} m; h = ${input.h} mm; ${r.type}`],
       [
-        "Supports",
-        Object.entries(input.supports)
-          .map(([e, s]) => e + ": " + s)
+        "Geometry",
+        `${input.lx} x ${input.ly} m clear; h = ${input.h} mm; ${r.type}`,
+      ],
+      [
+        "Supports / Beams",
+        (["west", "east", "south", "north"] as const)
+          .map((e) => {
+            const b = slabBeamSizes(input)[e];
+            return `${e}: ${input.supports[e]}${b ? ` ${b.width}x${b.depth}` : ""}`;
+          })
           .join("; "),
       ],
       ...r.bars.map((b) => [
@@ -749,22 +815,30 @@ export function slabReportData(
     ...((input.pointLoads ?? []).length
       ? [
           section(
-            "Point Loads",
-            input.pointLoads.map((p) => [
-              p.id,
-              `${f(p.x, 3)}, ${f(p.y, 3)}`,
-              `${f(p.bx, 0)} x ${f(p.by, 0)}`,
-              `${f(p.bx + input.h, 0)} x ${f(p.by + input.h, 0)}`,
-              f(p.dead),
-              f(p.live),
-            ]),
+            "Local Loads",
+            input.pointLoads.map((p) => {
+              const r = slabLoadPatch(p),
+                unit = { point: "kN", line: "kN/m", area: "kPa" }[r.kind];
+              return [
+                p.id,
+                loadStyles[r.kind].label,
+                p.kind === "line"
+                  ? `start ${f(p.x, 3)}, ${f(p.y, 3)}; along ${p.direction} ${f(p.length, 3)} m`
+                  : `centre ${f(p.x, 3)}, ${f(p.y, 3)}`,
+                p.kind === "line"
+                  ? `t = ${f(p.thickness, 0)} mm`
+                  : `${f(p.bx, 0)} x ${f(p.by, 0)} mm`,
+                `${f(p.dead)} / ${f(p.live)} ${unit}`,
+                `${f(r.dead)} / ${f(r.live)}`,
+              ];
+            }),
             [
               "ID",
-              "Centre x, y m",
-              "Loaded Area mm",
-              "Dispersed to Mid-Plane mm",
-              "PD kN",
-              "PL kN",
+              "Type",
+              "Position m",
+              "Size",
+              "Dead / Live",
+              "Resultant D / L kN",
             ],
           ),
         ]
@@ -826,7 +900,7 @@ export function slabReportData(
         ],
         [
           "Immediate Deflection",
-          `Ec=4700 sqrt(${input.fc}) MPa; fr=0.62 sqrt(fc); Ig=${f(r.deflection.ig / 1e6, 1)}e6, Icr=${f(r.deflection.icr / 1e6, 1)}e6 mm⁴; Mcr=${f(r.deflection.mcr)}, Ma=${f(r.deflection.ma)} kN·m/m; Ie,mid=${f(r.deflection.ieMid / 1e6, 1)}e6${r.deflection.ieAvg === null ? "" : `, Ie,avg=${f(r.deflection.ieAvg / 1e6, 1)}e6`}, Ie=${f(r.deflection.ie / 1e6, 1)}e6 mm⁴; delta,g=${f(r.deflection.immediate)} mm; delta,cr=delta,g x Ig/Ie=${f(r.deflection.crackedImmediate)} mm; limit=${f(r.shortSpan * 1000, 0)}/${input.deflectionDivisor}=${f(r.deflection.limit)} mm`,
+          `Ec=4700 sqrt(${input.fc}) MPa; fr=0.62 sqrt(fc); Ig=${f(r.deflection.ig / 1e6, 1)}e6, Icr=${f(r.deflection.icr / 1e6, 1)}e6 mm⁴; Mcr=${f(r.deflection.mcr)}, Ma=${f(r.deflection.ma)} kN·m/m; Ie,mid=${f(r.deflection.ieMid / 1e6, 1)}e6${r.deflection.ieAvg === null ? "" : `, Ie,avg=${f(r.deflection.ieAvg / 1e6, 1)}e6`}, Ie=${f(r.deflection.ie / 1e6, 1)}e6 mm⁴; delta,g=${f(r.deflection.immediate)} mm; delta,cr=delta,g x Ig/Ie=${f(r.deflection.crackedImmediate)} mm; limit=ℓ/${input.deflectionDivisor}=${f(r.deflection.span, 0)}/${input.deflectionDivisor}=${f(r.deflection.limit)} mm (${r.type === "cantilever" ? "ℓ = projection" : "ℓ = c/c: clear span + beam widths/2"})`,
           slabClauses.deflection(r.type),
         ],
         [
@@ -963,7 +1037,19 @@ export function slabReportData(
     policy,
     remarks,
     summary,
-    figures: slabFigures(input, r, project?.reportSettings?.style),
+    figures: [
+      ...slabFigures(input, r, project?.reportSettings?.style),
+      ...(snapshot3d
+        ? [
+            {
+              title: "3D View With Supports And Loads (snapshot)",
+              svg: "",
+              png: snapshot3d,
+              completeOnly: true,
+            },
+          ]
+        : []),
+    ],
     checks: checkTable(checks, policy, remarks),
     sections: equations,
     references: refSlab,

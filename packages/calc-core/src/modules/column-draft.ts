@@ -2,6 +2,7 @@ import { designCheckPolicySchema, designRemarksSchema } from "../design-review";
 import { z } from "zod";
 import { columnQuantitySchema } from "./column-quantity";
 import { columnSlendernessSchema } from "./column-slenderness";
+import { columnStoreySchema } from "./column-storey";
 import { columnTieDesignSchema } from "./column-transverse";
 export const columnInputSchema = z
   .object({
@@ -46,6 +47,7 @@ export const columnInputSchema = z
     barDiameter: z.number().positive().max(100).optional(),
     tieFyt: z.number().min(200).max(700).optional(),
     tieGradeId: z.string().max(20).nullable().optional(),
+    storey: columnStoreySchema.optional(),
   })
   .refine(
     (input) =>

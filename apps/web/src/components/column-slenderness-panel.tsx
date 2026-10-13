@@ -6,6 +6,68 @@ import {
   type RectangularColumnInput,
 } from "@nola/calc-core";
 import { NumberField, fmt } from "./column-ui";
+import { storeyClearHeights } from "@nola/calc-core";
+
+/**
+ * ℓu from storey geometry (6.2.4) with a per-direction override, e.g. for
+ * intermediate bracing. Overrides are shown in the override colour.
+ */
+function StoreyLu({
+  input,
+  onChange,
+  axis,
+}: {
+  input: RectangularColumnInput;
+  onChange: (next: RectangularColumnInput) => void;
+  axis: "x" | "y";
+}) {
+  const s = input.storey!;
+  const h = storeyClearHeights(s);
+  const key = axis === "x" ? "luOverrideX" : "luOverrideY";
+  const derived = axis === "x" ? h.derivedX : h.derivedY;
+  const over = s[key];
+  return (
+    <label className={over !== null ? "isOverride" : ""}>
+      Unsupported length ℓu
+      <span className="rcUnit">mm</span>
+      <span className="rebarCustom">
+        <input
+          type="number"
+          step="any"
+          aria-label={`ℓu about ${axis} override`}
+          placeholder={`${fmt(derived, 0)} (storey geometry)`}
+          value={over ?? ""}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            onChange({
+              ...input,
+              storey: {
+                ...s,
+                [key]: e.target.value === "" || !(v > 0) ? null : v,
+              },
+            });
+          }}
+        />
+        {over !== null ? (
+          <>
+            <em className="overrideBadge">Override · storey {fmt(derived, 0)}</em>
+            <button
+              type="button"
+              className="linkButton"
+              onClick={() => onChange({ ...input, storey: { ...s, [key]: null } })}
+            >
+              Use {fmt(derived, 0)}
+            </button>
+          </>
+        ) : (
+          <small className="rcMuted">
+            From storey geometry: H − beam along {axis === "x" ? "Y" : "X"}
+          </small>
+        )}
+      </span>
+    </label>
+  );
+}
 
 /** Slenderness inputs (ACI 318-19 6.2.5, 6.6.4). Changing them clears results. */
 export function ColumnSlendernessInputs({
@@ -21,12 +83,16 @@ export function ColumnSlendernessInputs({
   const dir = (axis: "x" | "y", label: string) => (
     <fieldset className="rcFields" disabled={!sl.enabled}>
       <legend>{label}</legend>
-      <NumberField
-        label="Unsupported length ℓu"
-        unit="mm"
-        value={sl[axis].lu}
-        onChange={(lu) => set({ ...sl, [axis]: { ...sl[axis], lu } })}
-      />
+      {input.storey ? (
+        <StoreyLu input={input} onChange={onChange} axis={axis} />
+      ) : (
+        <NumberField
+          label="Unsupported length ℓu"
+          unit="mm"
+          value={sl[axis].lu}
+          onChange={(lu) => set({ ...sl, [axis]: { ...sl[axis], lu } })}
+        />
+      )}
       <NumberField
         label="Effective length factor k"
         value={sl[axis].k}

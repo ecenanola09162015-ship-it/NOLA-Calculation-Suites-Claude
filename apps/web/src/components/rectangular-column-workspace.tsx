@@ -10,6 +10,9 @@ import {
   columnDraftSchema,
   defaultColumnQuantity,
   defaultColumnTieDesign,
+  defaultColumnStorey,
+  effectiveColumnQuantity,
+  migrateColumnStorey,
   rebarDesignation,
   syncColumnQuantityTies,
   designColumnTransverse,
@@ -33,6 +36,21 @@ import {
   type DraftDuplicate,
 } from "./duplicate-save-prompt";
 import { ColumnQuantityPanel } from "./column-quantity-panel";
+import { StoreyGeometryFields } from "./column-storey-panel";
+import dynamic from "next/dynamic";
+// Three.js loads only when results are shown.
+const ColumnInteraction3D = dynamic(
+  () => import("./column-interaction-3d").then((m) => m.ColumnInteraction3D),
+  {
+    ssr: false,
+    loading: () => (
+      <section className="rcPanel interaction3d">
+        <h3>3D Interaction Surface (P–Mx–My)</h3>
+        <p className="rcMuted">Loading 3D view…</p>
+      </section>
+    ),
+  },
+);
 import { NumberField, fmt } from "./column-ui";
 import {
   RebarGradeSelect,
@@ -53,6 +71,7 @@ import {
 /** New calculations start with Vux = Vuy = 400 kN (user decision); imports stay as pasted. */
 export const DEFAULT_SHEAR = 400;
 const initial: RectangularColumnInput = {
+  storey: defaultColumnStorey(),
   code: "ACI 318-19",
   width: 600,
   depth: 800,
@@ -148,8 +167,19 @@ export function RectangularColumnWorkspace({
 }) {
   const restored = columnDraftSchema.safeParse(draft?.payload);
   const editVersion = useRef(0);
+  // Drafts saved before storey geometry are migrated without changing their
+  // numbers (typed ℓu → override; differing confinement ℓu → manual).
+  const [migrated] = useState(() =>
+    restored.success
+      ? migrateColumnStorey(
+          restored.data.input,
+          restored.data.quantity,
+          restored.data.tieDesign,
+        )
+      : null,
+  );
   const [input, setInput] = useState<RectangularColumnInput>(() =>
-    restored.success ? restored.data.input : structuredClone(initial),
+    migrated ? migrated.input : structuredClone(initial),
   );
   const [quantity, setQuantity] = useState<ColumnQuantityInput>(() =>
     restored.success && restored.data.quantity
@@ -157,8 +187,8 @@ export function RectangularColumnWorkspace({
       : defaultColumnQuantity(initial.tieDiameter),
   );
   const [tieDesign, setTieDesign] = useState<ColumnTieDesignInput>(() =>
-    restored.success && restored.data.tieDesign
-      ? restored.data.tieDesign
+    migrated?.tie
+      ? migrated.tie
       : defaultColumnTieDesign(
           restored.success ? restored.data.input : initial,
           restored.success && restored.data.quantity
@@ -225,6 +255,8 @@ export function RectangularColumnWorkspace({
       hookBasis: quantity.hookBasis,
     },
   };
+  // Estimate height / joint follow storey geometry unless overridden there.
+  const quantityEff = effectiveColumnQuantity(input, quantity);
   function changeQuantity(next: ColumnQuantityInput, tie = tieSteel) {
     setQuantity(syncColumnQuantityTies(next, tie));
   }
@@ -546,7 +578,7 @@ export function RectangularColumnWorkspace({
               title,
               input,
               result,
-              quantity,
+              quantityEff,
               policy,
               remarks,
               effectiveTie,
@@ -660,6 +692,7 @@ export function RectangularColumnWorkspace({
               }
             />
           </div>
+          <StoreyGeometryFields input={input} onChange={update} />
           <label className="rcCheckbox">
             <input
               type="checkbox"
@@ -1096,6 +1129,7 @@ export function RectangularColumnWorkspace({
               ))}
             </ul>
           </div>
+          <ColumnInteraction3D input={input} result={result} policy={policy} />
           <div className="rcGrid">
             <section className="rcPanel">
               <h3>P–Mx Interaction</h3>
@@ -1338,13 +1372,13 @@ export function RectangularColumnWorkspace({
             value={effectiveTie}
             onChange={updateTie}
             design={transverse.design}
-            quantity={quantity}
+            quantity={quantityEff}
             onAdopt={() => {
               if (!transverse.design) return;
               editVersion.current++;
               changeQuantity(
                 adoptTieDesignToQuantity(
-                  { ...quantity, enabled: true },
+                  { ...quantityEff, enabled: true },
                   effectiveTie.tie,
                   transverse.design,
                 ),
@@ -1363,7 +1397,7 @@ export function RectangularColumnWorkspace({
       {result ? (
         <ColumnQuantityPanel
           section={input}
-          value={quantity}
+          value={quantityEff}
           onChange={(next) => {
             editVersion.current++;
             changeQuantity(next);

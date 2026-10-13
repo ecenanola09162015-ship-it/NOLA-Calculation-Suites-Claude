@@ -110,16 +110,56 @@ export function ColumnQuantityPanel({
       ) : (
         <>
           <div className="cqControls">
-            <Num
-              label="Floor-To-Floor Height (mm)"
-              value={value.height}
-              onChange={(v) => change("height", v)}
-            />
-            <Num
-              label="Upper Beam Depth (mm)"
-              value={value.beamDepth}
-              onChange={(v) => change("beamDepth", v)}
-            />
+            {section.storey && !value.geometryOverride ? (
+              <div className="storeyLinked">
+                <span>
+                  Floor-To-Floor {value.height} mm · Joint {value.beamDepth} mm
+                </span>
+                <small>
+                  From Storey Geometry (panel 01; joint = deeper beam, 18.8.3)
+                </small>
+                <button
+                  type="button"
+                  className="linkButton"
+                  onClick={() => onChange({ ...value, geometryOverride: true })}
+                >
+                  Override for the estimate
+                </button>
+              </div>
+            ) : (
+              <>
+                <span className={section.storey ? "isOverride" : ""}>
+                  <Num
+                    label="Floor-To-Floor Height (mm)"
+                    value={value.height}
+                    onChange={(v) => change("height", v)}
+                  />
+                </span>
+                <span className={section.storey ? "isOverride" : ""}>
+                  <Num
+                    label="Upper Beam Depth (mm)"
+                    value={value.beamDepth}
+                    onChange={(v) => change("beamDepth", v)}
+                  />
+                </span>
+                {section.storey ? (
+                  <p className="overrideNote">
+                    Estimate override: storey geometry gives H{" "}
+                    {section.storey.height} mm and joint{" "}
+                    {Math.max(section.storey.beamX, section.storey.beamY)} mm.{" "}
+                    <button
+                      type="button"
+                      className="linkButton"
+                      onClick={() =>
+                        onChange({ ...value, geometryOverride: false })
+                      }
+                    >
+                      Use storey geometry
+                    </button>
+                  </p>
+                ) : null}
+              </>
+            )}
             <Num
               label="Identical Columns"
               value={value.members}

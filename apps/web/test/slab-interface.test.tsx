@@ -117,7 +117,16 @@ describe("slab point loads", () => {
       ly: 5,
       h: 200,
       pointLoads: [
-        { id: "P1", x: 2.5, y: 2.5, bx: 300, by: 300, dead: 40, live: 20 },
+        {
+          kind: "point" as const,
+          id: "P1",
+          x: 2.5,
+          y: 2.5,
+          bx: 300,
+          by: 300,
+          dead: 40,
+          live: 20,
+        },
       ],
     };
     const html = renderToStaticMarkup(
@@ -137,7 +146,7 @@ describe("slab point loads", () => {
     );
     for (const text of [
       "Point Loads",
-      "＋ Point Load",
+      "＋ Point load",
       'aria-label="P1 bx"',
       "data-point-loads",
       "Punching Shear At Point Loads",
@@ -203,5 +212,127 @@ describe("cantilever slabs", () => {
     );
     expect(html).toContain("Unstable supports");
     expect(html).toContain("Set west to Fixed");
+  });
+});
+describe("line and area loads in the plan", () => {
+  it("draws point, line and area loads with distinct symbols, colours and a legend", () => {
+    const i = {
+      ...defaultSlabInput(),
+      lx: 5,
+      ly: 4,
+      pointLoads: [
+        {
+          kind: "point" as const,
+          id: "P1",
+          x: 1,
+          y: 1,
+          bx: 300,
+          by: 300,
+          dead: 10,
+          live: 0,
+        },
+        {
+          kind: "line" as const,
+          id: "W1",
+          x: 0,
+          y: 2,
+          direction: "X" as const,
+          length: 5,
+          thickness: 150,
+          dead: 6,
+          live: 0,
+        },
+        {
+          kind: "area" as const,
+          id: "A1",
+          x: 3.5,
+          y: 3,
+          bx: 1500,
+          by: 1000,
+          dead: 2,
+          live: 1,
+        },
+      ],
+    };
+    const plan = renderToStaticMarkup(
+      <SlabPlan input={i} bars={resolveSlabBars(i)} face="bottom" />,
+    );
+    for (const text of [
+      'data-load-kind="point"',
+      'data-load-kind="line"',
+      'data-load-kind="area"',
+      "#c0392b",
+      "#1f5fbf",
+      "url(#area-hatch-bottom)",
+      "data-load-legend",
+      "Line load",
+      "Area load",
+    ])
+      expect(plan).toContain(text);
+    const html = renderToStaticMarkup(
+      <SlabWorkspace
+        cloudReady={false}
+        onSaved={() => {}}
+        draft={{
+          id: "saved",
+          projectId: "project",
+          moduleSlug: "slab",
+          title: "Local Loads",
+          verificationStatus: "verification-required",
+          updatedAt: "2026-10-13",
+          payload: { kind: "slab", version: 1, input: i },
+        }}
+      />,
+    );
+    for (const text of [
+      "＋ Line load",
+      "＋ Area load",
+      "wD kN/m",
+      "qD kPa",
+      'aria-label="W1 direction"',
+    ])
+      expect(html).toContain(text);
+    expect(html).not.toContain("NaN");
+  });
+});
+describe("bounding beams", () => {
+  it("shows the beam-size switch and draws 250 × 500 beams in plan and section", () => {
+    const i = defaultSlabInput();
+    const html = renderToStaticMarkup(
+      <SlabWorkspace cloudReady={false} onSaved={() => {}} />,
+    );
+    for (const text of [
+      "Bounding beams",
+      "Default 250 × 500 mm",
+      "From Estimate section",
+      "One-Way Shear Checks At d From Beam Face",
+    ])
+      expect(html).toContain(text);
+    const bars = resolveSlabBars(i);
+    expect(
+      renderToStaticMarkup(
+        <SlabSection input={i} bars={bars} direction="short" />,
+      ),
+    ).toContain('data-beams="250x500|250x500"');
+    expect(
+      renderToStaticMarkup(<SlabPlan input={i} bars={bars} face="bottom" />),
+    ).toContain("data-plan-beams");
+    // Cantilever: beam at the Fixed root only, free tip has none.
+    const c = {
+      ...i,
+      lx: 1.5,
+      ly: 6,
+      supports: {
+        west: "Fixed",
+        east: "Free",
+        south: "Free",
+        north: "Free",
+      } as const,
+    };
+    expect(
+      renderToStaticMarkup(
+        <SlabSection input={c} bars={resolveSlabBars(c)} direction="short" />,
+      ),
+    ).toContain('data-beams="250x500|free"');
   });
 });
