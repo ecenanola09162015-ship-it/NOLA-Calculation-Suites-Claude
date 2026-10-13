@@ -270,7 +270,9 @@ async function build(
       ? [...data.figures, ...(data.completeFigures ?? [])]
       : data.figures;
   const figures = await Promise.all(
-    figureList.map(async (f) => {
+    figureList
+      .filter((f) => options.type === "complete" || !f.completeOnly)
+      .map(async (f) => {
       let image: PDFImage | null = null;
       try {
         image = await doc.embedPng(f.png ?? (await svgReportPng(f.svg)));

@@ -15,6 +15,7 @@ import {
   slabEffectiveInertia,
   slabTopBarFactor,
   slabSupportLayout,
+  slabLoadPatch,
 } from "../src/modules/slab-design";
 import { solveSlabPlate } from "../src/modules/slab-plate";
 const pinned = {
@@ -399,33 +400,50 @@ describe("ACI 318-19 deflection control (hand calculations)", () => {
     return i;
   };
   it("one-way minimum thickness, Table 7.3.1.1 with 7.3.1.1.1 fy modifier (ℓ = c/c)", () => {
-    // 3.0 x 7.0 m -> one-way, short span X between west and east edges
+    // 3.0 x 7.0 m clear -> one-way, short span X between west and east beams
+    // ℓ = c/c = 3000 + 250/2 + 250/2 = 3250 mm (default 250 x 500 beams)
     const pp = withSupports(3, 7, { west: "Pinned", east: "Pinned" });
-    expect(slabMinimumThickness(pp).hmin).toBeCloseTo(3000 / 20, 6); // 150.0
+    expect(slabMinimumThickness(pp).span).toBeCloseTo(3250, 9);
+    expect(slabMinimumThickness(pp).hmin).toBeCloseTo(3250 / 20, 6); // 162.5
     expect(slabMinimumThickness(pp).continuity).toBe("simply supported");
     const fp = withSupports(3, 7, { west: "Fixed", east: "Pinned" });
-    expect(slabMinimumThickness(fp).hmin).toBeCloseTo(3000 / 24, 6); // 125.0
+    expect(slabMinimumThickness(fp).hmin).toBeCloseTo(3250 / 24, 6); // 135.4
     const ff = withSupports(3, 7, { west: "Fixed", east: "Fixed" });
-    expect(slabMinimumThickness(ff).hmin).toBeCloseTo(3000 / 28, 6); // 107.1
-    // fy = 275: 150 x (0.4 + 275/700) = 150 x 0.79286 = 118.93 mm
+    expect(slabMinimumThickness(ff).hmin).toBeCloseTo(3250 / 28, 6); // 116.1
+    // Estimate beam widths 300 (west) + 400 (east): ℓ = 3000 + 150 + 200 = 3350
+    const est = withSupports(3, 7, { west: "Pinned", east: "Pinned" });
+    est.beams = {
+      source: "estimate",
+      sizes: {
+        ...est.beams.sizes,
+        west: { width: 300, depth: 500 },
+        east: { width: 400, depth: 600 },
+      },
+    };
+    expect(slabMinimumThickness(est).hmin).toBeCloseTo(3350 / 20, 6); // 167.5
+    // fy = 275: 162.5 x (0.4 + 275/700) = 162.5 x 0.79286 = 128.84 mm
     const low = withSupports(
       3,
       7,
       { west: "Pinned", east: "Pinned" },
       { fy: 275 },
     );
-    expect(slabMinimumThickness(low).hmin).toBeCloseTo(118.93, 2);
+    expect(slabMinimumThickness(low).hmin).toBeCloseTo(128.84, 2);
   });
   it("two-way minimum thickness, Table 8.3.1.2 (αfm > 2.0) with 90 mm floor", () => {
-    // Default 4.3 x 2.5, 300 supports: ℓn = 4000, β = 4000/2200 = 1.818
-    // 4000 x 1.1 / (36 + 16.364) = 84.03 -> 90 mm governs
+    // Lx/Ly are clear spans: default 4.3 x 2.5 -> ℓn = 4300, β = 4300/2500 = 1.72
+    // 4300 x 1.1 / (36 + 15.48) = 4730 / 51.48 = 91.88 mm (> 90 floor)
     const d = slabMinimumThickness(defaultSlabInput());
     expect(d.system).toBe("two-way");
-    expect(d.beta).toBeCloseTo(4000 / 2200, 6);
-    expect(d.hmin).toBe(90);
-    // 8 x 6: ℓn = 7700, β = 7700/5700 = 1.3509; 8470 / 48.158 = 175.88 mm
+    expect(d.beta).toBeCloseTo(1.72, 9);
+    expect(d.hmin).toBeCloseTo(91.88, 2);
+    // 8 x 6: ℓn = 8000, β = 1.3333; 8800 / 48 = 183.33 mm
     const big = slabMinimumThickness({ ...defaultSlabInput(), lx: 8, ly: 6 });
-    expect(big.hmin).toBeCloseTo(175.88, 2);
+    expect(big.hmin).toBeCloseTo(183.33, 2);
+    // 90 mm floor: 2.0 x 2.0 -> 2000 x 1.1 / 45 = 48.9 -> 90
+    expect(
+      slabMinimumThickness({ ...defaultSlabInput(), lx: 2, ly: 2 }).hmin,
+    ).toBe(90);
   });
   it("cracked section and effective inertia, Table 24.2.3.5", () => {
     // h 150, Ø12 @ 150 (As = 753.98 mm²/m), d = 124, f'c 28, Es 200000
@@ -466,23 +484,26 @@ describe("ACI 318-19 deflection control (hand calculations)", () => {
     expect(r.status).toBe("REVISE");
   });
   it("h >= hmin waives calculated deflection; exceedance is information only", () => {
-    // 6 x 6 two-way: ℓn = 5700, β = 1: 5700 x 1.1 / 45 = 139.33 -> h = 140 mm
+    // 6 x 6 two-way: ℓn = 6000, β = 1: 6000 x 1.1 / 45 = 146.67 -> h = 147 mm
     const i = {
       ...defaultSlabInput(),
       lx: 6,
       ly: 6,
-      h: 140,
+      h: 147,
       live: 10,
       deflectionDivisor: 500,
     };
     const r = analyzeSlab(i);
     const d = r.deflection;
-    expect(d.minimumThickness.hmin).toBeCloseTo(139.33, 2);
+    expect(d.minimumThickness.hmin).toBeCloseTo(146.67, 2);
+    // Limit uses ℓ = c/c = 6000 + 125 + 125 = 6250: 6250 / 500 = 12.5 mm
+    expect(d.span).toBeCloseTo(6250, 9);
+    expect(d.limit).toBeCloseTo(12.5, 9);
     expect(d.governedBy).toBe("thickness");
     expect(d.crackedImmediate).toBeGreaterThan(d.limit);
     expect(d.ok).toBe(true);
     expect(
-      r.warnings.some((w) => w.startsWith("Information: h = 140 mm")),
+      r.warnings.some((w) => w.startsWith("Information: h = 147 mm")),
     ).toBe(true);
   });
 });
@@ -571,7 +592,16 @@ describe("point (patch) loads and ACI 318-19 22.6 punching shear", () => {
         {
           ...base,
           pointLoads: [
-            { id: "P1", x: 2, y: 2, bx: 300, by: 300, dead: 100, live: 0 },
+            {
+              kind: "point" as const,
+              id: "P1",
+              x: 2,
+              y: 2,
+              bx: 300,
+              by: 300,
+              dead: 100,
+              live: 0,
+            },
           ],
         },
         false,
@@ -587,7 +617,7 @@ describe("point (patch) loads and ACI 318-19 22.6 punching shear", () => {
     const r = analyzeSlab(defaultSlabInput());
     expect(r.punching).toEqual([]);
     expect(r.shear.every((v) => !v.concentratedWithinD)).toBe(true);
-    expect(r.engineVersion).toBe("slab-0.4.0");
+    expect(r.engineVersion).toBe("slab-0.6.0");
   });
   it("interior punching, hand calculation (h 200, 300 × 300, PD 150 + PL 100)", () => {
     const r = analyzeSlab(
@@ -598,7 +628,16 @@ describe("point (patch) loads and ACI 318-19 22.6 punching shear", () => {
         h: 200,
         loads: lc1,
         pointLoads: [
-          { id: "P1", x: 2.5, y: 2.5, bx: 300, by: 300, dead: 150, live: 100 },
+          {
+            kind: "point" as const,
+            id: "P1",
+            x: 2.5,
+            y: 2.5,
+            bx: 300,
+            by: 300,
+            dead: 150,
+            live: 100,
+          },
         ],
       },
       false,
@@ -625,7 +664,7 @@ describe("point (patch) loads and ACI 318-19 22.6 punching shear", () => {
     expect(p.vu).toBeCloseTo(342.697, 3);
     expect(p.dcr).toBeCloseTo(342.697 / 411.879, 3); // 0.832
   });
-  it("edge punching truncated at the support face, λs < 1 (h 300, 400 × 250 at 0.45 m from the west line)", () => {
+  it("edge punching truncated at the support face, λs < 1 (h 300, 400 × 250 at 0.30 m from the west beam face)", () => {
     const r = analyzeSlab(
       {
         ...defaultSlabInput(),
@@ -640,14 +679,23 @@ describe("point (patch) loads and ACI 318-19 22.6 punching shear", () => {
           north: "Pinned",
         },
         pointLoads: [
-          { id: "E1", x: 0.45, y: 4.5, bx: 400, by: 250, dead: 120, live: 80 },
+          {
+            kind: "point" as const,
+            id: "E1",
+            x: 0.3,
+            y: 4.5,
+            bx: 400,
+            by: 250,
+            dead: 120,
+            live: 80,
+          },
         ],
       },
       false,
     );
     const p = r.punching[0];
-    // d = (274 + 262)/2 = 268 mm; support face at 300/2 = 150 mm.
-    // x: 450 − 200 − 134 = 116 < 150 -> west side dropped; x1 = 784 -> wx = 784 − 150 = 634 mm
+    // d = (274 + 262)/2 = 268 mm; support (beam) face = slab edge x = 0 (clear spans).
+    // x: 300 − 200 − 134 = −34 < 0 -> west side dropped; x1 = 634 -> wx = 634 − 0 = 634 mm
     // y: 4500 ± (125 + 134) -> wy = 518 mm; b0 = 518 + 2 × 634 = 1786 mm; 3 sides -> αs = 30
     expect(p.d).toBeCloseTo(268, 9);
     expect(p.b0).toBeCloseTo(1786, 9);
@@ -673,7 +721,16 @@ describe("point (patch) loads and ACI 318-19 22.6 punching shear", () => {
         loads: lc1,
         pointLoads: [
           // Loaded area starts 0.25 m from the west line < d = 0.274 m
-          { id: "E1", x: 0.45, y: 4.5, bx: 400, by: 250, dead: 120, live: 80 },
+          {
+            kind: "point" as const,
+            id: "E1",
+            x: 0.45,
+            y: 4.5,
+            bx: 400,
+            by: 250,
+            dead: 120,
+            live: 80,
+          },
         ],
       },
       false,
@@ -712,7 +769,16 @@ describe("point (patch) loads and ACI 318-19 22.6 punching shear", () => {
         {
           ...base,
           pointLoads: [
-            { id: "P1", x: 1.2, y: 1.5, bx: 300, by: 300, dead: 40, live: 0 },
+            {
+              kind: "point" as const,
+              id: "P1",
+              x: 1.2,
+              y: 1.5,
+              bx: 300,
+              by: 300,
+              dead: 40,
+              live: 0,
+            },
           ],
         },
         false,
@@ -721,7 +787,16 @@ describe("point (patch) loads and ACI 318-19 22.6 punching shear", () => {
         {
           ...base,
           pointLoads: [
-            { id: "P1", x: 1.2, y: 1.5, bx: 300, by: 300, dead: 40, live: 60 },
+            {
+              kind: "point" as const,
+              id: "P1",
+              x: 1.2,
+              y: 1.5,
+              bx: 300,
+              by: 300,
+              dead: 40,
+              live: 60,
+            },
           ],
         },
         false,
@@ -749,7 +824,16 @@ describe("point (patch) loads and ACI 318-19 22.6 punching shear", () => {
         h: 250,
         loads: lc1,
         pointLoads: [
-          { id: "P1", x: 2.5, y: 2.5, bx: 150, by: 150, dead: 300, live: 200 },
+          {
+            kind: "point" as const,
+            id: "P1",
+            x: 2.5,
+            y: 2.5,
+            bx: 150,
+            by: 150,
+            dead: 300,
+            live: 200,
+          },
         ],
       },
       false,
@@ -762,7 +846,16 @@ describe("point (patch) loads and ACI 318-19 22.6 punching shear", () => {
       analyzeSlab({
         ...defaultSlabInput(),
         pointLoads: [
-          { id: "P1", x: 0.1, y: 1, bx: 300, by: 300, dead: 10, live: 0 },
+          {
+            kind: "point" as const,
+            id: "P1",
+            x: 0.1,
+            y: 1,
+            bx: 300,
+            by: 300,
+            dead: 10,
+            live: 0,
+          },
         ],
       }),
     ).toThrow(/within the slab panel/);
@@ -902,11 +995,38 @@ describe("cantilever slabs (one Fixed edge, three Free edges)", () => {
       cantilever("west", {
         pointLoads: [
           // 0.2 m from the tip: closed 4-sided fits but the 3-sided open perimeter governs
-          { id: "P1", x: 1.3, y: 3, bx: 200, by: 200, dead: 10, live: 5 },
+          {
+            kind: "point" as const,
+            id: "P1",
+            x: 1.3,
+            y: 3,
+            bx: 200,
+            by: 200,
+            dead: 10,
+            live: 5,
+          },
           // at the free corner
-          { id: "P2", x: 1.35, y: 0.2, bx: 150, by: 150, dead: 8, live: 0 },
+          {
+            kind: "point" as const,
+            id: "P2",
+            x: 1.35,
+            y: 0.2,
+            bx: 150,
+            by: 150,
+            dead: 8,
+            live: 0,
+          },
           // interior
-          { id: "P3", x: 0.75, y: 3, bx: 200, by: 200, dead: 10, live: 0 },
+          {
+            kind: "point" as const,
+            id: "P3",
+            x: 0.75,
+            y: 3,
+            bx: 200,
+            by: 200,
+            dead: 10,
+            live: 0,
+          },
         ],
       }),
       false,
@@ -935,5 +1055,333 @@ describe("cantilever slabs (one Fixed edge, three Free edges)", () => {
     expect(r.type).toBe("two-way");
     expect(r.deflection.ieAt).toBe("midspan");
     expect(r.detailing.anchorage).toBeNull();
+  });
+});
+describe("line and area loads", () => {
+  const lc1 = [
+    {
+      id: "LC1",
+      deadFactor: 1.2,
+      liveFactor: 1.6,
+      serviceLiveFactor: 1,
+      included: true,
+    },
+  ];
+  it("converts line and area loads to loaded rectangles and resultants", () => {
+    // Line along X from (1, 2), 3 m long, 200 mm thick: 5 kN/m x 3 = 15 kN
+    expect(
+      slabLoadPatch({
+        kind: "line",
+        id: "W1",
+        x: 1,
+        y: 2,
+        direction: "X",
+        length: 3,
+        thickness: 200,
+        dead: 5,
+        live: 1,
+      }),
+    ).toEqual({
+      id: "W1",
+      kind: "line",
+      x0: 1,
+      x1: 4,
+      y0: 1.9,
+      y1: 2.1,
+      dead: 15,
+      live: 3,
+    });
+    // Area 2000 x 1000 mm at (2, 2): 3 kPa x 2 m² = 6 kN
+    expect(
+      slabLoadPatch({
+        kind: "area",
+        id: "A1",
+        x: 2,
+        y: 2,
+        bx: 2000,
+        by: 1000,
+        dead: 3,
+        live: 2,
+      }),
+    ).toEqual({
+      id: "A1",
+      kind: "area",
+      x0: 1,
+      x1: 3,
+      y0: 1.5,
+      y1: 2.5,
+      dead: 6,
+      live: 4,
+    });
+  });
+  it("full-width line load matches the Navier plate solution (SS 3 x 8 m)", () => {
+    const pin = {
+      west: "Pinned",
+      east: "Pinned",
+      south: "Pinned",
+      north: "Pinned",
+    } as const;
+    const base = {
+      ...defaultSlabInput(),
+      lx: 3,
+      ly: 8,
+      h: 150,
+      loads: lc1,
+      supports: pin,
+    };
+    const r0 = analyzeSlab(base, false),
+      r1 = analyzeSlab(
+        {
+          ...base,
+          pointLoads: [
+            {
+              kind: "line",
+              id: "W1",
+              x: 1.5,
+              y: 0,
+              direction: "Y",
+              length: 8,
+              thickness: 150,
+              dead: 10,
+              live: 0,
+            },
+          ],
+        },
+        false,
+      );
+    // Navier mx at (1.5, 4) for P = 1 over 0.3 m (150 + h) x 8 m strip, ν = 0.2
+    let m = 0;
+    const pi = Math.PI,
+      a = 3,
+      b = 8,
+      u = 0.3,
+      q0 = 1 / (u * b);
+    for (let i = 1; i <= 400; i += 2)
+      for (let j = 1; j <= 400; j += 2) {
+        const qmn =
+          ((16 * q0) / (pi * pi * i * j)) *
+          Math.sin((i * pi * 1.5) / a) *
+          Math.sin((j * pi * 4) / b) *
+          Math.sin((i * pi * u) / (2 * a)) *
+          Math.sin((j * pi) / 2);
+        const k = (i / a) ** 2 + (j / b) ** 2;
+        m +=
+          (qmn / (pi ** 4 * k * k)) *
+          pi *
+          pi *
+          ((i / a) ** 2 + 0.2 * (j / b) ** 2) *
+          Math.sin((i * pi * 1.5) / a) *
+          Math.sin((j * pi * 4) / b);
+      }
+    // ≈ 0.0829 per kN: 6.9 % below the beam value wL/4 − wb/8 (short-edge restraint)
+    const delta = r1.regions[0].mu - r0.regions[0].mu,
+      expected = 1.2 * 10 * 8 * m;
+    expect(delta / expected).toBeGreaterThan(0.995);
+    expect(delta / expected).toBeLessThan(1.015);
+    expect(r1.punching).toEqual([]);
+  });
+  it("a full-panel area load equals the same kPa added to SDL (within 0.2 %)", () => {
+    const base = { ...defaultSlabInput(), lx: 5, ly: 6, h: 180, loads: lc1 };
+    const sdl = analyzeSlab({ ...base, sdl: base.sdl + 2 }, false),
+      area = analyzeSlab(
+        {
+          ...base,
+          pointLoads: [
+            {
+              kind: "area",
+              id: "A1",
+              x: 2.5,
+              y: 3,
+              bx: 5000,
+              by: 6000,
+              dead: 2,
+              live: 0,
+            },
+          ],
+        },
+        false,
+      );
+    area.regions.forEach((g, k) =>
+      expect(Math.abs(g.mu / sdl.regions[k].mu - 1)).toBeLessThan(0.002),
+    );
+  });
+  it("cantilever parapet line load: root moment = w x lever arm (dispersion keeps the centroid)", () => {
+    const r = (pl: ReturnType<typeof defaultSlabInput>["pointLoads"]) =>
+      analyzeSlab(
+        {
+          ...defaultSlabInput(),
+          lx: 1.5,
+          ly: 6,
+          h: 180,
+          loads: lc1,
+          supports: {
+            west: "Fixed",
+            east: "Free",
+            south: "Free",
+            north: "Free",
+          },
+          pointLoads: pl,
+        },
+        false,
+      ).regions.find((g) => g.id === "short-negative")!.mu;
+    // 200 mm parapet centred 0.1 m from the tip: lever arm 1.4 m, w = 4 kN/m -> 1.2 x 4 x 1.4 = 6.72 kN·m/m
+    const delta =
+      r([
+        {
+          kind: "line",
+          id: "PP",
+          x: 1.4,
+          y: 0,
+          direction: "Y",
+          length: 6,
+          thickness: 200,
+          dead: 4,
+          live: 0,
+        },
+      ]) - r([]);
+    expect(delta / (1.2 * 4 * 1.4)).toBeGreaterThan(0.99);
+    expect(delta / (1.2 * 4 * 1.4)).toBeLessThan(1.04);
+  });
+  it("punching is for point loads only; 7.4.3.2(c) applies to point and line loads, not area loads", () => {
+    const base = { ...defaultSlabInput(), lx: 3, ly: 9, h: 300, loads: lc1 };
+    const line = analyzeSlab(
+      {
+        ...base,
+        pointLoads: [
+          {
+            kind: "line",
+            id: "W1",
+            x: 0.2,
+            y: 2,
+            direction: "Y",
+            length: 5,
+            thickness: 150,
+            dead: 8,
+            live: 0,
+          },
+        ],
+      },
+      false,
+    );
+    expect(line.shear.find((v) => v.edge === "west")!.concentratedWithinD).toBe(
+      true,
+    );
+    const area = analyzeSlab(
+      {
+        ...base,
+        pointLoads: [
+          {
+            kind: "area",
+            id: "A1",
+            x: 0.3,
+            y: 4,
+            bx: 400,
+            by: 1000,
+            dead: 5,
+            live: 0,
+          },
+        ],
+      },
+      false,
+    );
+    expect(area.shear.find((v) => v.edge === "west")!.concentratedWithinD).toBe(
+      false,
+    );
+    const mixed = analyzeSlab(
+      {
+        ...base,
+        pointLoads: [
+          {
+            kind: "point",
+            id: "P1",
+            x: 1.5,
+            y: 6,
+            bx: 300,
+            by: 300,
+            dead: 20,
+            live: 0,
+          },
+          {
+            kind: "line",
+            id: "W1",
+            x: 0.2,
+            y: 2,
+            direction: "Y",
+            length: 5,
+            thickness: 150,
+            dead: 8,
+            live: 0,
+          },
+          {
+            kind: "area",
+            id: "A1",
+            x: 1.5,
+            y: 8,
+            bx: 1000,
+            by: 1000,
+            dead: 5,
+            live: 0,
+          },
+        ],
+      },
+      false,
+    );
+    expect(mixed.punching.map((p) => p.id)).toEqual(["P1"]);
+  });
+  it("warns about double counting walls in Partition, validates extents, keeps legacy point loads", () => {
+    const r = analyzeSlab(
+      {
+        ...defaultSlabInput(),
+        partition: 1,
+        pointLoads: [
+          {
+            kind: "line",
+            id: "W1",
+            x: 0.5,
+            y: 1,
+            direction: "X",
+            length: 2,
+            thickness: 150,
+            dead: 6,
+            live: 0,
+          },
+        ],
+      },
+      false,
+    );
+    expect(
+      r.warnings.some(
+        (w) => w.startsWith("Double counting") && w.includes("W1"),
+      ),
+    ).toBe(true);
+    expect(() =>
+      analyzeSlab({
+        ...defaultSlabInput(),
+        pointLoads: [
+          {
+            kind: "line",
+            id: "W1",
+            x: 3,
+            y: 1,
+            direction: "X",
+            length: 2,
+            thickness: 150,
+            dead: 6,
+            live: 0,
+          },
+        ],
+      }),
+    ).toThrow(/must lie within the slab panel/);
+    const parsed = slabDraftSchema.parse({
+      kind: "slab",
+      version: 1,
+      input: {
+        ...defaultSlabInput(),
+        pointLoads: [
+          { id: "P1", x: 2, y: 1, bx: 300, by: 300, dead: 10, live: 0 },
+        ],
+      },
+    });
+    expect(parsed.input.pointLoads[0].kind).toBe("point");
   });
 });
