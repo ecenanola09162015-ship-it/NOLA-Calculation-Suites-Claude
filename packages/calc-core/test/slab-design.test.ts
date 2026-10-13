@@ -522,3 +522,256 @@ describe("ACI 318-19 √f′c ≤ 8.3 MPa limit (22.5.3.1, 25.4.1.4)", () => {
     expect(slabDevelopmentLength(i, bar)).toBeCloseTo(797.37, 1);
   });
 });
+describe("point (patch) loads and ACI 318-19 22.6 punching shear", () => {
+  const lc1 = [
+    {
+      id: "LC1",
+      deadFactor: 1.2,
+      liveFactor: 1.6,
+      serviceLiveFactor: 1,
+      included: true,
+    },
+  ];
+  /** Navier mx at the centre of an SS square under a central u × u patch, per unit total load. */
+  function navierPatchCentre(u: number, nu: number, terms = 400) {
+    let mx = 0;
+    const pi = Math.PI;
+    for (let m = 1; m <= terms; m += 2)
+      for (let n = 1; n <= terms; n += 2) {
+        const qmn =
+          (16 / (u * u * pi * pi * m * n)) *
+          Math.sin((m * pi) / 2) *
+          Math.sin((n * pi) / 2) *
+          Math.sin((m * pi * u) / 2) *
+          Math.sin((n * pi * u) / 2);
+        const k = m * m + n * n;
+        mx +=
+          (qmn / (pi ** 4 * k * k)) *
+          pi *
+          pi *
+          (m * m + nu * n * n) *
+          Math.sin((m * pi) / 2) *
+          Math.sin((n * pi) / 2);
+      }
+    return mx;
+  }
+  it("superposes the plate-FE point-load moment on the uniform solution (SS 4 × 4 m vs Navier)", () => {
+    // P = 100 kN dead on 300 × 300; dispersed to mid-plane: 300 + h = 500 mm -> u = 0.5/4 = 0.125.
+    const base = {
+      ...defaultSlabInput(),
+      lx: 4,
+      ly: 4,
+      h: 200,
+      supports: pinned,
+      loads: lc1,
+    };
+    const without = analyzeSlab(base, false),
+      withP = analyzeSlab(
+        {
+          ...base,
+          pointLoads: [
+            { id: "P1", x: 2, y: 2, bx: 300, by: 300, dead: 100, live: 0 },
+          ],
+        },
+        false,
+      );
+    const m = navierPatchCentre(0.125, 0.2); // ≈ 0.2405 kN·m/m per kN
+    const delta = withP.regions[0].mu - without.regions[0].mu;
+    expect(delta / (1.2 * 100 * m)).toBeGreaterThan(0.995);
+    expect(delta / (1.2 * 100 * m)).toBeLessThan(1.015);
+    expect(withP.regions[0].position).toBeCloseTo(0.5, 6);
+    expect(withP.method).toContain("point loads: Kirchhoff plate FE");
+  });
+  it("leaves results unchanged when no point loads are entered", () => {
+    const r = analyzeSlab(defaultSlabInput());
+    expect(r.punching).toEqual([]);
+    expect(r.shear.every((v) => !v.concentratedWithinD)).toBe(true);
+    expect(r.engineVersion).toBe("slab-0.3.0");
+  });
+  it("interior punching, hand calculation (h 200, 300 × 300, PD 150 + PL 100)", () => {
+    const r = analyzeSlab(
+      {
+        ...defaultSlabInput(),
+        lx: 5,
+        ly: 5,
+        h: 200,
+        loads: lc1,
+        pointLoads: [
+          { id: "P1", x: 2.5, y: 2.5, bx: 300, by: 300, dead: 150, live: 100 },
+        ],
+      },
+      false,
+    );
+    const p = r.punching[0];
+    // d = [(200 − 20 − 6) + (200 − 20 − 12 − 6)]/2 = (174 + 162)/2 = 168 mm (22.6.2.1)
+    expect(p.d).toBeCloseTo(168, 9);
+    // b0 = 4 (300 + 168) = 1872 mm; interior: 4 sides, αs = 40; β = 1
+    expect(p.b0).toBeCloseTo(1872, 9);
+    expect([p.sides, p.alphaS, p.beta]).toEqual([4, 40, 1]);
+    // λs = min(1, √[2/(1 + 0.004 × 168)]) = min(1, 1.094) = 1
+    expect(p.lambdaS).toBe(1);
+    // vc = √28 × min(0.33, 0.17 × 3, 0.083(2 + 40 × 168/1872)) = 5.2915 × min(0.33, 0.51, 0.4640) = 1.7462 MPa
+    expect(p.vc).toBeCloseTo(0.33 * Math.sqrt(28), 9);
+    expect(p.vcLimits[2]).toBeCloseTo(
+      0.083 * (2 + (40 * 168) / 1872) * Math.sqrt(28),
+      9,
+    );
+    // φVc = 0.75 × 1.7462 × 1872 × 168 / 1000 = 411.88 kN
+    expect(p.phiVc).toBeCloseTo(411.88, 2);
+    // Vu = 1.2 × 150 + 1.6 × 100 + wu × 0.468² ; D = 0.2 × 24 + 2.4 + 0.5 = 7.7 kPa
+    // wu = 1.2 × 7.7 + 1.6 × 1.92 = 12.312 kPa; A = 0.219024 m² -> Vu = 340 + 2.697 = 342.70 kN
+    expect(p.area).toBeCloseTo(0.219024, 9);
+    expect(p.vu).toBeCloseTo(342.697, 3);
+    expect(p.dcr).toBeCloseTo(342.697 / 411.879, 3); // 0.832
+  });
+  it("edge punching truncated at the support face, λs < 1 (h 300, 400 × 250 at 0.45 m from the west line)", () => {
+    const r = analyzeSlab(
+      {
+        ...defaultSlabInput(),
+        lx: 3,
+        ly: 9,
+        h: 300,
+        loads: lc1,
+        supports: {
+          west: "Fixed",
+          east: "Fixed",
+          south: "Pinned",
+          north: "Pinned",
+        },
+        pointLoads: [
+          { id: "E1", x: 0.45, y: 4.5, bx: 400, by: 250, dead: 120, live: 80 },
+        ],
+      },
+      false,
+    );
+    const p = r.punching[0];
+    // d = (274 + 262)/2 = 268 mm; support face at 300/2 = 150 mm.
+    // x: 450 − 200 − 134 = 116 < 150 -> west side dropped; x1 = 784 -> wx = 784 − 150 = 634 mm
+    // y: 4500 ± (125 + 134) -> wy = 518 mm; b0 = 518 + 2 × 634 = 1786 mm; 3 sides -> αs = 30
+    expect(p.d).toBeCloseTo(268, 9);
+    expect(p.b0).toBeCloseTo(1786, 9);
+    expect([p.sides, p.alphaS]).toEqual([3, 30]);
+    expect(p.beta).toBeCloseTo(1.6, 12);
+    // λs = √[2/(1 + 0.004 × 268)] = √(2/2.072) = 0.98247
+    expect(p.lambdaS).toBeCloseTo(0.982472, 6);
+    // vc = 0.98247 × 5.2915 × min(0.33, 0.17 × 2.25, 0.083(2 + 30 × 268/1786)) = 1.7156 MPa (a governs)
+    expect(p.vc).toBeCloseTo(1.715588, 5);
+    // φVc = 0.75 × 1.7156 × 1786 × 268/1000 = 615.87 kN
+    expect(p.phiVc).toBeCloseTo(615.87, 1);
+    // Vu = 1.2 × 120 + 1.6 × 80 + (1.2 × 10.1 + 1.6 × 1.92) × 0.634 × 0.518 = 272 + 4.989 = 276.99 kN
+    expect(p.vu).toBeCloseTo(276.989, 2);
+    expect(r.warnings.some((w) => w.includes("3-sided perimeter"))).toBe(true);
+  });
+  it("moves one-way shear to the support line for a load within d (7.4.3.2(c))", () => {
+    const r = analyzeSlab(
+      {
+        ...defaultSlabInput(),
+        lx: 3,
+        ly: 9,
+        h: 300,
+        loads: lc1,
+        pointLoads: [
+          // Loaded area starts 0.25 m from the west line < d = 0.274 m
+          { id: "E1", x: 0.45, y: 4.5, bx: 400, by: 250, dead: 120, live: 80 },
+        ],
+      },
+      false,
+    );
+    const west = r.shear.find((v) => v.edge === "west")!,
+      east = r.shear.find((v) => v.edge === "east")!;
+    expect(west.concentratedWithinD).toBe(true);
+    expect(west.section).toBe(0);
+    expect(east.concentratedWithinD).toBe(false);
+    expect(east.section).toBeCloseTo(274, 9);
+    // Long-span edges of a one-way panel are checked once point loads exist.
+    expect(r.shear.map((v) => v.edge).sort()).toEqual([
+      "east",
+      "north",
+      "south",
+      "west",
+    ]);
+    // Without the load the strip gives the familiar one-way demand at d:
+    // Vu = wu (0.5 × 3 − 0.274) = 15.192 × 1.226 = 18.625 kN/m
+    const plain = analyzeSlab(
+      { ...defaultSlabInput(), lx: 3, ly: 9, h: 300, loads: lc1 },
+      false,
+    ).shear.find((v) => v.edge === "west")!;
+    expect(plain.vu).toBeCloseTo(15.192 * (1.5 - 0.274), 6);
+    expect(west.vu).toBeGreaterThan(plain.vu);
+  });
+  it("counts live point loads only where adverse and never reduces demand", () => {
+    const base = {
+      ...defaultSlabInput(),
+      lx: 5,
+      ly: 6,
+      h: 200,
+      loads: lc1,
+    };
+    const deadOnly = analyzeSlab(
+        {
+          ...base,
+          pointLoads: [
+            { id: "P1", x: 1.2, y: 1.5, bx: 300, by: 300, dead: 40, live: 0 },
+          ],
+        },
+        false,
+      ),
+      withLive = analyzeSlab(
+        {
+          ...base,
+          pointLoads: [
+            { id: "P1", x: 1.2, y: 1.5, bx: 300, by: 300, dead: 40, live: 60 },
+          ],
+        },
+        false,
+      );
+    withLive.regions.forEach((g, k) =>
+      expect(g.mu).toBeGreaterThanOrEqual(deadOnly.regions[k].mu - 1e-9),
+    );
+    withLive.shear.forEach((v, k) =>
+      expect(v.vu).toBeGreaterThanOrEqual(deadOnly.shear[k].vu - 1e-9),
+    );
+    expect(withLive.punching[0].vu - deadOnly.punching[0].vu).toBeCloseTo(
+      1.6 * 60,
+      9,
+    );
+    expect(withLive.deflection.immediate).toBeGreaterThan(
+      deadOnly.deflection.immediate,
+    );
+  });
+  it("governs status: REVISE when punching DCR exceeds the limit", () => {
+    const r = analyzeSlab(
+      {
+        ...defaultSlabInput(),
+        lx: 5,
+        ly: 5,
+        h: 250,
+        loads: lc1,
+        pointLoads: [
+          { id: "P1", x: 2.5, y: 2.5, bx: 150, by: 150, dead: 300, live: 200 },
+        ],
+      },
+      false,
+    );
+    expect(r.punching[0].dcr).toBeGreaterThan(1);
+    expect(r.status).toBe("REVISE");
+  });
+  it("validates loaded areas inside the panel and keeps legacy drafts loadable", () => {
+    expect(() =>
+      analyzeSlab({
+        ...defaultSlabInput(),
+        pointLoads: [
+          { id: "P1", x: 0.1, y: 1, bx: 300, by: 300, dead: 10, live: 0 },
+        ],
+      }),
+    ).toThrow(/within the slab panel/);
+    const { pointLoads: _omit, ...legacy } = defaultSlabInput();
+    void _omit;
+    const parsed = slabDraftSchema.parse({
+      kind: "slab",
+      version: 1,
+      input: legacy,
+    });
+    expect(parsed.input.pointLoads).toEqual([]);
+  });
+});

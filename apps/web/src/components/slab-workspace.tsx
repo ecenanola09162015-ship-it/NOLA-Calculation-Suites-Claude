@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useRef, useState } from "react";
+import { useDeferredValue, useMemo, useRef, useState } from "react";
 import {
   analyzeSlab,
   defaultDesignCheckPolicy,
@@ -116,16 +116,19 @@ export function SlabWorkspace({
     SlabResult["recommendations"]
   >([]);
   const editVersion = useRef(0);
+  // Point loads add a plate FE solve (~0.1–0.5 s): defer the analysis so
+  // typing stays responsive; results follow the latest input when idle.
+  const analysedInput = useDeferredValue(input);
   const analysis = useMemo(() => {
     try {
-      return { result: analyzeSlab(input, false), error: "" };
+      return { result: analyzeSlab(analysedInput, false), error: "" };
     } catch (e) {
       return {
         result: null,
         error: e instanceof Error ? e.message : "Check numerical inputs.",
       };
     }
-  }, [input]);
+  }, [analysedInput]);
   const bars = useMemo(() => {
     try {
       return resolveSlabBars(input);
@@ -135,6 +138,7 @@ export function SlabWorkspace({
   }, [input]);
   const r = analysis.result,
     oneWay = Math.max(input.lx, input.ly) / Math.min(input.lx, input.ly) >= 2;
+  const pointLoads = input.pointLoads ?? [];
   function update(next: SlabInput) {
     editVersion.current++;
     setInput(next);
@@ -896,6 +900,119 @@ export function SlabWorkspace({
                 Append combinations
               </button>
             </details>
+            <h2>Point Loads</h2>
+            <p className="slabMuted">
+              Concentrated loads on a loaded area bx × by. Centre (x, y) from
+              the south-west corner along X (west→east) and Y (south→north).
+              Unfactored dead PD and live PL; combinations apply γD and γL.
+              Flexure, shear and deflection disperse the load at 45° to the
+              mid-plane; punching uses the loaded area (ACI 318-19 22.6).
+            </p>
+            {pointLoads.length > 0 && (
+              <div className="slabTableWrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>x m</th>
+                      <th>y m</th>
+                      <th>bx mm</th>
+                      <th>by mm</th>
+                      <th>PD kN</th>
+                      <th>PL kN</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pointLoads.map((p, k) => (
+                      <tr key={k}>
+                        <td>
+                          <input
+                            aria-label={`Point load ${k + 1} ID`}
+                            value={p.id}
+                            onChange={(e) =>
+                              update({
+                                ...input,
+                                pointLoads: pointLoads.map((a, n) =>
+                                  n === k ? { ...a, id: e.target.value } : a,
+                                ),
+                              })
+                            }
+                          />
+                        </td>
+                        {(["x", "y", "bx", "by", "dead", "live"] as const).map(
+                          (key) => (
+                            <td key={key}>
+                              <input
+                                aria-label={`${p.id} ${key}`}
+                                type="number"
+                                step="any"
+                                value={Number.isFinite(p[key]) ? p[key] : ""}
+                                onChange={(e) =>
+                                  update({
+                                    ...input,
+                                    pointLoads: pointLoads.map((a, n) =>
+                                      n === k
+                                        ? {
+                                            ...a,
+                                            [key]:
+                                              e.target.value === ""
+                                                ? NaN
+                                                : Number(e.target.value),
+                                          }
+                                        : a,
+                                    ),
+                                  })
+                                }
+                              />
+                            </td>
+                          ),
+                        )}
+                        <td>
+                          <button
+                            onClick={() =>
+                              update({
+                                ...input,
+                                pointLoads: pointLoads.filter(
+                                  (_, n) => n !== k,
+                                ),
+                              })
+                            }
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <button
+              className="suiteSecondary"
+              disabled={pointLoads.length >= 20}
+              onClick={() => {
+                let n = pointLoads.length + 1;
+                while (pointLoads.some((p) => p.id === `P${n}`)) n++;
+                update({
+                  ...input,
+                  pointLoads: [
+                    ...pointLoads,
+                    {
+                      id: `P${n}`,
+                      x: Number.isFinite(input.lx) ? input.lx / 2 : 1,
+                      y: Number.isFinite(input.ly) ? input.ly / 2 : 1,
+                      bx: 300,
+                      by: 300,
+                      dead: 10,
+                      live: 0,
+                    },
+                  ],
+                });
+              }}
+            >
+              ＋ Point Load
+            </button>
             {r && (
               <>
                 <h3>Analysis Method</h3>
@@ -959,6 +1076,25 @@ export function SlabWorkspace({
                     {r.detailing.ok ? "SCREEN OK" : "Detailing Review Required"}
                   </dd>
                 </div>
+                {r.punching.length > 0 && (
+                  <div>
+                    <dt>Punching</dt>
+                    <dd>
+                      {r.punching.every((p) => p.dcr <= input.dcrLimit)
+                        ? "OK"
+                        : "REVISE"}{" "}
+                      · DCR{" "}
+                      {fmt(
+                        Math.max(
+                          ...r.punching.map((p) =>
+                            Number.isFinite(p.dcr) ? p.dcr : 0,
+                          ),
+                        ),
+                        3,
+                      )}
+                    </dd>
+                  </div>
+                )}
                 <div>
                   <dt>Min. thickness</dt>
                   <dd>
@@ -1216,6 +1352,12 @@ export function SlabWorkspace({
             </table>
           </div>
           <h3>One-Way Shear Checks At d From Idealized Support Line</h3>
+          {r.shear.some((v) => v.concentratedWithinD) && (
+            <p className="slabMuted">
+              Edges marked “support” carry a point load within d and are checked
+              at the support line (ACI 318-19 7.4.3.2(c)).
+            </p>
+          )}
           <div className="slabTableWrap">
             <table>
               <thead>
@@ -1233,7 +1375,10 @@ export function SlabWorkspace({
               <tbody>
                 {r.shear.map((v) => (
                   <tr key={v.edge}>
-                    <th>{v.edge}</th>
+                    <th>
+                      {v.edge}
+                      {v.concentratedWithinD ? " · support" : ""}
+                    </th>
                     <td>{v.combination}</td>
                     <td>{fmt(v.vu)}</td>
                     <td>{fmt(v.d, 1)}</td>
@@ -1256,6 +1401,65 @@ export function SlabWorkspace({
             0.42√f′c bwd; √f′c ≤ 8.3 MPa (22.5.3.1); ϕ = 0.75. Only main steel
             is credited in ρw. λs = min(1,√[2/(1+0.004d)]).
           </p>
+          {r.punching.length > 0 && (
+            <>
+              <h3>Punching Shear At Point Loads</h3>
+              <div className="slabTableWrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Load</th>
+                      <th>Combo</th>
+                      <th>Vu kN</th>
+                      <th>d mm</th>
+                      <th>b0 mm</th>
+                      <th>Sides / αs</th>
+                      <th>β</th>
+                      <th>λs</th>
+                      <th>vc MPa</th>
+                      <th>ϕVc kN</th>
+                      <th>DCR</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {r.punching.map((p) => (
+                      <tr key={p.id}>
+                        <th>{p.id}</th>
+                        <td>{p.combination}</td>
+                        <td>{fmt(p.vu)}</td>
+                        <td>{fmt(p.d, 1)}</td>
+                        <td>{fmt(p.b0, 0)}</td>
+                        <td>
+                          {p.sides} / {p.alphaS}
+                        </td>
+                        <td>{fmt(p.beta, 2)}</td>
+                        <td>{fmt(p.lambdaS, 3)}</td>
+                        <td>{fmt(p.vc, 3)}</td>
+                        <td>{fmt(p.phiVc)}</td>
+                        <td>
+                          {Number.isFinite(p.dcr) ? fmt(p.dcr, 3) : "—"}
+                          <br />
+                          <DesignStatus
+                            dcr={Number.isFinite(p.dcr) ? p.dcr : null}
+                            policy={policy}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="slabMuted">
+                ACI 318-19 22.6: critical section at d/2 from the loaded area
+                (22.6.4.1), truncated at support faces (αs = 40 / 30 / 20 for 4
+                / 3 / 2 sides); d = average of the bottom MAIN layers
+                (22.6.2.1). vc = least of 0.33, 0.17(1 + 2/β), 0.083(2 + αs
+                d/b0) × λs√f′c (Table 22.6.5.2); √f′c ≤ 8.3 MPa; ϕ = 0.75. Vu
+                includes the factored uniform load inside the critical section.
+                No shear reinforcement or moment transfer.
+              </p>
+            </>
+          )}
           <h3>Detailing & Serviceability Review</h3>
           <p>
             Minimum thickness: {r.deflection.minimumThickness.formula}

@@ -152,6 +152,15 @@ export function slabFigures(
                 0.65,
               );
     }
+    // Point loads, north up: loaded area outlined in red with its ID.
+    for (const p of i.pointLoads ?? []) {
+      const pw = Math.max(2, (p.bx / 1000) * scale),
+        ph = Math.max(2, (p.by / 1000) * scale),
+        cx = x + p.x * scale,
+        cy = y + h - p.y * scale;
+      body += `<rect x="${cx - pw / 2}" y="${cy - ph / 2}" width="${pw}" height="${ph}" fill="#c0392b" fill-opacity="0.25" stroke="#c0392b" stroke-width="0.6"/>`;
+      body += text(cx + pw / 2 + 1.5, cy - ph / 2 + 3, p.id);
+    }
     body +=
       text(
         6,

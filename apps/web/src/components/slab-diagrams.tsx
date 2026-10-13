@@ -120,6 +120,33 @@ export function SlabPlan({
             y2={!shortX ? y + h * 0.5 : y + h + 15}
           />
         </g>
+        {(i.pointLoads ?? []).length > 0 && (
+          <g data-point-loads fontSize="11" textAnchor="middle">
+            {(i.pointLoads ?? []).map((p) => {
+              const pw = Math.max(4, (p.bx / 1000) * scale),
+                ph = Math.max(4, (p.by / 1000) * scale),
+                cx = x + p.x * scale,
+                cy = y + h - p.y * scale;
+              return (
+                <g key={p.id} aria-label={`Point load ${p.id}`}>
+                  <rect
+                    x={cx - pw / 2}
+                    y={cy - ph / 2}
+                    width={pw}
+                    height={ph}
+                    fill="#c0392b"
+                    fillOpacity="0.25"
+                    stroke="#c0392b"
+                    strokeWidth="1.5"
+                  />
+                  <text x={cx} y={cy - ph / 2 - 4} fill="#8e2a1f">
+                    {p.id}
+                  </text>
+                </g>
+              );
+            })}
+          </g>
+        )}
         <g fill="#263d4d" fontSize="12" textAnchor="middle">
           <text x={x + w / 2} y={y - 30}>
             NORTH · {i.supports.north}

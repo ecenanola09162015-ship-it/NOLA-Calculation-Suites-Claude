@@ -189,7 +189,23 @@ export function slabDesignChecks(i: SlabInput, r: SlabResult): DesignCheck[] {
       id: `shear:${v.edge}`,
       label: `${v.edge} · Shear`,
       dcr: v.dcr,
-      clause: slabClauses.shear(system),
+      clause: v.concentratedWithinD
+        ? slabClauses.shearAtSupport(system)
+        : slabClauses.shear(system),
+      ...(v.concentratedWithinD
+        ? {
+            detail:
+              "Point load within d of the support: critical section taken at the support line.",
+          }
+        : {}),
+    })),
+    ...r.punching.map((p) => ({
+      id: `punching:${p.id}`,
+      label: `${p.id} · Punching Shear`,
+      dcr: Number.isFinite(p.dcr) ? p.dcr : null,
+      clause: slabClauses.punching(),
+      detail: `Vu = ${p.vu.toFixed(1)} kN (${p.combination}) vs φVc = ${p.phiVc.toFixed(1)} kN; loaded area ${p.c1.toFixed(0)} × ${p.c2.toFixed(0)} mm, d = ${p.d.toFixed(1)} mm, b0 = ${p.b0.toFixed(0)} mm (${p.sides} sides, αs = ${p.alphaS}), β = ${p.beta.toFixed(2)}, λs = ${p.lambdaS.toFixed(3)}, vc = ${p.vc.toFixed(3)} MPa.`,
+      invalidLabel: "Not Evaluated · Loaded Area Spans Supports",
     })),
     deflectionCheck(i, r),
   );
