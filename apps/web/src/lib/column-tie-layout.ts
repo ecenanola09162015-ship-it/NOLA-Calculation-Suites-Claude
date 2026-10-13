@@ -100,3 +100,21 @@ export function adoptSectionTieDiameter(
     })),
   };
 }
+
+/**
+ * Cross-tie leg with a 135° hook around each end bar (SVG, y down).
+ * Leg runs tangent to the bars on the +transverse side; each tail leaves the
+ * bar after a 135° wrap and turns away from the leg into the core at 45°
+ * (ACI 318-19 25.3.2, 25.7.1.6). `ext` is the tail length divided by √2.
+ */
+export function crossTieHookPath(
+  a: number,
+  b: number,
+  transverse: number,
+  r: number,
+  ext: number,
+) {
+  const q = r / Math.SQRT2;
+  const t = transverse;
+  return `M ${a - q + ext} ${t - q - ext} L ${a - q} ${t - q} A ${r} ${r} 0 0 0 ${a} ${t + r} L ${b} ${t + r} A ${r} ${r} 0 0 0 ${b + q} ${t - q} L ${b + q - ext} ${t - q - ext}`;
+}
