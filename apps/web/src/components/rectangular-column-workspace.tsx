@@ -28,6 +28,10 @@ import {
   ColumnBiaxialContourPlot,
 } from "./column-diagrams";
 import { ReportExportControls } from "./report-export-controls";
+import {
+  DuplicateSavePrompt,
+  type DraftDuplicate,
+} from "./duplicate-save-prompt";
 import { ColumnQuantityPanel } from "./column-quantity-panel";
 import { NumberField, fmt } from "./column-ui";
 import {
@@ -175,6 +179,7 @@ export function RectangularColumnWorkspace({
   const [message, setMessage] = useState("");
   const [saved, setSaved] = useState(Boolean(restored.success));
   const [busy, setBusy] = useState(false);
+  const [duplicate, setDuplicate] = useState<DraftDuplicate | null>(null);
   const [paste, setPaste] = useState("");
   const [preview, setPreview] = useState<ColumnLoad[] | null>(null);
   const [pasteError, setPasteError] = useState("");
@@ -349,8 +354,10 @@ export function RectangularColumnWorkspace({
       );
     }
   }
-  async function save() {
+  /** opts.overwrite: confirmed in the duplicate prompt; opts.title: save-as name. */
+  async function save(opts: { overwrite?: boolean; title?: string } = {}) {
     if (!project) return;
+    const saveTitle = opts.title ?? title;
     const saveVersion = editVersion.current;
     setBusy(true);
     setMessage("");
@@ -380,11 +387,19 @@ export function RectangularColumnWorkspace({
           id,
           projectId: project.id,
           moduleSlug: "rc-column",
-          title,
+          title: saveTitle,
+          overwrite: opts.overwrite === true,
           payload: parsed.data,
         }),
       });
       const body = await response.json();
+      if (response.status === 409 && body.duplicate) {
+        setDuplicate(body.duplicate);
+        setMessage("");
+        return;
+      }
+      setDuplicate(null);
+      if (opts.title) setTitle(opts.title);
       if (!response.ok)
         throw new Error(body.error ?? "Could not save calculation.");
       setId(body.draft.id);
@@ -475,6 +490,7 @@ export function RectangularColumnWorkspace({
             onChange={(e) => {
               editVersion.current++;
               setTitle(e.target.value);
+              setDuplicate(null);
               setSaved(false);
             }}
           />
@@ -487,7 +503,7 @@ export function RectangularColumnWorkspace({
         <button
           className="suiteSecondary"
           disabled={!project || !cloudReady || busy || !title.trim()}
-          onClick={save}
+          onClick={() => save()}
         >
           {busy ? "Saving…" : "Save to project"}
         </button>
@@ -523,6 +539,15 @@ export function RectangularColumnWorkspace({
           Create or select a project to save your column calculation.
         </p>
       )}
+      {duplicate ? (
+        <DuplicateSavePrompt
+          duplicate={duplicate}
+          busy={busy}
+          onOverwrite={() => save({ overwrite: true })}
+          onSaveAs={(t) => save({ title: t })}
+          onCancel={() => setDuplicate(null)}
+        />
+      ) : null}
       <p className="rcFeedback" role="status" aria-live="polite">
         {message}
       </p>

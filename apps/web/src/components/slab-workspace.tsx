@@ -23,6 +23,10 @@ import {
 import { DesignReviewPanel, DesignStatus } from "./design-review-panel";
 import type { ProjectRecord, CalculationDraftRecord } from "@/lib/projects";
 import { ReportExportControls } from "./report-export-controls";
+import {
+  DuplicateSavePrompt,
+  type DraftDuplicate,
+} from "./duplicate-save-prompt";
 import { SlabQuantityPanel } from "./slab-quantity-panel";
 import { SlabPlan, SlabSection } from "./slab-diagrams";
 import {
@@ -114,6 +118,7 @@ export function SlabWorkspace({
   const [view, setView] = useState<"both" | "bottom" | "top">("both");
   const [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
+    [duplicate, setDuplicate] = useState<DraftDuplicate | null>(null),
     [saved, setSaved] = useState(!!restored.success);
   const [paste, setPaste] = useState(""),
     [loadPreview, setLoadPreview] = useState<SlabInput["loads"] | null>(null),
@@ -294,8 +299,10 @@ export function SlabWorkspace({
       </div>
     );
   }
-  async function save() {
+  /** opts.overwrite: confirmed in the duplicate prompt; opts.title: save-as name. */
+  async function save(opts: { overwrite?: boolean; title?: string } = {}) {
     if (!project) return;
+    const saveTitle = opts.title ?? title;
     const version = editVersion.current;
     setBusy(true);
     setMessage("");
@@ -326,11 +333,19 @@ export function SlabWorkspace({
           id,
           projectId: project.id,
           moduleSlug: "slab",
-          title,
+          title: saveTitle,
+          overwrite: opts.overwrite === true,
           payload: parsed.data,
         }),
       });
       const body = await response.json();
+      if (response.status === 409 && body.duplicate) {
+        setDuplicate(body.duplicate);
+        setMessage("");
+        return;
+      }
+      setDuplicate(null);
+      if (opts.title) setTitle(opts.title);
       if (!response.ok) throw new Error(body.error ?? "Save failed.");
       setId(body.draft.id);
       setSaved(
@@ -391,6 +406,7 @@ export function SlabWorkspace({
             onChange={(e) => {
               editVersion.current++;
               setTitle(e.target.value);
+              setDuplicate(null);
               setSaved(false);
             }}
           />
@@ -411,7 +427,7 @@ export function SlabWorkspace({
         </label>
         <button
           className="suitePrimary"
-          onClick={save}
+          onClick={() => save()}
           disabled={busy || !project || !cloudReady || !r}
         >
           {busy
@@ -464,6 +480,15 @@ export function SlabWorkspace({
         Independent engineering review required.
       </p>
       {!project && <p>Create or select a project to save this calculation.</p>}
+      {duplicate ? (
+        <DuplicateSavePrompt
+          duplicate={duplicate}
+          busy={busy}
+          onOverwrite={() => save({ overwrite: true })}
+          onSaveAs={(t) => save({ title: t })}
+          onCancel={() => setDuplicate(null)}
+        />
+      ) : null}
       {(message || analysis.error) && (
         <p
           className={analysis.error ? "slabError" : "slabFeedback"}

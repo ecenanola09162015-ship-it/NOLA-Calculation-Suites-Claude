@@ -1,5 +1,5 @@
 "use client";
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import Image from "next/image";
 import dynamic from "next/dynamic";
 const RectangularColumnWorkspace = dynamic(
@@ -19,6 +19,7 @@ import {
   createProjectAction,
   createInterfaceDraftAction,
   updateProjectAction,
+  type DuplicateInfo,
 } from "@/app/actions";
 import type { ProjectRecord, CalculationDraftRecord } from "@/lib/projects";
 import { uiCatalogue, type UiModule } from "@/lib/ui-catalogue";
@@ -60,6 +61,9 @@ export function SuiteWorkspace({
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [projectDuplicate, setProjectDuplicate] =
+    useState<DuplicateInfo | null>(null);
+  const newProjectForm = useRef<HTMLFormElement>(null);
   const project = projects.find((item) => item.id === projectId);
   const selectedDraft = drafts.find((item) => item.id === draftId);
   function selectProject(id: string) {
@@ -79,37 +83,58 @@ export function SuiteWorkspace({
   async function createProject(form: FormData) {
     setBusy(true);
     setMessage("");
+    setProjectDuplicate(null);
     try {
-      const item = await createProjectAction(form);
+      const res = await createProjectAction(form);
+      if (!res.ok) {
+        setMessage(res.error);
+        setProjectDuplicate(res.duplicate ?? null);
+        return;
+      }
+      const item = res.value;
       setProjects((previous) => [item, ...previous]);
       selectProject(item.id);
       setNewProject(false);
       setMessage("Project created and saved.");
-    } catch (error) {
-      setMessage(
-        error instanceof Error ? error.message : "Project could not be saved.",
-      );
+    } catch {
+      setMessage("Project could not be saved. Please retry.");
     } finally {
       setBusy(false);
     }
+  }
+  /** Rename: put the suggested free name in the field for the user to edit. */
+  function applySuggestedName(form: HTMLFormElement | null, name: string) {
+    const field = form?.elements.namedItem("name");
+    if (field instanceof HTMLInputElement) {
+      field.value = name;
+      field.focus();
+      field.select();
+    }
+    setProjectDuplicate(null);
+    setMessage("");
   }
   async function editProject(form: FormData) {
     if (!editingProject) return;
     setBusy(true);
     setMessage("");
     try {
-      const item = await updateProjectAction(editingProject.id, form);
+      const res = await updateProjectAction(editingProject.id, form);
+      if (!res.ok) {
+        setMessage(
+          res.duplicate
+            ? `${res.error} Project names must be unique; try "${res.duplicate.suggestion}".`
+            : res.error,
+        );
+        return;
+      }
+      const item = res.value;
       setProjects((previous) =>
         previous.map((p) => (p.id === item.id ? item : p)),
       );
       setEditingProject(null);
       setMessage("Project Information Updated And Saved.");
-    } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Project changes could not be saved.",
-      );
+    } catch {
+      setMessage("Project changes could not be saved.");
     } finally {
       setBusy(false);
     }
@@ -119,18 +144,25 @@ export function SuiteWorkspace({
     setBusy(true);
     setMessage("");
     try {
-      const item = await createInterfaceDraftAction(
+      const res = await createInterfaceDraftAction(
         project.id,
         module.slug,
         title,
       );
+      if (!res.ok) {
+        setMessage(
+          res.duplicate
+            ? `${res.error} Use another title, e.g. "${res.duplicate.suggestion}".`
+            : res.error,
+        );
+        return;
+      }
+      const item = res.value;
       setDrafts((previous) => [item, ...previous]);
       setDraftId(item.id);
       setMessage("Interface draft saved to this project.");
-    } catch (error) {
-      setMessage(
-        error instanceof Error ? error.message : "Draft could not be saved.",
-      );
+    } catch {
+      setMessage("Draft could not be saved.");
     } finally {
       setBusy(false);
     }
@@ -195,6 +227,7 @@ export function SuiteWorkspace({
             className="suitePrimary"
             onClick={() => {
               setNewProject(true);
+              setProjectDuplicate(null);
               setMessage("");
               setExplorer(false);
             }}
@@ -467,7 +500,14 @@ export function SuiteWorkspace({
               </button>
             </div>
             <p>All fields are required.</p>
-            <form action={createProject}>
+            <form
+              ref={newProjectForm}
+              onSubmit={(e) => {
+                // onSubmit (not action=) so a rejected name keeps the inputs.
+                e.preventDefault();
+                createProject(new FormData(e.currentTarget));
+              }}
+            >
               {projectFields.map(([name, label]) => (
                 <label key={name}>
                   {label} <span aria-hidden="true">*</span>
@@ -480,6 +520,37 @@ export function SuiteWorkspace({
                 </label>
               ))}
               <p role="status">{message}</p>
+              {projectDuplicate ? (
+                <div className="duplicatePrompt" role="alert">
+                  <p>
+                    Project “{projectDuplicate.name}” already exists. Project
+                    names are unique (capitals and extra spaces are ignored).
+                  </p>
+                  <button
+                    type="button"
+                    className="suitePrimary"
+                    onClick={() => {
+                      selectProject(projectDuplicate.id);
+                      setNewProject(false);
+                      setProjectDuplicate(null);
+                    }}
+                  >
+                    Open existing
+                  </button>
+                  <button
+                    type="button"
+                    className="suiteSecondary"
+                    onClick={() =>
+                      applySuggestedName(
+                        newProjectForm.current,
+                        projectDuplicate.suggestion,
+                      )
+                    }
+                  >
+                    Rename to “{projectDuplicate.suggestion}”
+                  </button>
+                </div>
+              ) : null}
               <button
                 className="suitePrimary"
                 disabled={busy || !cloudReady}

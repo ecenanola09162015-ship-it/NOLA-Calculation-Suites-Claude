@@ -90,12 +90,173 @@ async function ensureSchema() {
         create index if not exists nola_calculations_owner_project_idx
         on nola_calculation_drafts (owner_id, project_id, updated_at desc)
       `);
+      await ensureUniqueNames();
     })().catch((error) => {
       schemaReady = null;
       throw error;
     });
   }
   return schemaReady;
+}
+
+
+/**
+ * Name comparison used everywhere: case-insensitive, trimmed, inner runs of
+ * whitespace collapsed. "Tower  A " and "tower a" are the same project.
+ */
+export const normalizeName = (v: string) =>
+  v.trim().replace(/\s+/g, " ").toLowerCase();
+const nameKey = (column: ReturnType<typeof sql.raw>) =>
+  sql`lower(regexp_replace(btrim(${column}), '\\s+', ' ', 'g'))`;
+
+/** Duplicate project name or calculation title (HTTP 409 / prompt). */
+export class DuplicateNameError extends Error {
+  constructor(
+    public readonly kind: "project" | "calculation",
+    public readonly existing: { id: string; name: string; updatedAt: string },
+    public readonly suggestion: string,
+  ) {
+    super(
+      kind === "project"
+        ? `A project named "${existing.name}" already exists.`
+        : `"${existing.name}" already exists in this project.`,
+    );
+    this.name = "DuplicateNameError";
+  }
+}
+
+/**
+ * One-time migration on cold start: existing duplicates keep the name on the
+ * most recently updated record; older ones are renamed " (2)", " (3)", …
+ * Nothing is deleted. Then unique indexes enforce the rule for every save.
+ */
+async function ensureUniqueNames() {
+  const db = getDb();
+  const projectKey = nameKey(sql.raw("name"));
+  const draftKey = nameKey(sql.raw("title"));
+  const renameProjects = (suffix: ReturnType<typeof sql>) => sql`
+    update nola_projects p set name = p.name || ${suffix}, updated_at = p.updated_at
+    from (
+      select id, row_number() over (partition by owner_id, ${projectKey}
+        order by updated_at desc, created_at desc, id) as rn
+      from nola_projects
+    ) d where p.id = d.id and d.rn > 1`;
+  const renameDrafts = (suffix: ReturnType<typeof sql>) => sql`
+    update nola_calculation_drafts c set title = c.title || ${suffix}, updated_at = c.updated_at
+    from (
+      select id, row_number() over (partition by owner_id, project_id, module_slug, ${draftKey}
+        order by updated_at desc, created_at desc, id) as rn
+      from nola_calculation_drafts
+    ) d where c.id = d.id and d.rn > 1`;
+  const projectIndex = sql`create unique index if not exists nola_projects_owner_name_uq
+    on nola_projects (owner_id, ${projectKey})`;
+  const draftIndex = sql`create unique index if not exists nola_calculations_title_uq
+    on nola_calculation_drafts (owner_id, project_id, module_slug, ${draftKey})`;
+  const rn = sql.raw("' (' || d.rn || ')'");
+  // If " (2)" itself collides with an existing name, the second pass appends
+  // the record's short id, which is unique.
+  const shortId = (t: string) => sql.raw(`' [' || left(${t}.id::text, 8) || ']'`);
+  try {
+    await db.execute(projectIndex);
+  } catch {
+    await db.execute(renameProjects(rn));
+    try {
+      await db.execute(projectIndex);
+    } catch {
+      await db.execute(renameProjects(shortId("p")));
+      await db.execute(projectIndex);
+    }
+  }
+  try {
+    await db.execute(draftIndex);
+  } catch {
+    await db.execute(renameDrafts(rn));
+    try {
+      await db.execute(draftIndex);
+    } catch {
+      await db.execute(renameDrafts(shortId("c")));
+      await db.execute(draftIndex);
+    }
+  }
+}
+
+const isUniqueViolation = (e: unknown) => {
+  for (let x: unknown = e, k = 0; x && k < 4; k++) {
+    if ((x as { code?: string }).code === "23505") return true;
+    x = (x as { cause?: unknown }).cause;
+  }
+  return /duplicate key|unique constraint/i.test(String(e));
+};
+
+/** Next free "Name (n)" among the given names. */
+export function nextFreeName(name: string, taken: string[]) {
+  const used = new Set(taken.map(normalizeName));
+  const base = name.trim().replace(/\s*\((\d+)\)$/, "");
+  for (let n = 2; n < 1000; n++) {
+    const candidate = `${base} (${n})`.slice(0, 100);
+    if (!used.has(normalizeName(candidate))) return candidate;
+  }
+  return `${base} (${Date.now()})`.slice(0, 100);
+}
+
+async function projectNameConflict(
+  ownerId: string,
+  name: string,
+  excludeId?: string,
+) {
+  const result = await getDb().execute(sql`
+    select id, name, updated_at from nola_projects
+    where owner_id = ${ownerId}
+    ${excludeId ? sql`and id <> ${excludeId}::uuid` : sql``}
+  `);
+  const rows = result.rows.map((r) => ({
+    id: String(r.id),
+    name: String(r.name),
+    updatedAt: new Date(String(r.updated_at)).toISOString(),
+  }));
+  const hit = rows.find((r) => normalizeName(r.name) === normalizeName(name));
+  return hit
+    ? new DuplicateNameError(
+        "project",
+        hit,
+        nextFreeName(
+          name,
+          rows.map((r) => r.name),
+        ),
+      )
+    : null;
+}
+
+async function draftTitleConflict(
+  ownerId: string,
+  projectId: string,
+  moduleSlug: string,
+  title: string,
+  excludeId?: string,
+) {
+  const result = await getDb().execute(sql`
+    select id, title, updated_at from nola_calculation_drafts
+    where owner_id = ${ownerId} and project_id = ${projectId}::uuid
+      and module_slug = ${moduleSlug}
+  `);
+  const rows = result.rows.map((r) => ({
+    id: String(r.id),
+    name: String(r.title),
+    updatedAt: new Date(String(r.updated_at)).toISOString(),
+  }));
+  const hit = rows.find(
+    (r) => r.id !== excludeId && normalizeName(r.name) === normalizeName(title),
+  );
+  return hit
+    ? new DuplicateNameError(
+        "calculation",
+        hit,
+        nextFreeName(
+          title,
+          rows.map((r) => r.name),
+        ),
+      )
+    : null;
 }
 
 export async function listProjects(ownerId: string): Promise<ProjectRecord[]> {
@@ -141,12 +302,23 @@ export async function createProject(
   },
 ): Promise<ProjectRecord> {
   await ensureSchema();
+  const conflict = await projectNameConflict(ownerId, input.name);
+  if (conflict) throw conflict;
   const id = crypto.randomUUID();
-  const result = await getDb().execute(sql`
+  const result = await getDb()
+    .execute(
+      sql`
     insert into nola_projects (id, owner_id, name, project_number, location, building_name, prepared_by, checked_by, approved_by)
     values (${id}, ${ownerId}, ${input.name}, ${input.projectNumber}, ${input.location}, ${input.buildingName}, ${input.preparedBy}, ${input.checkedBy}, ${input.approvedBy})
     returning id, name, project_number, building_name, prepared_by, checked_by, approved_by, location, design_check_policy, report_settings, updated_at
-  `);
+  `,
+    )
+    .catch(async (e) => {
+      // Two tabs creating the same name at once: the unique index decides.
+      if (isUniqueViolation(e))
+        throw (await projectNameConflict(ownerId, input.name)) ?? e;
+      throw e;
+    });
   const row = result.rows[0];
   if (!row) throw new Error("Project creation did not return a record.");
   return {
@@ -179,17 +351,45 @@ export async function saveCalculationDraft(
     moduleSlug: string;
     title: string;
     payload: unknown;
+    /** Replace an existing calculation with the same title (user confirmed). */
+    overwrite?: boolean;
   },
 ): Promise<CalculationDraftRecord> {
   await ensureSchema();
-  const project = await getDb().execute(sql`
+  const db = getDb();
+  const project = await db.execute(sql`
     select id from nola_projects
     where id = ${input.projectId}::uuid and owner_id = ${ownerId}
     limit 1
   `);
   if (!project.rows[0]) throw new Error("Project not found for this account.");
 
-  const id = input.id ?? crypto.randomUUID();
+  // A reopened calculation keeps its id only within its own project and
+  // module; saved into another project it becomes a new record there.
+  let id: string | undefined;
+  if (input.id) {
+    const own = await db.execute(sql`
+      select id from nola_calculation_drafts
+      where id = ${input.id}::uuid and owner_id = ${ownerId}
+        and project_id = ${input.projectId}::uuid and module_slug = ${input.moduleSlug}
+      limit 1
+    `);
+    if (own.rows[0]) id = input.id;
+  }
+  const conflict = await draftTitleConflict(
+    ownerId,
+    input.projectId,
+    input.moduleSlug,
+    input.title,
+    id,
+  );
+  if (conflict) {
+    if (!input.overwrite) throw conflict;
+    // Overwrite: the same-titled record is replaced in place. A different
+    // record that was being edited keeps its own (old) title.
+    id = conflict.existing.id;
+  }
+  id ??= crypto.randomUUID();
   const payload = JSON.stringify(input.payload);
   const candidate = input.payload as {
     kind?: string;
@@ -202,7 +402,9 @@ export async function saveCalculationDraft(
       candidate.input?.code === "NSCP 2015")
       ? "verification-required"
       : "interface-only";
-  const result = await getDb().execute(sql`
+  const result = await db
+    .execute(
+      sql`
     insert into nola_calculation_drafts
       (id, owner_id, project_id, module_slug, title, payload, verification_status)
     values
@@ -216,7 +418,21 @@ export async function saveCalculationDraft(
       and nola_calculation_drafts.project_id = excluded.project_id
       and nola_calculation_drafts.module_slug = excluded.module_slug
     returning id, project_id, module_slug, title, payload, verification_status, updated_at
-  `);
+  `,
+    )
+    .catch(async (e) => {
+      if (isUniqueViolation(e))
+        throw (
+          (await draftTitleConflict(
+            ownerId,
+            input.projectId,
+            input.moduleSlug,
+            input.title,
+            id,
+          )) ?? e
+        );
+      throw e;
+    });
   const row = result.rows[0];
   if (!row) throw new Error("Draft could not be saved for this account.");
   return {
@@ -269,6 +485,8 @@ export async function updateProject(
   },
 ): Promise<ProjectRecord> {
   await ensureSchema();
+  const conflict = await projectNameConflict(ownerId, input.name, id);
+  if (conflict) throw conflict;
   const policy = JSON.stringify(
     designCheckPolicySchema.parse(input.designCheckPolicy),
   );
@@ -277,9 +495,15 @@ export async function updateProject(
       input.reportSettings ?? defaultProjectReportSettings,
     ),
   );
-  const result = await getDb().execute(
+  const result = await getDb()
+    .execute(
     sql`update nola_projects set name=${input.name},building_name=${input.buildingName},location=${input.location},prepared_by=${input.preparedBy},checked_by=${input.checkedBy},approved_by=${input.approvedBy},design_check_policy=${policy}::jsonb,report_settings=${reportSettings}::jsonb,updated_at=now() where id=${id}::uuid and owner_id=${ownerId} returning id,name,project_number,building_name,location,prepared_by,checked_by,approved_by,design_check_policy,report_settings,updated_at`,
-  );
+  )
+    .catch(async (e) => {
+      if (isUniqueViolation(e))
+        throw (await projectNameConflict(ownerId, input.name, id)) ?? e;
+      throw e;
+    });
   const row = result.rows[0];
   if (!row) throw Error("Project unavailable for this account.");
   return {
