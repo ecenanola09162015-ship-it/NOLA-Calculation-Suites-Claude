@@ -3160,3 +3160,47 @@ label.isOverride input {
   min-height: 60px;
   box-sizing: border-box;
 }
+
+/* Storey geometry (panel 01) and linked estimate fields. */
+.storeyGeometry {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px dashed #c9d3da;
+}
+.storeyGeometry h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+.storeyBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 260px);
+  gap: 14px;
+  align-items: start;
+}
+.storeySketch {
+  width: 100%;
+  max-width: 260px;
+  height: auto;
+}
+@media (max-width: 720px) {
+  .storeyBody {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.storeyDerived {
+  font-size: 12px;
+}
+.storeyLinked {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border: 1px solid #9cc7cb;
+  border-radius: 6px;
+  background: #f6fbfb;
+  font-size: 12px;
+}
+.isOverride label input {
+  border-color: #7c3aed !important;
+  box-shadow: 0 0 0 1px #7c3aed;
+}

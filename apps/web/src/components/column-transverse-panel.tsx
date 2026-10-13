@@ -401,7 +401,7 @@ function ElevationFigure({
   value: ColumnTieDesignInput;
   design: TransverseResult;
 }) {
-  const lu = value.confinement.clearHeight;
+  const lu = design.clearHeight || value.confinement.clearHeight;
   const { lo, sEnd, sMid } = design.adopted;
   const H = 300,
     top = 30,
@@ -571,7 +571,6 @@ function SpacingOverrides({
       ...value,
       override: { ...o, [k]: Number.isFinite(v) && v > 0 ? v : null },
     });
-  const lu = value.confinement.clearHeight;
   const field: Record<
     OverrideKey,
     { show: boolean; label: string; unit: string; rec: number }
@@ -598,13 +597,13 @@ function SpacingOverrides({
       show: design.seismic,
       label: "Design shear Ve x",
       unit: "kN",
-      rec: +((2 * design.ve.mprY * 1000) / lu).toFixed(1),
+      rec: +((2 * design.ve.mprY * 1000) / design.clearHeightsVe.x).toFixed(1),
     },
     veY: {
       show: design.seismic,
       label: "Design shear Ve y",
       unit: "kN",
-      rec: +((2 * design.ve.mprX * 1000) / lu).toFixed(1),
+      rec: +((2 * design.ve.mprX * 1000) / design.clearHeightsVe.y).toFixed(1),
     },
   };
   const shown = keys.filter((k) => field[k].show);
@@ -861,12 +860,50 @@ export function ColumnConfinementPanel(props: Props) {
                 <option value="OMF">Ordinary / non-seismic (25.7.2)</option>
               </select>
             </label>
-            <NumberField
-              label="Clear height ℓu (joint face to joint face)"
-              unit="mm"
-              value={c.clearHeight}
-              onChange={(v) => set({ clearHeight: v })}
-            />
+            {input.storey && c.clearHeightSource !== "manual" ? (
+              <div className="storeyLinked">
+                <span>
+                  Clear height ℓu from storey geometry
+                  {design
+                    ? `: lo uses ${design.clearHeight} mm; Ve x / y use ${design.clearHeightsVe.x} / ${design.clearHeightsVe.y} mm`
+                    : ""}
+                </span>
+                <small>
+                  lo: larger ℓu (18.7.5.1) · Ve: each direction&apos;s ℓu
+                  (18.7.6.1.1)
+                </small>
+                <button
+                  type="button"
+                  className="linkButton"
+                  onClick={() =>
+                    set({
+                      clearHeightSource: "manual",
+                      clearHeight: design?.clearHeight || c.clearHeight,
+                    })
+                  }
+                >
+                  Enter ℓu manually (override)
+                </button>
+              </div>
+            ) : (
+              <span className={input.storey ? "isOverride" : ""}>
+                <NumberField
+                  label="Clear height ℓu (joint face to joint face)"
+                  unit="mm"
+                  value={c.clearHeight}
+                  onChange={(v) => set({ clearHeight: v })}
+                />
+                {input.storey ? (
+                  <button
+                    type="button"
+                    className="linkButton"
+                    onClick={() => set({ clearHeightSource: "storey" })}
+                  >
+                    Use storey geometry
+                  </button>
+                ) : null}
+              </span>
+            )}
             {c.frame === "SMF" ? (
               <>
                 <NumberField
@@ -1105,10 +1142,15 @@ export function ColumnTieDesignSummary({
   if (!design || (!value.shear.enabled && !value.confinement.enabled))
     return null;
   const estClear = quantity.height - quantity.beamDepth;
+  // Both from storey geometry: the estimate uses H − deeper beam (joint) and
+  // lo the larger ℓu by design (decisions C1 / C4) — not a mismatch.
+  const linked = design.clearFromStorey && !quantity.geometryOverride;
   const mismatch =
+    !linked &&
     design.seismic &&
     quantity.enabled &&
-    Math.abs(estClear - value.confinement.clearHeight) > 1;
+    Math.abs(estClear - (design.clearHeight || value.confinement.clearHeight)) >
+      1;
   const limiting = design.limits
     .filter((l) => Number.isFinite(l.end) || Number.isFinite(l.mid))
     .map((l) => ({
@@ -1218,7 +1260,8 @@ export function ColumnTieDesignSummary({
       {mismatch ? (
         <p className="rcAlert">
           The estimate's clear height ({estClear} mm = floor-to-floor − beam
-          depth) differs from the design ℓu ({value.confinement.clearHeight}{" "}
+          depth) differs from the design ℓu (
+          {design.clearHeight || value.confinement.clearHeight}{" "}
           mm). Zones are placed in the estimate's height using the adopted lo.
         </p>
       ) : null}

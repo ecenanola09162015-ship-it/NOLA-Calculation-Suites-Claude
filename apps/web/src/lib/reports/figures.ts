@@ -3,6 +3,8 @@ import {
   biaxialSection,
   defaultReportStyle,
   slabPrimaryAxisX,
+  storeyClearHeights,
+  type ColumnStorey,
   type ReportStyle,
   type TransverseResult,
 } from "@nola/calc-core";
@@ -395,4 +397,31 @@ export function columnTieSectionFigure(
           : "Tie Section",
     svg: svg(body, style),
   };
+}
+
+/** Storey elevation: H, beam depths, ℓu,x / ℓu,y and joint (6.2.4, 18.8.3). */
+export function columnStoreyFigure(
+  storey: ColumnStorey,
+  style: ReportStyle = defaultReportStyle,
+): ReportFigure {
+  const h = storeyClearHeights(storey);
+  const ink = style.colors.text;
+  const H = 130,
+    top = 18,
+    S = H / storey.height;
+  const Y = (z: number) => top + H - z * S;
+  let body = `<rect x="40" y="${top}" width="110" height="${storey.beamX * S}" fill="${style.colors.tint}"/>`;
+  body += `<rect x="95" y="${top}" width="55" height="${storey.beamY * S}" fill="${teal}" fill-opacity="0.25"/>`;
+  body += `<rect x="85" y="${top}" width="20" height="${H}" fill="none" stroke="${ink}" stroke-width="0.6"/>`;
+  body += line(30, Y(0), 160, Y(0), ink, 0.6);
+  body += line(30, top, 160, top, ink, 0.6);
+  body += line(170, top + (storey.beamY + (storey.capital ?? 0)) * S, 170, Y(storey.bottom ?? 0), teal, 0.8);
+  body += line(205, top + (storey.beamX + (storey.capital ?? 0)) * S, 205, Y(storey.bottom ?? 0), style.colors.gold, 0.8);
+  body += text(8, top + H / 2, `H ${storey.height}`);
+  body += text(160, top + H / 2 - 6, `lu,x ${h.luX}`);
+  body += text(160, top + H / 2 + 8, `lu,y ${h.luY}`);
+  body += text(42, top + 9, `beam X ${storey.beamX}`);
+  body += text(98, top + 9, `Y ${storey.beamY}`);
+  body += text(8, 168, `Joint ${h.joint} mm (deeper beam); lo uses ${h.loClear} mm`);
+  return { title: "Storey Geometry", svg: svg(body, style) };
 }

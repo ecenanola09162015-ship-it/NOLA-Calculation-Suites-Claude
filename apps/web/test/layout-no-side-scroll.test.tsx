@@ -23,6 +23,8 @@ import {
   type RectangularColumnInput,
 } from "@nola/calc-core";
 import { DesignReviewPanel } from "../src/components/design-review-panel";
+import { StoreyGeometryFields } from "../src/components/column-storey-panel";
+import { defaultColumnStorey } from "@nola/calc-core";
 import {
   ColumnConfinementPanel,
   ColumnShearPanel,
@@ -101,6 +103,12 @@ function pageHtml(width: number) {
   const slab = analyzeSlab(slabInput, false);
   const body = renderToStaticMarkup(
     <div className="rcWorkspace">
+      <section className="rcPanel">
+        <StoreyGeometryFields
+          input={{ ...input, storey: { ...defaultColumnStorey(), capital: 150, bottom: 100, luOverrideX: 2600 } }}
+          onChange={() => {}}
+        />
+      </section>
       <section className="rcPanel rcResults">
         <DesignReviewPanel
           title="Flexure & Axial Review"

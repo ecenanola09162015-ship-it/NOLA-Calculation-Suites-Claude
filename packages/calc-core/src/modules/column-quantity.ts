@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { RectangularColumnInput } from "./rectangular-column";
+import { storeyClearHeights } from "./column-storey";
 const finite = z.number().finite();
 export const columnQuantitySchema = z.object({
   enabled: z.boolean(),
@@ -14,6 +15,11 @@ export const columnQuantitySchema = z.object({
   hookBasis: z.enum(["allowance8db", "aci135", "aci14x90"]).default("aci135"),
   height: finite.min(500).max(20000),
   beamDepth: finite.min(0).max(5000),
+  /**
+   * true: height / beamDepth typed in the estimate (designer override).
+   * Otherwise they follow storey geometry: H and the deeper beam (18.8.3).
+   */
+  geometryOverride: z.boolean().optional(),
   members: finite.int().min(1).max(10000),
   firstOffset: finite.min(0).max(1000),
   lastOffset: finite.min(0).max(1000),
@@ -151,12 +157,20 @@ export const columnQuantityLimitations = [
   "Concrete is gross section area times floor-to-floor height, including the upper beam-column joint. Do not count that joint again in beam/slab quantities. Reinforcement displacement is not deducted.",
   "Hoops are full-section rectangular hoops; additional legs are straight cross-ties. Inner or overlapping hoop geometries are not modeled. Tie zones and arrangements are quantity inputs, not verified shear or seismic confinement design.",
 ];
+/** Estimate height and joint from storey geometry unless overridden. */
+export function effectiveColumnQuantity<
+  Q extends { height: number; beamDepth: number; geometryOverride?: boolean },
+>(section: Pick<RectangularColumnInput, "storey">, q: Q): Q {
+  if (!section.storey || q.geometryOverride) return q;
+  const h = storeyClearHeights(section.storey);
+  return { ...q, height: section.storey.height, beamDepth: h.joint };
+}
 export function estimateColumnQuantity(
   section: RectangularColumnInput,
   raw: ColumnQuantityInput,
 ) {
   if (!raw.enabled) return null;
-  const q = columnQuantitySchema.parse(raw);
+  const q = effectiveColumnQuantity(section, columnQuantitySchema.parse(raw));
   if (
     ![section.width, section.depth, section.cover, section.fy].every(
       Number.isFinite,

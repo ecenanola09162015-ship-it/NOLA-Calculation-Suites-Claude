@@ -12,6 +12,7 @@
 import { z } from "zod";
 import { biaxialRawStateAt, biaxialSection } from "./column-biaxial";
 import { rebarGradeFor } from "../rebar-catalogue";
+import { storeyClearHeights } from "./column-storey";
 import type {
   ColumnBar,
   ColumnLoad,
@@ -25,8 +26,13 @@ export const columnTieDesignSchema = z.object({
   confinement: z.object({
     enabled: z.boolean(),
     frame: z.enum(["OMF", "IMF", "SMF"]),
-    /** Clear height ℓu between joint faces, mm. */
+    /** Clear height ℓu between joint faces, mm (manual / legacy value). */
     clearHeight: finite.min(300).max(30000),
+    /**
+     * "storey": ℓu from storey geometry (lo with the larger ℓu, Ve per
+     * direction). "manual": clearHeight above (legacy drafts / override).
+     */
+    clearHeightSource: z.enum(["storey", "manual"]).optional(),
     /** Supports a discontinued stiff member (18.7.5.6). */
     discontinuedSupport: z.boolean(),
     /** ΣMnb of beams framing into the joint, kN·m (optional, 18.7.3.2). */
@@ -313,6 +319,12 @@ export interface ShearZoneCheck {
 export interface TransverseResult {
   frame: "OMF" | "IMF" | "SMF" | null;
   seismic: boolean;
+  /** Clear height used for lo and the elevation, mm (0 when not seismic). */
+  clearHeight: number;
+  /** Clear heights used for Ve along x and along y, mm. */
+  clearHeightsVe: { x: number; y: number };
+  /** Clear heights came from storey geometry. */
+  clearFromStorey: boolean;
   /** lo zone (or full height when not seismic). */
   sections: { x: ShearDirection; y: ShearDirection };
   layout: ConfinementLayout;
@@ -384,7 +396,15 @@ export function designColumnTransverse(
   const maxDb = Math.max(...input.bars.map((b) => b.diameter));
   const hmin = Math.min(input.width, input.depth),
     hmax = Math.max(input.width, input.depth);
-  const lu = conf?.clearHeight ?? 0;
+  // Clear heights: storey geometry (lo: larger ℓu, 18.7.5.1; Ve per
+  // direction, 18.7.6.1.1) unless the manual value is selected.
+  const fromStorey =
+    !!input.storey && conf?.clearHeightSource !== "manual" && !!conf;
+  const sh = input.storey ? storeyClearHeights(input.storey) : null;
+  const lu = conf ? (fromStorey && sh ? sh.loClear : conf.clearHeight) : 0;
+  // Ve along x comes from bending about y (ℓu,y); along y from about x.
+  const luVeX = fromStorey && sh ? sh.luY : lu;
+  const luVeY = fromStorey && sh ? sh.luX : lu;
   const puMax = Math.max(0, ...loads.map((l) => l.pu));
   const puMin = Math.min(...loads.map((l) => l.pu));
   const highAxial = puMax > (0.3 * ag * fc) / 1000 || fc > 70;
@@ -412,11 +432,13 @@ export function designColumnTransverse(
       frame === "SMF"
         ? "Ve = 2Mpr/ℓu, Mpr at 1.25fy, φ = 1.0, max over factored Pu (18.7.6.1.1)"
         : "Ve = 2Mn/ℓu, Mn at fy, φ = 1.0, max over factored Pu (18.4.3.1a)";
+    if (fromStorey && luVeX !== luVeY)
+      basis += `; ℓu ${luVeX.toFixed(0)} (Ve x) / ${luVeY.toFixed(0)} (Ve y) mm from storey geometry`;
   }
   // Bending about y (Mpr about y) drives shear along x.
   const veCalc = {
-    x: seismic && lu > 0 ? (2 * mprY * 1000) / lu : 0,
-    y: seismic && lu > 0 ? (2 * mprX * 1000) / lu : 0,
+    x: seismic && luVeX > 0 ? (2 * mprY * 1000) / luVeX : 0,
+    y: seismic && luVeY > 0 ? (2 * mprX * 1000) / luVeY : 0,
   };
   const ve = {
     x: t.override.veX ?? veCalc.x,
@@ -881,6 +903,9 @@ export function designColumnTransverse(
   return {
     frame,
     seismic,
+    clearHeight: lu,
+    clearHeightsVe: { x: luVeX, y: luVeY },
+    clearFromStorey: fromStorey,
     sections: { x: sx, y: sy },
     layout,
     sectionsMid: { x: sxM, y: syM },
