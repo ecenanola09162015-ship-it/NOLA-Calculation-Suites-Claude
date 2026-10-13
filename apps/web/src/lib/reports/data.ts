@@ -21,7 +21,10 @@ import {
   type SlabInput,
   type SlabResult,
   type SlabQuantityInput,
+  slabLoadPatch,
+  slabBeamSizes,
 } from "@nola/calc-core";
+import { loadStyles } from "@/lib/load-styles";
 import type { ProjectRecord } from "../projects";
 import {
   columnBiaxialFigure,
@@ -36,7 +39,13 @@ export type ReportSection = {
   columns: string[];
   rows: (string | Cell)[][];
 };
-export type ReportFigure = { title: string; svg: string; png?: string };
+export type ReportFigure = {
+  title: string;
+  svg: string;
+  png?: string;
+  /** Printed in the Complete report only (e.g. the 3D snapshot). */
+  completeOnly?: boolean;
+};
 export type ReportData = {
   module: string;
   title: string;
@@ -583,6 +592,8 @@ export function slabReportData(
   quantity: SlabQuantityInput,
   policy: DesignCheckPolicy,
   remarks: DesignRemarks,
+  /** PNG data URL of the 3D view (Complete report only). */
+  snapshot3d?: string | null,
 ): ReportData {
   const checks = slabDesignChecks(input, r),
     flex = [...r.regions].sort((a, b) => b.dcr - a.dcr)[0],
@@ -621,11 +632,17 @@ export function slabReportData(
       ],
     ]),
     section("Section And Reinforcement", [
-      ["Geometry", `${input.lx} x ${input.ly} m; h = ${input.h} mm; ${r.type}`],
       [
-        "Supports",
-        Object.entries(input.supports)
-          .map(([e, s]) => e + ": " + s)
+        "Geometry",
+        `${input.lx} x ${input.ly} m clear; h = ${input.h} mm; ${r.type}`,
+      ],
+      [
+        "Supports / Beams",
+        (["west", "east", "south", "north"] as const)
+          .map((e) => {
+            const b = slabBeamSizes(input)[e];
+            return `${e}: ${input.supports[e]}${b ? ` ${b.width}x${b.depth}` : ""}`;
+          })
           .join("; "),
       ],
       ...r.bars.map((b) => [
@@ -714,22 +731,30 @@ export function slabReportData(
     ...((input.pointLoads ?? []).length
       ? [
           section(
-            "Point Loads",
-            input.pointLoads.map((p) => [
-              p.id,
-              `${f(p.x, 3)}, ${f(p.y, 3)}`,
-              `${f(p.bx, 0)} x ${f(p.by, 0)}`,
-              `${f(p.bx + input.h, 0)} x ${f(p.by + input.h, 0)}`,
-              f(p.dead),
-              f(p.live),
-            ]),
+            "Local Loads",
+            input.pointLoads.map((p) => {
+              const r = slabLoadPatch(p),
+                unit = { point: "kN", line: "kN/m", area: "kPa" }[r.kind];
+              return [
+                p.id,
+                loadStyles[r.kind].label,
+                p.kind === "line"
+                  ? `start ${f(p.x, 3)}, ${f(p.y, 3)}; along ${p.direction} ${f(p.length, 3)} m`
+                  : `centre ${f(p.x, 3)}, ${f(p.y, 3)}`,
+                p.kind === "line"
+                  ? `t = ${f(p.thickness, 0)} mm`
+                  : `${f(p.bx, 0)} x ${f(p.by, 0)} mm`,
+                `${f(p.dead)} / ${f(p.live)} ${unit}`,
+                `${f(r.dead)} / ${f(r.live)}`,
+              ];
+            }),
             [
               "ID",
-              "Centre x, y m",
-              "Loaded Area mm",
-              "Dispersed to Mid-Plane mm",
-              "PD kN",
-              "PL kN",
+              "Type",
+              "Position m",
+              "Size",
+              "Dead / Live",
+              "Resultant D / L kN",
             ],
           ),
         ]
@@ -791,7 +816,7 @@ export function slabReportData(
         ],
         [
           "Immediate Deflection",
-          `Ec=4700 sqrt(${input.fc}) MPa; fr=0.62 sqrt(fc); Ig=${f(r.deflection.ig / 1e6, 1)}e6, Icr=${f(r.deflection.icr / 1e6, 1)}e6 mm⁴; Mcr=${f(r.deflection.mcr)}, Ma=${f(r.deflection.ma)} kN·m/m; Ie,mid=${f(r.deflection.ieMid / 1e6, 1)}e6${r.deflection.ieAvg === null ? "" : `, Ie,avg=${f(r.deflection.ieAvg / 1e6, 1)}e6`}, Ie=${f(r.deflection.ie / 1e6, 1)}e6 mm⁴; delta,g=${f(r.deflection.immediate)} mm; delta,cr=delta,g x Ig/Ie=${f(r.deflection.crackedImmediate)} mm; limit=${f(r.shortSpan * 1000, 0)}/${input.deflectionDivisor}=${f(r.deflection.limit)} mm`,
+          `Ec=4700 sqrt(${input.fc}) MPa; fr=0.62 sqrt(fc); Ig=${f(r.deflection.ig / 1e6, 1)}e6, Icr=${f(r.deflection.icr / 1e6, 1)}e6 mm⁴; Mcr=${f(r.deflection.mcr)}, Ma=${f(r.deflection.ma)} kN·m/m; Ie,mid=${f(r.deflection.ieMid / 1e6, 1)}e6${r.deflection.ieAvg === null ? "" : `, Ie,avg=${f(r.deflection.ieAvg / 1e6, 1)}e6`}, Ie=${f(r.deflection.ie / 1e6, 1)}e6 mm⁴; delta,g=${f(r.deflection.immediate)} mm; delta,cr=delta,g x Ig/Ie=${f(r.deflection.crackedImmediate)} mm; limit=ℓ/${input.deflectionDivisor}=${f(r.deflection.span, 0)}/${input.deflectionDivisor}=${f(r.deflection.limit)} mm (${r.type === "cantilever" ? "ℓ = projection" : "ℓ = c/c: clear span + beam widths/2"})`,
           slabClauses.deflection(r.type),
         ],
         [
@@ -928,7 +953,19 @@ export function slabReportData(
     policy,
     remarks,
     summary,
-    figures: slabFigures(input, r, project?.reportSettings?.style),
+    figures: [
+      ...slabFigures(input, r, project?.reportSettings?.style),
+      ...(snapshot3d
+        ? [
+            {
+              title: "3D View With Supports And Loads (snapshot)",
+              svg: "",
+              png: snapshot3d,
+              completeOnly: true,
+            },
+          ]
+        : []),
+    ],
     checks: checkTable(checks, policy, remarks),
     sections: equations,
     references: refSlab,

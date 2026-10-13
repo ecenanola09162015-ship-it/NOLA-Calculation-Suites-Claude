@@ -28,7 +28,7 @@ export const slabQuantitySchema = z.object({
 });
 export type SlabQuantityInput = z.infer<typeof slabQuantitySchema>;
 export const slabQuantityEdges = ["west", "east", "south", "north"] as const;
-export function defaultSlabQuantity(width = 300): SlabQuantityInput {
+export function defaultSlabQuantity(width = 250): SlabQuantityInput {
   const beam = () => ({
     width,
     depth: 500,

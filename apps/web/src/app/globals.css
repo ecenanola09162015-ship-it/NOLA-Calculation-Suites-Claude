@@ -2025,6 +2025,27 @@ select {
 .slabScreenHidden {
   display: none;
 }
+.slab3d {
+  margin: 0;
+}
+.slab3dCanvas {
+  width: 100%;
+  min-height: 300px;
+  border: 1px solid #d5dde3;
+  border-radius: 6px;
+  overflow: hidden;
+  touch-action: none;
+}
+.slab3dCanvas canvas {
+  display: block;
+  max-width: 100%;
+}
+.slab3dToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.85rem;
+}
 .slabStatus {
   background: #e9f5f3;
   padding: 12px;
@@ -2782,7 +2803,6 @@ select {
   border-radius: 4px;
   padding: 1px 5px;
 }
-
 
 /* Compact inputs: fields keep a sensible width instead of stretching. */
 .rcFields {

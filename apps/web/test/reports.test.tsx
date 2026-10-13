@@ -179,7 +179,16 @@ describe("slab point loads in the report", () => {
       ly: 5,
       h: 200,
       pointLoads: [
-        { id: "P1", x: 2.5, y: 2.5, bx: 300, by: 300, dead: 40, live: 20 },
+        {
+          kind: "point" as const,
+          id: "P1",
+          x: 2.5,
+          y: 2.5,
+          bx: 300,
+          by: 300,
+          dead: 40,
+          live: 20,
+        },
       ],
     };
     const data = slabReportData(
@@ -197,7 +206,7 @@ describe("slab point loads in the report", () => {
     );
     expect(String(punch?.[1])).toContain("Table 22.6.5.2");
     const titles = data.sections.map((s) => s.title);
-    expect(titles).toContain("Point Loads");
+    expect(titles).toContain("Local Loads");
     expect(titles).toContain("Punching Shear At Point Loads");
     expect(data.figures[0].svg).toContain("P1");
     const result = await generateCalculationPdf(data, {
@@ -280,5 +289,56 @@ describe("PDF text symbols", () => {
     });
     const pdf = await PDFDocument.load(r.bytes);
     expect(pdf.getPageCount()).toBeGreaterThan(0);
+  });
+});
+
+describe("3D snapshot in the PDF", () => {
+  it("adds the snapshot figure to the Complete report only", async () => {
+    const {
+      analyzeSlab,
+      defaultSlabInput,
+      defaultSlabQuantity,
+      defaultDesignCheckPolicy,
+    } = await import("@nola/calc-core");
+    const { slabReportData } = await import("../src/lib/reports/data");
+    const input = defaultSlabInput();
+    const make = (snap: string | null) => {
+      const data = slabReportData(
+        undefined,
+        "SL-3D",
+        input,
+        analyzeSlab(input),
+        defaultSlabQuantity(),
+        defaultDesignCheckPolicy,
+        {},
+        snap,
+      );
+      for (const fig of data.figures) fig.png = fig.png ?? png;
+      return data;
+    };
+    const without = make(null),
+      withSnap = make(png);
+    expect(withSnap.figures.length).toBe(without.figures.length + 1);
+    expect(withSnap.figures.at(-1)).toMatchObject({ completeOnly: true });
+    // Simple report unchanged (still one page); Complete report renders.
+    for (const paper of ["A4", "Letter"] as const)
+      expect(
+        (
+          await generateCalculationPdf(withSnap, {
+            type: "simple",
+            paper,
+            nolaLogo: png,
+          })
+        ).pageCount,
+      ).toBe(1);
+    expect(
+      (
+        await generateCalculationPdf(withSnap, {
+          type: "complete",
+          paper: "A4",
+          nolaLogo: png,
+        })
+      ).pageCount,
+    ).toBeGreaterThan(0);
   });
 });
