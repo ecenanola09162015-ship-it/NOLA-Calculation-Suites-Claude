@@ -151,6 +151,19 @@ export function columnReportData(
           ? `${f(g.load.pu)} kN / ${f(g.load.mx)} / ${f(g.load.my)} kN·m`
           : "Not Evaluated",
       ],
+      ...(g?.slenderness
+        ? [
+            [
+              "Slenderness (6.6.4)",
+              [g.slenderness.x, g.slenderness.y]
+                .map(
+                  (d) =>
+                    `M${d.axis}: kl/r ${f(d.klur, 1)} vs ${f(d.limit, 1)}; ${d.slender ? `delta ${f(d.delta, 3)}, Mc ${f(d.mc)} kN·m` : "short"}`,
+                )
+                .join("; "),
+            ],
+          ]
+        : [["Slenderness", "Not Considered (Short Column Assumed)"]]),
       ["Vux / Vuy", "Not Supplied; Column Shear Not Evaluated"],
       ...governing.map((c) => [
         c.label.replace((g?.load.id ?? "") + " · ", ""),
@@ -195,26 +208,45 @@ export function columnReportData(
         "21.2",
       ],
       [
-        "Biaxial Screen",
-        "DCR = |Mux|/phiMnx(Pu) + |Muy|/phiMny(Pu); linear screening, not full biaxial surface",
+        "Biaxial 3D (Governing)",
+        "Rotated neutral axis; concrete block clipped to the section; DCR = |Mu| / phiMn on the (Mux, Muy) ray at constant Pu",
+        "22.2.1, 22.2.2; 22.4.2.1",
+      ],
+      [
+        "Biaxial Bresler (Reference)",
+        "1/phiPni = 1/phiPnx + 1/phiPny - 1/phiPo; phiPo = 0.65 P0; valid for Pu/0.65 >= 0.10 fc Ag",
+        "R22.4 (Bresler)",
+      ],
+      [
+        "Linear Screen (Reference)",
+        "|Mux|/phiMnx(Pu) + |Muy|/phiMny(Pu)",
         "Engineering screen",
       ],
       [
         "Governing Combination Substitution",
         g
-          ? `Pu = ${f(g.load.pu)} kN; phiMnx = ${f(g.capacityX)}; phiMny = ${f(g.capacityY)} kN·m; DCRx = |${f(g.load.mx)}|/${f(g.capacityX)}; DCRy = |${f(g.load.my)}|/${f(g.capacityY)}; interaction = ${f(g.interaction, 3)}; axial DCR = ${f(g.axialRatio, 3)}`
+          ? `Pu = ${f(g.load.pu)} kN; Mux = ${f(g.mux)}; Muy = ${f(g.muy)} kN·m; 3D: ${f(Math.hypot(g.mux, g.muy))}/${f(g.biaxial?.capacity ?? null)} = ${f(g.biaxialRatio, 3)}; Bresler: ${g.bresler.applicable ? `${f(g.load.pu)}/${f(g.bresler.pni)} = ${f(g.bresler.ratio, 3)}` : "n/a"}; linear = ${f(g.interaction, 3)}; axial DCR = ${f(g.axialRatio, 3)}`
           : "No Governing Combination",
-        "22.2; Linear Biaxial Screen",
+        "22.2; 22.4",
       ],
+      ...(g?.slenderness
+        ? [g.slenderness.x, g.slenderness.y].map((d) => [
+            `Slenderness M${d.axis}`,
+            d.slender
+              ? `r = 0.3h = ${f(d.r, 0)} mm; kl/r = ${f(d.klur, 1)} > ${f(d.limit, 1)}; EI = ${f((d.ei ?? 0) / 1e9, 0)} kN·m²; Pc = ${f(d.pc, 0)} kN; Cm = ${f(d.cm, 3)}; delta = ${f(d.delta, 3)}; Mc = ${f(d.mc)} kN·m`
+              : `kl/r = ${f(d.klur, 1)} <= ${f(d.limit, 1)}: neglected`,
+            d.sway ? "6.2.5.1; 6.6.4.6" : "6.2.5.1; 6.6.4.4; 6.6.4.5",
+          ])
+        : []),
       [
         "Reinforcement Limits",
         `rho = As/Ag = ${f(result.steelRatio * 100)}%; general-column range 1–8%; seismic limits require separate review`,
         "10.6; 18.7",
       ],
       [
-        "Shear / Slenderness / Seismic Ties",
-        "Not Evaluated By This Section-Strength Pilot",
-        "22.5; Ch. 6, 18, 25",
+        "Shear / Seismic Ties",
+        "Not Evaluated In This Build",
+        "22.5; Ch. 18, 25",
       ],
     ],
     ["Check / Equation", "Substitution / Result", "Reference"],
@@ -223,16 +255,16 @@ export function columnReportData(
     c.load.id,
     c.load.included ? "Included" : "Excluded",
     f(c.load.pu),
-    f(c.load.mx),
-    f(c.load.my),
-    "Not Supplied",
+    f(c.mux),
+    f(c.muy),
     f(c.axialRatio, 3),
-    f(c.interaction, 3),
+    f(c.biaxialRatio, 3),
+    c.bresler.applicable ? f(c.bresler.ratio, 3) : "n/a",
     c.load.included
       ? status(
-          Math.max(c.axialRatio, c.interaction ?? Infinity),
+          Math.max(c.axialRatio, c.biaxialRatio ?? Infinity),
           policy,
-          remarks[c.load.id + ":interaction"],
+          remarks[c.load.id + ":biaxial3d"],
         )
       : "Excluded",
   ]);
@@ -310,11 +342,11 @@ export function columnReportData(
         "Combo",
         "Use",
         "Pu kN",
-        "Mux",
-        "Muy",
-        "Vux / Vuy",
+        "Mux (Mc)",
+        "Muy (Mc)",
         "Axial DCR",
-        "Interaction",
+        "3D DCR",
+        "Bresler DCR",
         "Status",
       ]),
       section(
@@ -347,7 +379,7 @@ export function columnReportData(
     criticalNotes: result.warnings.slice(4),
     limitations: [
       ...result.warnings,
-      "Column shear, member slenderness and seismic tie compliance are not evaluated; tie quantities are estimating inputs only.",
+      "Column shear and seismic tie compliance are not evaluated; tie quantities are estimating inputs only.",
       ...(quantity.enabled ? columnQuantityLimitations : []),
     ],
     generatedAt: new Date().toISOString(),

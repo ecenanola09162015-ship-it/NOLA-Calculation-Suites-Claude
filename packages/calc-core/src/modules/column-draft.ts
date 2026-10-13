@@ -1,6 +1,7 @@
 import { designCheckPolicySchema, designRemarksSchema } from "../design-review";
 import { z } from "zod";
 import { columnQuantitySchema } from "./column-quantity";
+import { columnSlendernessSchema } from "./column-slenderness";
 export const columnInputSchema = z
   .object({
     code: z.enum(["ACI 318-19", "NSCP 2015"]),
@@ -30,10 +31,13 @@ export const columnInputSchema = z
           mx: z.number().min(-1e8).max(1e8),
           my: z.number().min(-1e8).max(1e8),
           included: z.boolean(),
+          m1x: z.number().min(-1e8).max(1e8).nullable().optional(),
+          m1y: z.number().min(-1e8).max(1e8).nullable().optional(),
         }),
       )
       .min(1)
       .max(500),
+    slenderness: columnSlendernessSchema.optional(),
   })
   .refine(
     (input) =>

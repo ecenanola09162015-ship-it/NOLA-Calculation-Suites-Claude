@@ -12,6 +12,8 @@ export * from "./modules/column-draft";
 export * from "./modules/slab-design";
 
 export * from "./modules/column-quantity";
+export * from "./modules/column-biaxial";
+export * from "./modules/column-slenderness";
 
 export * from "./modules/slab-quantity";
 

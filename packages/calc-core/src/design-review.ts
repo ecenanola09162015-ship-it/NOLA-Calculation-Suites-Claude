@@ -65,32 +65,55 @@ const utilization = (demand: number, capacity: number | null) =>
 export function columnDesignChecks(r: RectangularColumnResult): DesignCheck[] {
   return r.checks
     .filter((c) => c.load.included)
-    .flatMap((c) => [
-      {
-        id: `${c.load.id}:axial`,
-        label: `${c.load.id} · Axial`,
-        dcr: c.axialRatio,
-        clause: columnClauses.axial(),
-      },
-      {
-        id: `${c.load.id}:mx`,
-        label: `${c.load.id} · Flexure X`,
-        dcr: utilization(c.load.mx, c.capacityX),
-        clause: columnClauses.flexure(),
-      },
-      {
-        id: `${c.load.id}:my`,
-        label: `${c.load.id} · Flexure Y`,
-        dcr: utilization(c.load.my, c.capacityY),
-        clause: columnClauses.flexure(),
-      },
-      {
-        id: `${c.load.id}:interaction`,
-        label: `${c.load.id} · Biaxial Interaction`,
-        dcr: c.interaction ?? Infinity,
-        clause: columnClauses.interaction(),
-      },
-    ]);
+    .flatMap((c) => {
+      const rows: DesignCheck[] = [
+        {
+          id: `${c.load.id}:axial`,
+          label: `${c.load.id} · Axial`,
+          dcr: c.axialRatio,
+          clause: columnClauses.axial(),
+        },
+        {
+          id: `${c.load.id}:mx`,
+          label: `${c.load.id} · Flexure X`,
+          dcr: utilization(c.mux, c.capacityX),
+          clause: columnClauses.flexure(),
+        },
+        {
+          id: `${c.load.id}:my`,
+          label: `${c.load.id} · Flexure Y`,
+          dcr: utilization(c.muy, c.capacityY),
+          clause: columnClauses.flexure(),
+        },
+        {
+          id: `${c.load.id}:biaxial3d`,
+          label: `${c.load.id} · Biaxial 3D`,
+          dcr: c.biaxialRatio ?? Infinity,
+          clause: columnClauses.biaxial3d(),
+        },
+        {
+          id: `${c.load.id}:bresler`,
+          label: `${c.load.id} · Biaxial Bresler`,
+          dcr: c.bresler.applicable ? c.bresler.ratio : null,
+          invalidLabel: c.bresler.applicable
+            ? undefined
+            : "n/a (Pu < 0.10f′cAg)",
+          detail: c.bresler.note,
+          clause: columnClauses.bresler(),
+        },
+      ];
+      if (c.slenderness)
+        for (const d of [c.slenderness.x, c.slenderness.y])
+          if (d.slender)
+            rows.push({
+              id: `${c.load.id}:slender-${d.axis}`,
+              label: `${c.load.id} · Slenderness ${d.axis.toUpperCase()} (δ/1.4)`,
+              dcr: d.unstable ? Infinity : d.secondOrderRatio / 1.4,
+              detail: d.note,
+              clause: columnClauses.slenderness(d.sway),
+            });
+      return rows;
+    });
 }
 export function slabDesignChecks(i: SlabInput, r: SlabResult): DesignCheck[] {
   const out: DesignCheck[] = [];
