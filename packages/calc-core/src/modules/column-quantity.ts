@@ -1,11 +1,25 @@
 import { z } from "zod";
 import type { RectangularColumnInput } from "./rectangular-column";
+import { storeyClearHeights } from "./column-storey";
 const finite = z.number().finite();
 export const columnQuantitySchema = z.object({
   enabled: z.boolean(),
-  hookBasis: z.enum(["allowance8db", "aci135"]).default("aci135"),
+  /**
+   * aci135: ACI 318-19 seismic hooks, 135° both ends on hoops and crossties.
+   * aci14x90: ACI 318-14 / NSCP 2015 crosstie (Ch. 2 definition, NSCP 402):
+   *   135° seismic hook one end, 90° hook with 6db extension the other,
+   *   90° ends alternated end for end (18.7.5.2(c) / 418.7.5.2(c)).
+   *   Closed hoops keep 135° seismic hooks. D10–D20 (office practice).
+   * allowance8db: designer allowance, 8db per end.
+   */
+  hookBasis: z.enum(["allowance8db", "aci135", "aci14x90"]).default("aci135"),
   height: finite.min(500).max(20000),
   beamDepth: finite.min(0).max(5000),
+  /**
+   * true: height / beamDepth typed in the estimate (designer override).
+   * Otherwise they follow storey geometry: H and the deeper beam (18.8.3).
+   */
+  geometryOverride: z.boolean().optional(),
   members: finite.int().min(1).max(10000),
   firstOffset: finite.min(0).max(1000),
   lastOffset: finite.min(0).max(1000),
@@ -82,16 +96,44 @@ export function columnHookGeometry(
   d: number,
   basis: ColumnQuantityInput["hookBasis"],
 ) {
+  const seismic = basis === "aci135" || basis === "aci14x90";
   if (basis === "aci135" && (d < 9.5 || d > 25.4))
     throw Error(
       "Automatic ACI hook basis supports 9.5–25.4 mm transverse bars only; use an independently detailed arrangement outside this range.",
     );
+  if (basis === "aci14x90" && (d < 9.5 || d > 20.1))
+    throw Error(
+      "The 135° + 90° crosstie basis is set up for D10–D20 ties; use the ACI 318-19 135° basis or an independently detailed arrangement for other sizes.",
+    );
+  // Seismic hook extension: max(6db, 75 mm) (ACI 318-19 25.3.4; ACI 318-14 /
+  // NSCP 2015 25.3.4 / 425.3.4). Inside bend: 4db ≤ D16, 6db D20–D25
+  // (Table 25.3.3).
+  const seismicExt = Math.max(6 * d, 76.2);
+  const allowance = 8 * d;
   return {
-    angle: basis === "aci135" ? 135 : null,
-    extension: basis === "aci135" ? Math.max(6 * d, 76.2) : 8 * d,
-    insideBend: basis === "aci135" ? (d <= 16 ? 4 : 6) * d : null,
+    angle: seismic ? 135 : null,
+    /** Extension per hoop end. */
+    extension: seismic ? seismicExt : allowance,
+    insideBend: seismic ? (d <= 16 ? 4 : 6) * d : null,
+    /** The two crosstie end extensions [first, second]. */
+    crossTieEnds:
+      basis === "aci14x90"
+        ? ([seismicExt, 6 * d] as const)
+        : seismic
+          ? ([seismicExt, seismicExt] as const)
+          : ([allowance, allowance] as const),
+    /** Angle of the crosstie's second end (90° for the 318-14 basis). */
+    crossTieSecondAngle: basis === "aci14x90" ? 90 : seismic ? 135 : null,
   };
 }
+export const columnHookBasisLabel: Record<
+  ColumnQuantityInput["hookBasis"],
+  string
+> = {
+  aci135: "ACI 318-19 · 135° both ends",
+  aci14x90: "ACI 318-14 / NSCP 2015 · crossties 135° + 90° (alternated)",
+  allowance8db: "Designer allowance · 8db each end",
+};
 export function rebarUnitWeight(diameter: number) {
   return (Math.PI / 4) * (diameter / 1000) ** 2 * 7850;
 }
@@ -111,16 +153,24 @@ export type ColumnQuantityRow = {
 };
 export const columnQuantityLimitations = [
   "Longitudinal bars measured over floor-to-floor height only. Splices, additional anchorage, couplers and procurement waste are excluded.",
-  "Cut lengths are preliminary: straight centerline body plus the selected hook extensions. Bend arcs, closure geometry and fabrication tolerances are excluded. ACI 135-degree mode uses max(6db, 76.2 mm) at both ends and displays minimum inside bend diameter; it does not certify hook fit or longitudinal-bar engagement.",
+  "Cut lengths are preliminary: straight centerline body plus the selected hook extensions. Bend arcs, closure geometry and fabrication tolerances are excluded. ACI 135-degree mode uses max(6db, 76.2 mm) at both ends and displays minimum inside bend diameter; it does not certify hook fit or longitudinal-bar engagement. ACI 318-14 / NSCP 2015 135° + 90° mode keeps 135° hoops and uses max(6db, 76.2 mm) + 6db on crossties, 90° ends alternated end for end.",
   "Concrete is gross section area times floor-to-floor height, including the upper beam-column joint. Do not count that joint again in beam/slab quantities. Reinforcement displacement is not deducted.",
   "Hoops are full-section rectangular hoops; additional legs are straight cross-ties. Inner or overlapping hoop geometries are not modeled. Tie zones and arrangements are quantity inputs, not verified shear or seismic confinement design.",
 ];
+/** Estimate height and joint from storey geometry unless overridden. */
+export function effectiveColumnQuantity<
+  Q extends { height: number; beamDepth: number; geometryOverride?: boolean },
+>(section: Pick<RectangularColumnInput, "storey">, q: Q): Q {
+  if (!section.storey || q.geometryOverride) return q;
+  const h = storeyClearHeights(section.storey);
+  return { ...q, height: section.storey.height, beamDepth: h.joint };
+}
 export function estimateColumnQuantity(
   section: RectangularColumnInput,
   raw: ColumnQuantityInput,
 ) {
   if (!raw.enabled) return null;
-  const q = columnQuantitySchema.parse(raw);
+  const q = effectiveColumnQuantity(section, columnQuantitySchema.parse(raw));
   if (
     ![section.width, section.depth, section.cover, section.fy].every(
       Number.isFinite,
@@ -237,7 +287,8 @@ export function estimateColumnQuantity(
     const x = section.width - 2 * section.cover - z.diameter,
       y = section.depth - 2 * section.cover - z.diameter;
     const hook = columnHookGeometry(z.diameter, q.hookBasis),
-      ends = 2 * hook.extension;
+      ends = 2 * hook.extension,
+      crossEnds = hook.crossTieEnds[0] + hook.crossTieEnds[1];
     add(
       `Z${index + 1}-H`,
       z.name,
@@ -259,7 +310,7 @@ export function estimateColumnQuantity(
       z.diameter,
       z.fy,
       sets * (z.legsX - 2 * z.hoops),
-      z.crossXLength ?? x + ends,
+      z.crossXLength ?? x + crossEnds,
       z.crossXLength != null
         ? "Designer cutting length"
         : "Preliminary automatic",
@@ -272,7 +323,7 @@ export function estimateColumnQuantity(
       z.diameter,
       z.fy,
       sets * (z.legsY - 2 * z.hoops),
-      z.crossYLength ?? y + ends,
+      z.crossYLength ?? y + crossEnds,
       z.crossYLength != null
         ? "Designer cutting length"
         : "Preliminary automatic",

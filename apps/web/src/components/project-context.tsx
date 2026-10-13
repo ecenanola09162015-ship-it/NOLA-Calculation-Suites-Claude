@@ -104,7 +104,13 @@ export function ProjectEditor({
       aria-labelledby="edit-project-title"
     >
       <h2 id="edit-project-title">Edit Project Information</h2>
-      <form action={onSave}>
+      <form
+        onSubmit={(e) => {
+          // onSubmit (not action=) so a rejected edit keeps the typed values.
+          e.preventDefault();
+          onSave(new FormData(e.currentTarget));
+        }}
+      >
         {projectInformationFields.map(([key, label]) => (
           <label key={key}>
             {label}

@@ -1,9 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { renderToStaticMarkup } from "react-dom/server";
-import { generateCalculationPdf } from "../src/lib/reports/pdf";
+import {
+  generateCalculationPdf,
+  ReportTooLongError,
+} from "../src/lib/reports/pdf";
 import { reportFixtures } from "./helpers/reports";
-import { ReportExportControls } from "../src/components/report-export-controls";
+import {
+  ReportExportControls,
+  isStaleBuildError,
+  reportFileName,
+} from "../src/components/report-export-controls";
 import {
   projectReportSettingsSchema,
   defaultProjectReportSettings,
@@ -36,7 +43,7 @@ describe("shared PDF reports", () => {
     }
   });
   it.each(["A4", "Letter"] as const)(
-    "keeps column and ordinary slab summaries to one page on %s",
+    "keeps simple reports within two pages, column on one, on %s",
     async (paper) => {
       for (const data of Object.values(prepared())) {
         const result = await generateCalculationPdf(data, {
@@ -45,7 +52,8 @@ describe("shared PDF reports", () => {
           nolaLogo: png,
         });
         const doc = await PDFDocument.load(result.bytes);
-        expect(doc.getPageCount()).toBe(1);
+        // Fonts are no longer shrunk to the minimum just to force one page.
+        expect(doc.getPageCount()).toBe(data.module === "RC Column" ? 1 : 2);
         expect(doc.getPage(0).getWidth()).toBeCloseTo(
           paper === "A4" ? 595.28 : 612,
           1,
@@ -53,7 +61,7 @@ describe("shared PDF reports", () => {
       }
     },
   );
-  it("permits a second slab summary page without relaxing the column limit", async () => {
+  it("permits a second simple-report page for both slab and column", async () => {
     const models = prepared();
     models.slab.summary[2].rows.push([
       "Engineering Remarks",
@@ -65,16 +73,84 @@ describe("shared PDF reports", () => {
       paper: "Letter",
     });
     expect(result.pageCount).toBe(2);
-    models.column.summary[2].rows.push(
-      ["Long Remarks", "W".repeat(2000)],
-      ["More Remarks", "W".repeat(2000)],
-    );
-    await expect(
-      generateCalculationPdf(models.column, {
-        type: "simple",
-        paper: "Letter",
-      }),
-    ).rejects.toThrow("Column Simple Report Cannot Fit One Page");
+    // Column without any design add-on: previously a one-page error.
+    models.column.summary[2].rows.push([
+      "Engineering Remarks",
+      "Reviewed " + "Column Detailing And Load Combinations. ".repeat(35),
+    ]);
+    const column = await generateCalculationPdf(models.column, {
+      type: "simple",
+      paper: "Letter",
+    });
+    expect(column.pageCount).toBe(2);
+  });
+  it("short simple reports stay on one page at the normal font", async () => {
+    const result = await generateCalculationPdf(prepared().column, {
+      type: "simple",
+      paper: "A4",
+    });
+    expect(result.pageCount).toBe(1);
+  });
+  it("beyond two pages raises ReportTooLongError so the UI can offer Complete", async () => {
+    const models = prepared();
+    for (let k = 0; k < 6; k++)
+      models.column.summary[2].rows.push([`Long Remarks ${k}`, "W".repeat(2000)]);
+    const error = await generateCalculationPdf(models.column, {
+      type: "simple",
+      paper: "Letter",
+    }).catch((e) => e);
+    expect(error).toBeInstanceOf(ReportTooLongError);
+    expect(error.name).toBe("ReportTooLongError");
+    expect(error.message).toContain("Column Simple Report Exceeds Two Pages");
+    // The complete report of the same data still exports.
+    const complete = await generateCalculationPdf(models.column, {
+      type: "complete",
+      paper: "Letter",
+    });
+    expect(complete.pageCount).toBeGreaterThan(1);
+  });
+  it("omits an unreadable drawing or logo with a warning instead of failing", async () => {
+    const data = prepared().column;
+    data.figures[0].png = "data:image/png;base64,AAAA";
+    const result = await generateCalculationPdf(data, {
+      type: "simple",
+      paper: "A4",
+      nolaLogo: "data:image/png;base64,AAAA",
+    });
+    expect(result.pageCount).toBeGreaterThan(0);
+    expect(result.warnings.join(" ")).toContain(data.figures[0].title);
+    expect(result.warnings.join(" ")).toContain("Ñola logo");
+  });
+  it("names files with the revision and detects stale-deploy load errors", () => {
+    const data = prepared().column;
+    const at = new Date("2026-10-13T08:00:00Z");
+    expect(
+      reportFileName(
+        {
+          ...data,
+          title: "C-1 Ground",
+          project: data.project && {
+            ...data.project,
+            reportSettings: {
+              ...defaultProjectReportSettings,
+              revision: "2",
+            },
+          },
+        },
+        "simple",
+        "A4",
+        at,
+      ),
+    ).toMatch(/^20261013_C-1_Ground_RC_Column_simple_A4(_Rev2)?\.pdf$/);
+    expect(
+      isStaleBuildError(
+        new TypeError(
+          "Failed to fetch dynamically imported module: https://x/_next/static/chunks/a.js",
+        ),
+      ),
+    ).toBe(true);
+    expect(isStaleBuildError(Object.assign(Error("x"), { name: "ChunkLoadError" }))).toBe(true);
+    expect(isStaleBuildError(Error("A Report Row Is Too Long."))).toBe(false);
   });
   it("paginates all combinations and complete checks without adding empty pages", async () => {
     const data = prepared().column;

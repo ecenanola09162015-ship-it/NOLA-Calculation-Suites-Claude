@@ -3,10 +3,13 @@ import { defaultSlabInput, defaultSlabQuantity } from "@nola/calc-core";
 vi.mock("@clerk/nextjs/server", () => ({ auth: vi.fn() }));
 // Source route uses @/ alias; resolve those imports through the explicit mocked paths.
 vi.mock("@/lib/env", () => ({ isDatabaseConfigured: vi.fn() }));
-vi.mock("@/lib/projects", () => ({ saveCalculationDraft: vi.fn() }));
+vi.mock("@/lib/projects", async (original) => ({
+  ...(await original<typeof import("../src/lib/projects")>()),
+  saveCalculationDraft: vi.fn(),
+}));
 import { auth } from "@clerk/nextjs/server";
 import { isDatabaseConfigured } from "@/lib/env";
-import { saveCalculationDraft } from "@/lib/projects";
+import { DuplicateNameError, saveCalculationDraft } from "@/lib/projects";
 import { defaultSlabInput } from "@nola/calc-core";
 import { POST } from "../src/app/api/calculations/route";
 const projectId = "12345678-1234-1234-1234-123456789012";
@@ -291,4 +294,43 @@ describe("engineering judgment traceability", () => {
       );
     },
   );
+});
+
+describe("duplicate calculation titles", () => {
+  it("returns 409 with the existing record and a suggested name", async () => {
+    vi.mocked(saveCalculationDraft).mockRejectedValue(
+      new DuplicateNameError(
+        "calculation",
+        { id: projectId, name: "C1", updatedAt: "2026-10-13T07:40:00.000Z" },
+        "C1 (2)",
+      ),
+    );
+    const response = await POST(request(body));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: '"C1" already exists in this project.',
+      duplicate: { id: projectId, title: "C1", suggestion: "C1 (2)" },
+    });
+    expect(saveCalculationDraft).toHaveBeenCalledWith(
+      "owner",
+      expect.objectContaining({ overwrite: false }),
+    );
+  });
+  it("passes a confirmed overwrite and rejects a non-boolean flag", async () => {
+    vi.mocked(saveCalculationDraft).mockResolvedValue({
+      id: projectId,
+      projectId,
+      moduleSlug: "rc-column",
+      title: "C1",
+      payload: {},
+      verificationStatus: "verification-required",
+      updatedAt: "2026-10-13",
+    });
+    expect((await POST(request({ ...body, overwrite: true }))).status).toBe(201);
+    expect(saveCalculationDraft).toHaveBeenCalledWith(
+      "owner",
+      expect.objectContaining({ overwrite: true }),
+    );
+    expect((await POST(request({ ...body, overwrite: "yes" }))).status).toBe(400);
+  });
 });

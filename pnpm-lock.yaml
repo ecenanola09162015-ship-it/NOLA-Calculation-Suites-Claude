@@ -147,7 +147,7 @@ importers:
         version: link:../../packages/design-tokens
       drizzle-orm:
         specifier: ^0.45.3
-        version: 0.45.3(@neondatabase/serverless@1.2.0)
+        version: 0.45.3(@electric-sql/pglite@0.2.17)(@neondatabase/serverless@1.2.0)
       next:
         specifier: ^16.0.0
         version: 16.3.8(@babel/core@7.29.7(supports-color@8.1.1))(@types/node@24.19.1)(babel-plugin-react-compiler@1.0.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -164,6 +164,9 @@ importers:
         specifier: 0.186.1
         version: 0.186.1
     devDependencies:
+      '@electric-sql/pglite':
+        specifier: 0.2.17
+        version: 0.2.17
       '@types/node':
         specifier: ^24.10.0
         version: 24.19.1
@@ -176,9 +179,15 @@ importers:
       '@types/three':
         specifier: 0.186.0
         version: 0.186.0
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
       eslint:
         specifier: ^9.39.0
         version: 9.39.5(supports-color@8.1.1)
+      playwright-core:
+        specifier: 1.56.1
+        version: 1.56.1
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -769,6 +778,9 @@ packages:
 
   '@dimforge/rapier3d-compat@0.12.0':
     resolution: {integrity: sha512-uekIGetywIgopfD97oDL5PfeezkFpNhwlzlaEYNOA0N6ghdsOvh/HYjSMek5Q2O1PYvRSDFcqFVJl4r4ZBwOow==}
+
+  '@electric-sql/pglite@0.2.17':
+    resolution: {integrity: sha512-qEpKRT2oUaWDH6tjRxLHjdzMqRUGYDnGZlKrnL4dJ77JVMcP2Hpo3NYnOSPKdZdeec57B6QPprCUFg0picx5Pw==}
 
   '@emnapi/runtime@1.11.3':
     resolution: {integrity: sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA==}
@@ -3836,6 +3848,11 @@ packages:
     resolution: {integrity: sha512-TfySrs/5nm8fQJDcBDuUng3VOUKsd7S+zqvbOTiGXHfxX4wK31ard+hoNuvkicM/2YFzlpDgABOevKSsB4G/FA==}
     engines: {node: '>= 6'}
 
+  playwright-core@1.56.1:
+    resolution: {integrity: sha512-hutraynyn31F+Bifme+Ps9Vq59hKuUCz7H1kDOcBs+2oGguKkWTU50bBWrtz34OUWmIwpBTWDxaRPXrIXkgvmQ==}
+    engines: {node: '>=18'}
+    hasBin: true
+
   plist@3.1.1:
     resolution: {integrity: sha512-ZIfcLJC+7E7FBFnDxm9MPmt7D+DidyQ26lewieO75AdhA2ayMtsJSES0iWzqJQbcVRSrTufQoy0DR94xHue0oA==}
     engines: {node: '>=10.4.0'}
@@ -5348,6 +5365,8 @@ snapshots:
       react-dom: 19.3.0(react@19.3.0)
 
   '@dimforge/rapier3d-compat@0.12.0': {}
+
+  '@electric-sql/pglite@0.2.17': {}
 
   '@emnapi/runtime@1.11.3':
     dependencies:
@@ -7335,8 +7354,9 @@ snapshots:
 
   dotenv@16.4.7: {}
 
-  drizzle-orm@0.45.3(@neondatabase/serverless@1.2.0):
+  drizzle-orm@0.45.3(@electric-sql/pglite@0.2.17)(@neondatabase/serverless@1.2.0):
     optionalDependencies:
+      '@electric-sql/pglite': 0.2.17
       '@neondatabase/serverless': 1.2.0
 
   ee-first@1.1.1: {}
@@ -8643,6 +8663,8 @@ snapshots:
   picomatch@4.0.7: {}
 
   pirates@4.0.7: {}
+
+  playwright-core@1.56.1: {}
 
   plist@3.1.1:
     dependencies:

@@ -2933,3 +2933,417 @@ select {
 .slabWorkspace :where(input, select, textarea, svg, img) {
   max-width: 100%;
 }
+.reportExportHint {
+  color: #8a5a00;
+}
+.reportExportError {
+  flex-basis: 100%;
+  max-width: 520px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #c0392b;
+  border-left-width: 4px;
+  border-radius: 5px;
+  background: #fdecea;
+  color: #8e1b10;
+  font-size: 12px;
+}
+.reportExportError p {
+  margin: 0;
+  flex: 1 1 240px;
+}
+.duplicatePrompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid #d99a00;
+  border-left-width: 4px;
+  border-radius: 5px;
+  background: #fff7e0;
+  color: #5c4100;
+  font-size: 13px;
+}
+.duplicatePrompt p {
+  margin: 0;
+  flex: 1 1 100%;
+}
+.duplicatePrompt .dangerAction {
+  background: #b3261e;
+  border-color: #b3261e;
+}
+
+/* Designer overrides: one colour everywhere (see lib/override-style.ts). */
+.isOverride input,
+label.isOverride input {
+  border-color: #7c3aed !important;
+  box-shadow: 0 0 0 1px #7c3aed;
+  color: #5b21b6;
+  font-weight: 700;
+}
+.overrideBadge,
+.overrideTag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid #7c3aed;
+  border-radius: 4px;
+  background: #f3edff;
+  color: #6d28d9;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+}
+.cqSummary .isOverride {
+  border: 1px solid #7c3aed;
+  background: #f7f3ff;
+}
+.cqSummary .isOverride strong {
+  color: #6d28d9;
+}
+.cqSummary .overrideTag {
+  display: block;
+  width: fit-content;
+  margin: 4px 0 0;
+}
+.overrideNote {
+  color: #6d28d9;
+  font-weight: 600;
+}
+.overrideLegend {
+  font-size: 12px;
+  color: #475467;
+}
+.midArrangement {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px dashed #9cc7cb;
+  border-radius: 8px;
+}
+.crossTieField .crossTieLegs {
+  display: block;
+  font-size: 11px;
+  margin-top: 4px;
+}
+.fieldError {
+  display: block;
+  margin-top: 4px;
+  color: #b3261e;
+  font-size: 11px;
+  font-weight: 600;
+}
+.crossTieField input[aria-invalid="true"] {
+  border-color: #b3261e;
+}
+.cqDrawings figure > .crossTieField {
+  display: block;
+  max-width: 280px;
+  margin: 6px 0 4px;
+}
+
+/* Review tables inside panels 05 / 06: the panel's auto-width table rule
+   must not collapse the fixed 35/35/10/20 columns. */
+.cqPanel .designReviewPanel {
+  border: none;
+  padding: 0;
+  margin: 16px 0 0;
+  background: transparent;
+}
+.cqPanel .designReviewPanel table {
+  width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
+  font-size: 12px;
+}
+
+/* Review / check tables never widen their container: every cell wraps
+   (overrides the workspace-wide "th { nowrap }" meant for short headings),
+   long unbroken text breaks anywhere, and cells may shrink. */
+.designReviewPanel .reviewTable th,
+.designReviewPanel .reviewTable td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  min-width: 0;
+}
+.designReviewPanel .reviewTable .designClause {
+  min-width: 0;
+}
+.reviewDetail {
+  white-space: pre-line;
+  margin: 4px 0 0;
+  font-weight: 500;
+}
+.reviewTable .designStatus {
+  display: inline-block;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.reviewTableWrap {
+  max-width: 100%;
+}
+
+/* Phones: each check becomes a stacked card instead of a 4-column row. */
+@media (max-width: 640px) {
+  .designReviewPanel .reviewTable,
+  .designReviewPanel .reviewTable tbody,
+  .designReviewPanel .reviewTable tr,
+  .designReviewPanel .reviewTable th,
+  .designReviewPanel .reviewTable td {
+    display: block;
+    width: 100%;
+  }
+  .designReviewPanel .reviewTable colgroup,
+  .designReviewPanel .reviewTable thead {
+    display: none;
+  }
+  .designReviewPanel .reviewTable tr {
+    border-bottom: 1px solid #d0dde6;
+    padding: 6px 0;
+  }
+  .designReviewPanel .reviewTable th,
+  .designReviewPanel .reviewTable td {
+    border-bottom: none;
+    padding: 3px 8px;
+  }
+  .designReviewPanel .reviewTable td[data-label]::before {
+    content: attr(data-label) ": ";
+    font-weight: 700;
+    color: #475467;
+  }
+}
+
+/* Materials: diameter (left) paired with its steel grade (right). */
+.rcFields.rcSteelPairs {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0;
+}
+@media (max-width: 560px) {
+  .rcFields.rcSteelPairs {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.rcCalculateBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #dbe5eb;
+}
+
+/* Tickable engineering-judgment reasons (amber checks). */
+.judgmentReasons {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid #d99a00;
+  border-left-width: 4px;
+  border-radius: 6px;
+  background: #fffaf0;
+  min-width: 0;
+}
+.judgmentReasons.isDone {
+  border-color: #9cc7cb;
+  background: #f6fbfb;
+}
+.judgmentReasons legend {
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.judgmentReasons .judgmentGroup {
+  font-weight: 500;
+  color: #597384;
+}
+.judgmentReasons .rcCheckbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 6px 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+.judgmentReasons .rcCheckbox span {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.judgmentReasons textarea {
+  width: 100%;
+  min-height: 60px;
+  box-sizing: border-box;
+}
+
+/* Storey geometry (panel 01) and linked estimate fields. */
+.storeyGeometry {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px dashed #c9d3da;
+}
+.storeyGeometry h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+.storeyBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 260px);
+  gap: 14px;
+  align-items: start;
+}
+.storeySketch {
+  width: 100%;
+  max-width: 260px;
+  height: auto;
+}
+@media (max-width: 720px) {
+  .storeyBody {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.storeyDerived {
+  font-size: 12px;
+}
+.storeyLinked {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border: 1px solid #9cc7cb;
+  border-radius: 6px;
+  background: #f6fbfb;
+  font-size: 12px;
+}
+.isOverride label input {
+  border-color: #7c3aed !important;
+  box-shadow: 0 0 0 1px #7c3aed;
+}
+
+/* 3D interaction surface. */
+.interaction3d {
+  min-width: 0;
+}
+.interaction3d.isFull {
+  position: fixed;
+  inset: 8px;
+  z-index: 60;
+  overflow: auto;
+  background: #fff;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+}
+.i3dHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.i3dHead h3 {
+  margin: 0;
+}
+.i3dViews {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.i3dViews button {
+  padding: 5px 10px;
+  border: 1px solid #c9d3da;
+  border-radius: 5px;
+  background: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.i3dViews button.isActive {
+  background: #0b5563;
+  border-color: #0b5563;
+  color: #fff;
+}
+.i3dControls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  align-items: flex-end;
+  margin: 10px 0;
+  font-size: 12px;
+}
+.i3dControls fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  border: 1px solid #dbe5eb;
+  border-radius: 6px;
+  padding: 4px 10px;
+  min-width: 0;
+}
+.i3dControls label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.i3dControls .rcCheckbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+}
+.i3dControls select {
+  max-width: 260px;
+}
+.i3dStage {
+  position: relative;
+  width: 100%;
+  height: min(70vh, 520px);
+  border: 1px solid #dbe5eb;
+  border-radius: 8px;
+  background: linear-gradient(#fbfdfe, #f1f6f8);
+  overflow: hidden;
+}
+.interaction3d.isFull .i3dStage {
+  height: calc(100vh - 220px);
+}
+.i3dCanvas,
+.i3dCanvas canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+.i3dLabels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-size: 11px;
+  color: #293e4b;
+}
+.i3dLabels span {
+  position: absolute;
+  transform: translate(-50%, -120%);
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.75);
+  padding: 0 3px;
+  border-radius: 3px;
+}
+.i3dNote {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 16px;
+  text-align: center;
+  font-size: 13px;
+  color: #475467;
+}
+.i3dReadout {
+  min-height: 1.4em;
+  margin: 6px 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}

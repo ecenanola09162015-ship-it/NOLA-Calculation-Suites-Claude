@@ -1,4 +1,7 @@
+import { OVERRIDE_COLOR } from "../override-style";
 import {
+  columnHookBasisLabel,
+  storeyClearHeights,
   rebarDesignation,
   rebarGradeLabel,
   columnDesignChecks,
@@ -31,6 +34,8 @@ import {
   columnFigures,
   columnTieElevationFigure,
   columnTieSectionFigure,
+  columnStoreyFigure,
+  columnInteraction3DFigure,
   slabFigures,
 } from "./figures";
 export type Cell = { text: string; color?: string };
@@ -63,8 +68,8 @@ export type ReportData = {
   criticalNotes: string[];
   generatedAt: string;
   estimate?: ReportSection;
-  /** Simple report page budget (column: 2 when design add-ons are active). */
-  simplePageLimit?: 1 | 2;
+  /** Figures printed only in the Complete report (e.g. the 3D surface). */
+  completeFigures?: ReportFigure[];
   /** Scope sentence printed in the simple-report overview. */
   scopeNote?: string;
 };
@@ -149,6 +154,19 @@ export function columnReportData(
     t && tieDesign?.override[k] != null
       ? ` (designer override; recommended ${t.recommended[k]})`
       : "";
+  const overridden = {
+    lo: tieDesign?.override.lo != null,
+    sEnd: tieDesign?.override.sEnd != null,
+    sMid: tieDesign?.override.sMid != null,
+  };
+  const anyOverride =
+    !!t && (overridden.lo || overridden.sEnd || overridden.sMid);
+  const storey = input.storey ?? null;
+  const sh = storey ? storeyClearHeights(storey) : null;
+  const storeyLine =
+    storey && sh
+      ? `H ${f(storey.height, 0)}; beam ∥X ${f(storey.beamX, 0)} / ∥Y ${f(storey.beamY, 0)} mm${storey.capital ? `; capital ${f(storey.capital, 0)}` : ""}${storey.bottom ? `; bottom ${f(storey.bottom, 0)}` : ""}; ℓu,x ${f(sh.luX, 0)}${storey.luOverrideX !== null ? " (override)" : ""} / ℓu,y ${f(sh.luY, 0)}${storey.luOverrideY !== null ? " (override)" : ""} mm; joint ${f(sh.joint, 0)} mm`
+      : "";
   const checks = [...columnDesignChecks(result), ...columnTransverseChecks(t)];
   const slender = !!input.slenderness?.enabled;
   const shearOn = !!t && (!!tieDesign?.shear.enabled || t.seismic);
@@ -180,6 +198,16 @@ export function columnReportData(
         "Section",
         `${input.width} x ${input.depth} mm; Ag = ${f(result.grossArea, 0)} mm²`,
       ],
+      ...(storey
+        ? [
+            [
+              "Storey Geometry",
+              storey.luOverrideX !== null || storey.luOverrideY !== null
+                ? { text: storeyLine, color: OVERRIDE_COLOR }
+                : storeyLine,
+            ] as (string | Cell)[],
+          ]
+        : []),
       [
         "Longitudinal Bars",
         [...barGroups]
@@ -189,7 +217,10 @@ export function columnReportData(
       t && tieDesign
         ? [
             "Ties (Design)",
-            `${rebarDesignation(std, tieDesign.tie.diameter)} ${rebarGradeLabel(std, tieDesign.tie.fyt, tieDesign.tie.gradeId)} hoop + cross-ties, ${t.layout.legsX} x ${t.layout.legsY} legs; ${t.seismic ? `lo ${t.adopted.lo} mm${ov("lo")} @ ${t.adopted.sEnd}${ov("sEnd")}; outside lo @ ${t.adopted.sMid} mm${ov("sMid")}` : `@ ${t.adopted.sMid} mm${ov("sMid")}`}`,
+            {
+              text: `${rebarDesignation(std, tieDesign.tie.diameter)} ${rebarGradeLabel(std, tieDesign.tie.fyt, tieDesign.tie.gradeId)} hoop + cross-ties, ${t.layout.legsX} x ${t.layout.legsY} legs${t.midSeparate ? ` in lo, ${t.layoutMid.legsX} x ${t.layoutMid.legsY} outside lo` : ""}; ${t.seismic ? `lo ${t.adopted.lo} mm${ov("lo")} @ ${t.adopted.sEnd}${ov("sEnd")}; outside lo @ ${t.adopted.sMid} mm${ov("sMid")}` : `@ ${t.adopted.sMid} mm${ov("sMid")}`}`,
+              ...(anyOverride ? { color: OVERRIDE_COLOR } : {}),
+            },
           ]
         : [
             "Ties",
@@ -471,6 +502,15 @@ export function columnReportData(
         "Longitudinal / Shear Weight",
         `${f(q.longitudinalPercent)}% / ${f(q.shearPercent)}%`,
       ],
+      [
+        "Hook Basis",
+        columnHookBasisLabel[quantity.hookBasis] +
+          (quantity.hookBasis === "aci14x90"
+            ? " — crosstie 135° max(6db, 75) + 90° 6db; 90° ends alternated (ACI 318-14 / NSCP 2015 Ch. 2 / 402, 18.7.5.2(c) / 418.7.5.2(c), 25.3.4 / 425.3.4)"
+            : quantity.hookBasis === "aci135"
+              ? " — max(6db, 75) each end (ACI 318-19 25.3.4)"
+              : ""),
+      ],
     ]);
     extra.push(
       section(
@@ -507,15 +547,19 @@ export function columnReportData(
     summary,
     figures: [
       ...columnFigures(input, result, project?.reportSettings?.style),
+      ...(storey
+        ? [columnStoreyFigure(storey, project?.reportSettings?.style)]
+        : []),
       ...(twoPages
         ? [columnBiaxialFigure(input, result, project?.reportSettings?.style)]
         : []),
       ...(t && tieDesign
         ? [
             columnTieElevationFigure(
-              t.seismic ? tieDesign.confinement.clearHeight : 3000,
+              t.seismic ? t.clearHeight || tieDesign.confinement.clearHeight : 3000,
               t,
               project?.reportSettings?.style,
+              overridden,
             ),
             columnTieSectionFigure(
               input,
@@ -523,12 +567,48 @@ export function columnReportData(
               tieDesign.tie.diameter,
               project?.reportSettings?.style,
             ),
+            ...(t.midSeparate
+              ? [
+                  columnTieSectionFigure(
+                    input,
+                    t,
+                    tieDesign.tie.diameter,
+                    project?.reportSettings?.style,
+                    "mid",
+                  ),
+                ]
+              : []),
           ]
         : []),
     ].filter((x): x is ReportFigure => !!x),
+    completeFigures: [
+      columnInteraction3DFigure(
+        input,
+        result,
+        policy,
+        project?.reportSettings?.style,
+      ),
+    ],
     checks: checkTable(checks, policy, remarks),
     sections: [
       equations,
+      ...(storey && sh
+        ? [
+            section(
+              "Storey Geometry (ACI 318-19 6.2.4, 18.7.5.1, 18.7.6.1.1, 18.8.3)",
+              [
+                ["Floor-to-floor height H (top of slab to top of slab)", `${f(storey.height, 0)} mm`],
+                ["Beam along X / along Y (depth)", `${f(storey.beamX, 0)} / ${f(storey.beamY, 0)} mm`],
+                ["Capital / drop / haunch; bottom deduction", `${f(storey.capital ?? 0, 0)} / ${f(storey.bottom ?? 0, 0)} mm`],
+                ["ℓu,x (Mux) = H − beam ∥Y − capital − bottom", `${f(sh.derivedX, 0)} mm${storey.luOverrideX !== null ? `; override ${f(storey.luOverrideX, 0)} mm` : ""}`],
+                ["ℓu,y (Muy) = H − beam ∥X − capital − bottom", `${f(sh.derivedY, 0)} mm${storey.luOverrideY !== null ? `; override ${f(storey.luOverrideY, 0)} mm` : ""}`],
+                ["Clear height for lo (larger ℓu)", `${f(sh.loClear, 0)} mm`],
+                ["Joint depth (deeper beam) / estimate clear height", `${f(sh.joint, 0)} / ${f(storey.height - sh.joint, 0)} mm`],
+              ],
+              ["Item", "Value"],
+            ),
+          ]
+        : []),
       ...transverseSections,
       section("All Load Combinations", loadRows, [
         "Combo",
@@ -568,7 +648,6 @@ export function columnReportData(
       ...extra,
     ],
     references: refColumn(shearOn, !!t?.seismic, slender),
-    simplePageLimit: twoPages ? 2 : 1,
     scopeNote: `Rectangular Tied Column. ${slender ? "Slenderness By Moment Magnification." : "Short Column (Slenderness Not Considered)."} ${shearOn ? "Shear Designed." : "Shear Not Evaluated."} ${t?.seismic ? `${t.frame} Confinement Designed.` : "Seismic Confinement Not Evaluated."}`,
     criticalNotes: result.warnings.slice(4),
     limitations: [

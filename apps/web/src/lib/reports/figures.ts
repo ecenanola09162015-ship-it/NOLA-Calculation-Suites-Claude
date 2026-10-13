@@ -5,6 +5,9 @@ import {
   slabBeamSizes,
   slabLoadPatch,
   slabPrimaryAxisX,
+  storeyClearHeights,
+  type ColumnStorey,
+  type DesignCheckPolicy,
   type ReportStyle,
   type TransverseResult,
 } from "@nola/calc-core";
@@ -16,6 +19,14 @@ import type {
   SlabResolvedBar,
 } from "@nola/calc-core";
 import type { ReportFigure } from "./data";
+import {
+  buildInteraction3D,
+  isoProject,
+  sliceAt,
+  toScene,
+  type Vec3,
+} from "../interaction-3d-model";
+import { OVERRIDE_COLOR } from "../override-style";
 import { loadStyles } from "@/lib/load-styles";
 const teal = defaultReportStyle.colors.teal;
 const svg = (
@@ -25,8 +36,8 @@ const svg = (
   h = 175,
 ) =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" fill="${style.colors.white}"/><g font-family="${style.fontFamily.replaceAll('"', "").replaceAll("<", "").replaceAll(">", "")},Arial,sans-serif" font-size="${style.diagramFontSize}" fill="${style.colors.text}">${body}</g></svg>`;
-const text = (x: number, y: number, s: string) =>
-  `<text x="${x}" y="${y}">${s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</text>`;
+const text = (x: number, y: number, s: string, fill?: string) =>
+  `<text x="${x}" y="${y}"${fill ? ` fill="${fill}" font-weight="bold"` : ""}>${s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</text>`;
 const line = (
   x1: number,
   y1: number,
@@ -347,8 +358,14 @@ export function columnTieElevationFigure(
   clearHeight: number,
   d: TransverseResult,
   style: ReportStyle = defaultReportStyle,
+  /** Overridden values are labelled in the override colour. */
+  overridden: { lo?: boolean; sEnd?: boolean; sMid?: boolean } = {},
 ): ReportFigure {
   const { lo, sEnd, sMid } = d.adopted;
+  const ovc = (...k: (keyof typeof overridden)[]) =>
+    k.some((x) => overridden[x]) ? OVERRIDE_COLOR : undefined;
+  const tag = (...k: (keyof typeof overridden)[]) =>
+    k.some((x) => overridden[x]) ? " (override)" : "";
   const ink = style.colors.text,
     end = style.colors.gold,
     H = 130,
@@ -372,24 +389,27 @@ export function columnTieElevationFigure(
     ties(lo, clearHeight - lo, sMid, teal);
     ties(clearHeight - lo, clearHeight, sEnd, end);
   }
-  body += text(
-    120,
-    top + 10,
-    confined
-      ? full
-        ? `Full height @ ${sEnd}`
-        : `lo ${lo} @ ${sEnd}`
-      : `@ ${sMid}`,
-  );
+  body += confined
+    ? full
+      ? text(120, top + 10, `Full height @ ${sEnd}${tag("sEnd")}`, ovc("sEnd"))
+      : text(120, top + 10, `lo ${lo} @ ${sEnd}${tag("lo", "sEnd")}`, ovc("lo", "sEnd"))
+    : text(120, top + 10, `@ ${sMid}${tag("sMid")}`, ovc("sMid"));
   if (confined && !full) {
-    body += text(120, top + H / 2, `@ ${sMid}`);
-    body += text(120, top + H - 4, `lo ${lo} @ ${sEnd}`);
+    body += text(120, top + H / 2, `@ ${sMid}${tag("sMid")}`, ovc("sMid"));
+    body += text(
+      120,
+      top + H - 4,
+      `lo ${lo} @ ${sEnd}${tag("lo", "sEnd")}`,
+      ovc("lo", "sEnd"),
+    );
   }
   body += text(8, top + H / 2, `lu ${clearHeight}`);
   body += text(
     8,
     168,
-    `Legs ${d.layout.legsX} x ${d.layout.legsY}; hx ${d.layout.hx.toFixed(0)} mm`,
+    d.midSeparate
+      ? `Legs in lo ${d.layout.legsX} x ${d.layout.legsY}; outside ${d.layoutMid.legsX} x ${d.layoutMid.legsY}`
+      : `Legs ${d.layout.legsX} x ${d.layout.legsY}; hx ${d.layout.hx.toFixed(0)} mm`,
   );
   return {
     title: confined
@@ -399,13 +419,18 @@ export function columnTieElevationFigure(
   };
 }
 
-/** Tie arrangement at the lo zone (hoop, cross-ties, bars) with spacing. */
+/**
+ * Tie arrangement (hoop, cross-ties, bars) with spacing: the lo zone, or
+ * the arrangement outside lo when a separate one is used.
+ */
 export function columnTieSectionFigure(
   i: RectangularColumnInput,
   d: TransverseResult,
   tieDiameter: number,
   style: ReportStyle = defaultReportStyle,
+  zone: "lo" | "mid" = "lo",
 ): ReportFigure {
+  const lay = zone === "mid" ? d.layoutMid : d.layout;
   const { primary: blue, text: ink } = style.colors;
   const tie = style.colors.gold;
   const scale = 112 / Math.max(i.width, i.depth);
@@ -416,9 +441,9 @@ export function columnTieSectionFigure(
   const tw = Math.max(1, tieDiameter * scale);
   let body = `<rect x="${X(-i.width / 2)}" y="${Y(i.depth / 2)}" width="${i.width * scale}" height="${i.depth * scale}" fill="${style.colors.tint}" stroke="${ink}" stroke-width="0.6"/>`;
   body += `<rect x="${X(-hw)}" y="${Y(hd)}" width="${2 * hw * scale}" height="${2 * hd * scale}" rx="${3}" fill="none" stroke="${tie}" stroke-width="${tw}"/>`;
-  for (const y of d.layout.crossX)
+  for (const y of lay.crossX)
     body += line(X(-hw), Y(y), X(hw), Y(y), tie, tw);
-  for (const x of d.layout.crossY)
+  for (const x of lay.crossY)
     body += line(X(x), Y(hd), X(x), Y(-hd), tie, tw);
   body += i.bars
     .map(
@@ -426,19 +451,123 @@ export function columnTieSectionFigure(
         `<circle cx="${X(b.x)}" cy="${Y(b.y)}" r="${Math.max(1.2, (b.diameter * scale) / 2)}" fill="${blue}"/>`,
     )
     .join("");
-  const s = d.seismic ? d.adopted.sEnd : d.adopted.sMid;
+  const s = d.seismic && zone === "lo" ? d.adopted.sEnd : d.adopted.sMid;
   body += text(
     8,
     156,
-    `${d.layout.legsX} legs ∥X, ${d.layout.legsY} legs ∥Y; hx ${d.layout.hx.toFixed(0)} mm`,
+    `${lay.legsX} legs ∥X, ${lay.legsY} legs ∥Y; hx ${lay.hx.toFixed(0)} mm`,
   );
   body += text(
     8,
     168,
-    d.seismic ? `Within lo = ${d.adopted.lo} mm: s = ${s} mm` : `s = ${s} mm`,
+    zone === "mid"
+      ? `Outside lo: s = ${s} mm`
+      : d.seismic
+        ? `Within lo = ${d.adopted.lo} mm: s = ${s} mm`
+        : `s = ${s} mm`,
   );
   return {
-    title: d.seismic ? "Tie Section Within lo" : "Tie Section",
+    title:
+      zone === "mid"
+        ? "Tie Section Outside lo"
+        : d.seismic
+          ? "Tie Section Within lo"
+          : "Tie Section",
     svg: svg(body, style),
   };
+}
+
+/** Storey elevation: H, beam depths, ℓu,x / ℓu,y and joint (6.2.4, 18.8.3). */
+export function columnStoreyFigure(
+  storey: ColumnStorey,
+  style: ReportStyle = defaultReportStyle,
+): ReportFigure {
+  const h = storeyClearHeights(storey);
+  const ink = style.colors.text;
+  const H = 130,
+    top = 18,
+    S = H / storey.height;
+  const Y = (z: number) => top + H - z * S;
+  let body = `<rect x="40" y="${top}" width="110" height="${storey.beamX * S}" fill="${style.colors.tint}"/>`;
+  body += `<rect x="95" y="${top}" width="55" height="${storey.beamY * S}" fill="${teal}" fill-opacity="0.25"/>`;
+  body += `<rect x="85" y="${top}" width="20" height="${H}" fill="none" stroke="${ink}" stroke-width="0.6"/>`;
+  body += line(30, Y(0), 160, Y(0), ink, 0.6);
+  body += line(30, top, 160, top, ink, 0.6);
+  body += line(170, top + (storey.beamY + (storey.capital ?? 0)) * S, 170, Y(storey.bottom ?? 0), teal, 0.8);
+  body += line(205, top + (storey.beamX + (storey.capital ?? 0)) * S, 205, Y(storey.bottom ?? 0), style.colors.gold, 0.8);
+  body += text(8, top + H / 2, `H ${storey.height}`);
+  body += text(160, top + H / 2 - 6, `lu,x ${h.luX}`);
+  body += text(160, top + H / 2 + 8, `lu,y ${h.luY}`);
+  body += text(42, top + 9, `beam X ${storey.beamX}`);
+  body += text(98, top + 9, `Y ${storey.beamY}`);
+  body += text(8, 168, `Joint ${h.joint} mm (deeper beam); lo uses ${h.loClear} mm`);
+  return { title: "Storey Geometry", svg: svg(body, style) };
+}
+
+/**
+ * Fixed isometric view of the 3D interaction surfaces for the Complete
+ * report (vector, no WebGL): design (φ) meridians and constant-P rings in
+ * teal, nominal meridians dashed gray, demand points by status.
+ */
+export function columnInteraction3DFigure(
+  input: RectangularColumnInput,
+  result: RectangularColumnResult,
+  policy: DesignCheckPolicy,
+  style: ReportStyle = defaultReportStyle,
+): ReportFigure {
+  const m = buildInteraction3D(input, result, policy);
+  const sc = m.scale;
+  const W = 250,
+    H = 175;
+  const k = 52,
+    cx = W / 2,
+    cy = 92;
+  const P = (v: Vec3) => {
+    const [x, y] = isoProject(v);
+    return [cx + k * x, cy + k * y] as const;
+  };
+  const path = (pts: Vec3[], close = false) =>
+    pts
+      .map((v, i) => {
+        const [x, y] = P(v);
+        return `${i ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`;
+      })
+      .join("") + (close ? "Z" : "");
+  let body = "";
+  const ink = style.colors.text;
+  const y0 = toScene(sc, 0, 0, 0)[1];
+  for (const [a, b] of [
+    [[-1.15, y0, 0], [1.15, y0, 0]],
+    [[0, y0, -1.15], [0, y0, 1.15]],
+    [[0, -1.1, 0], [0, 1.15, 0]],
+  ] as [Vec3, Vec3][])
+    body += `<path d="${path([a, b])}" stroke="${ink}" stroke-width="0.4" fill="none"/>`;
+  const step = Math.max(1, Math.round(m.surface.thetas.length / 12));
+  m.surface.nominal.forEach((row, i) => {
+    if (i % step) return;
+    body += `<path d="${path(row.map(([x, y, p]) => toScene(sc, x, y, p)))}" stroke="#8a99a6" stroke-width="0.35" stroke-dasharray="2 1.5" fill="none"/>`;
+  });
+  // Design surface as constant-P rings (meridians twist with the neutral
+  // axis and read poorly in a static view).
+  const pLo = Math.min(...m.surface.design.map((r) => r[0]![2]));
+  for (let j = 1; j <= 9; j++) {
+    const p = pLo + ((m.surface.axialCap - pLo) * j) / 10;
+    const ring = sliceAt(m.surface.design, p).map(([x, y]) => toScene(sc, x, y, p));
+    if (ring.length > 3)
+      body += `<path d="${path(ring, true)}" stroke="${teal}" stroke-width="0.45" fill="${teal}" fill-opacity="0.06"/>`;
+  }
+  for (const pt of m.points) {
+    const [x, y] = P(toScene(sc, pt.mux, pt.muy, pt.pu));
+    body += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${pt.governing ? 2.6 : 1.6}" fill="${pt.color}"/>`;
+    if (pt.governing) body += text(x + 4, y - 3, `${pt.id} DCR ${pt.dcr?.toFixed(3) ?? "-"}`);
+  }
+  const lab = (v: Vec3, t: string) => {
+    const [x, y] = P(v);
+    return text(x, y, t);
+  };
+  body += lab([1.2, y0, 0], "Mx");
+  body += lab([0, y0, 1.25], "My");
+  body += lab([0.04, 1.2, 0], "P");
+  body += text(6, H - 4, "Teal rings: design (phi); dashed: nominal");
+  return { title: "3D Interaction Surface (P-Mx-My)", svg: svg(body, style, W, H) };
 }

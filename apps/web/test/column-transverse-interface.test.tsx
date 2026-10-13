@@ -202,7 +202,6 @@ describe("column simple report with design add-ons", () => {
       tie,
       design,
     );
-    expect(data.simplePageLimit).toBe(2);
     expect(data.figures.map((f) => f.title)).toContain(
       "Confinement Zones (Clear Height)",
     );
@@ -226,7 +225,7 @@ describe("materials as the single source and report summary", () => {
     );
     expect(html).toContain("Vux (kN)");
     expect(html).toContain("Vuy (kN)");
-    expect(html).toContain("Main bar size");
+    expect(html).toContain("Longitudinal Bar Diameter");
     expect(html).toContain("Tie steel grade (fyt)");
     expect(html).toContain("from Section &amp; Materials");
     expect(html).not.toContain("position: sticky");
@@ -286,7 +285,7 @@ describe("screen fit and spacing overrides", () => {
       <ColumnShearPanel {...props} value={over} design={d2} />,
     );
     expect(html).toContain('value="125"');
-    expect(html).toContain(">Override</em>");
+    expect(html).toContain('class="overrideBadge">Override · rec.');
     expect(html).toContain(`Use ${d2.recommended.sEnd}`);
     expect(d2.adopted.sEnd).toBe(125);
   });
@@ -307,7 +306,8 @@ describe("screen fit and spacing overrides", () => {
     const ties = data.summary
       .flatMap((s) => s.rows)
       .find((r) => String(r[0]) === "Ties (Design)")!;
-    expect(String(ties[1])).toContain(
+    const cell = ties[1];
+    expect(typeof cell === "string" ? cell : cell.text).toContain(
       `@ 125 (designer override; recommended ${d.recommended.sEnd})`,
     );
   });

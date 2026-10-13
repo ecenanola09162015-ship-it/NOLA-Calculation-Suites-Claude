@@ -2,6 +2,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import {
+  DuplicateNameError,
   createProject,
   saveCalculationDraft,
   updateProject,
@@ -11,13 +12,58 @@ import {
   projectReportSettingsSchema,
 } from "@nola/calc-core";
 import { uiCatalogue } from "@/lib/ui-catalogue";
+
+/**
+ * Server actions return their outcome instead of throwing: Next.js hides the
+ * message of an error thrown in production, so the user would only see a
+ * generic failure.
+ */
+export type DuplicateInfo = {
+  id: string;
+  name: string;
+  updatedAt: string;
+  suggestion: string;
+};
+export type ActionResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: string; duplicate?: DuplicateInfo };
+async function outcome<T>(
+  run: () => Promise<T>,
+  fallback: string,
+): Promise<ActionResult<T>> {
+  try {
+    return { ok: true, value: await run() };
+  } catch (e) {
+    if (e instanceof DuplicateNameError)
+      return {
+        ok: false,
+        error: e.message,
+        duplicate: { ...e.existing, suggestion: e.suggestion },
+      };
+    return {
+      ok: false,
+      error: e instanceof ActionInputError ? e.message : fallback,
+    };
+  }
+}
+/** Validation messages that are safe to show the user. */
+class ActionInputError extends Error {}
+
 export async function createProjectAction(formData: FormData) {
+  return outcome(
+    () => createProjectChecked(formData),
+    "Project could not be saved. Please retry.",
+  );
+}
+async function createProjectChecked(formData: FormData) {
   const { userId } = await auth();
-  if (!userId) throw new Error("Please sign in again.");
+  if (!userId) throw new ActionInputError("Please sign in again.");
   const field = (name: string) => {
     const value = String(formData.get(name) ?? "").trim();
     if (!value || value.length > 100)
-      throw new Error("Complete all six fields using 1–100 characters each.");
+      throw new ActionInputError(
+        "Complete all six fields using 1–100 characters each.",
+      );
     return value;
   };
   const project = await createProject(userId, {
@@ -37,13 +83,27 @@ export async function createInterfaceDraftAction(
   slug: string,
   title: string,
 ) {
+  return outcome(
+    () => createInterfaceDraftChecked(projectId, slug, title),
+    "Draft could not be saved. Please retry.",
+  );
+}
+async function createInterfaceDraftChecked(
+  projectId: string,
+  slug: string,
+  title: string,
+) {
   const { userId } = await auth();
-  if (!userId) throw new Error("Please sign in again.");
+  if (!userId) throw new ActionInputError("Please sign in again.");
   const module = uiCatalogue.find((item) => item.slug === slug);
   if (!module?.pilot)
-    throw new Error("This module is scheduled for future development.");
+    throw new ActionInputError(
+      "This module is scheduled for future development.",
+    );
   if (!title.trim() || title.length > 100)
-    throw new Error("Enter a calculation title using 1–100 characters.");
+    throw new ActionInputError(
+      "Enter a calculation title using 1–100 characters.",
+    );
   const draft = await saveCalculationDraft(userId, {
     projectId,
     moduleSlug: slug,
@@ -58,16 +118,24 @@ export async function createInterfaceDraftAction(
 }
 
 export async function updateProjectAction(id: string, formData: FormData) {
+  return outcome(
+    () => updateProjectChecked(id, formData),
+    "Project changes could not be saved for this account. Your form remains open.",
+  );
+}
+async function updateProjectChecked(id: string, formData: FormData) {
   const { userId } = await auth();
-  if (!userId) throw Error("Please sign in again.");
+  if (!userId) throw new ActionInputError("Please sign in again.");
   if (
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
   )
-    throw Error("Invalid project.");
+    throw new ActionInputError("Invalid project.");
   const field = (key: string) => {
     const value = String(formData.get(key) ?? "").trim();
     if (!value || value.length > 100)
-      throw Error("Complete all six fields using 1–100 characters each.");
+      throw new ActionInputError(
+        "Complete all six fields using 1–100 characters each.",
+      );
     return value;
   };
   let policy;
@@ -76,7 +144,7 @@ export async function updateProjectAction(id: string, formData: FormData) {
       JSON.parse(String(formData.get("designCheckPolicy"))),
     );
   } catch {
-    throw Error(
+    throw new ActionInputError(
       "Check status thresholds, labels and colors. Thresholds must be strictly increasing.",
     );
   }
@@ -86,7 +154,9 @@ export async function updateProjectAction(id: string, formData: FormData) {
       JSON.parse(String(formData.get("reportSettings") ?? "{}")),
     );
   } catch {
-    throw Error("Check report settings, project fields and logo file sizes.");
+    throw new ActionInputError(
+      "Check report settings, project fields and logo file sizes.",
+    );
   }
   const input = {
     reportSettings,
@@ -98,13 +168,7 @@ export async function updateProjectAction(id: string, formData: FormData) {
     approvedBy: field("approvedBy"),
     designCheckPolicy: policy,
   };
-  try {
-    const project = await updateProject(userId, id, input);
-    revalidatePath("/launcher");
-    return project;
-  } catch {
-    throw Error(
-      "Project changes could not be saved for this account. Your form remains open.",
-    );
-  }
+  const project = await updateProject(userId, id, input);
+  revalidatePath("/launcher");
+  return project;
 }
