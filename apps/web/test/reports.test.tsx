@@ -91,9 +91,9 @@ describe("shared PDF reports", () => {
     });
     expect(result.pageCount).toBe(1);
   });
-  it("beyond two pages raises ReportTooLongError so the UI can offer Complete", async () => {
+  it("beyond three pages raises ReportTooLongError so the UI can offer Complete", async () => {
     const models = prepared();
-    for (let k = 0; k < 6; k++)
+    for (let k = 0; k < 12; k++)
       models.column.summary[2].rows.push([`Long Remarks ${k}`, "W".repeat(2000)]);
     const error = await generateCalculationPdf(models.column, {
       type: "simple",
@@ -101,7 +101,7 @@ describe("shared PDF reports", () => {
     }).catch((e) => e);
     expect(error).toBeInstanceOf(ReportTooLongError);
     expect(error.name).toBe("ReportTooLongError");
-    expect(error.message).toContain("Column Simple Report Exceeds Two Pages");
+    expect(error.message).toContain("Column Simple Report Exceeds Three Pages");
     // The complete report of the same data still exports.
     const complete = await generateCalculationPdf(models.column, {
       type: "complete",

@@ -37,6 +37,11 @@ import {
 } from "./duplicate-save-prompt";
 import { ColumnQuantityPanel } from "./column-quantity-panel";
 import { StoreyGeometryFields } from "./column-storey-panel";
+import {
+  ConcreteStrengthFields,
+  DesignCodeFields,
+} from "./column-materials-fields";
+import { ColumnSectionDrawingButton } from "./column-section-drawing-button";
 import dynamic from "next/dynamic";
 // Three.js loads only when results are shown.
 const ColumnInteraction3D = dynamic(
@@ -68,7 +73,6 @@ import {
   ColumnSlendernessInputs,
   ColumnSlendernessResults,
 } from "./column-slenderness-panel";
-import { ConcreteStrengthSelect } from "./concrete-strength-select";
 /** New calculations start with Vux = Vuy = 400 kN (user decision); imports stay as pasted. */
 export const DEFAULT_SHEAR = 400;
 const initial: RectangularColumnInput = {
@@ -76,7 +80,9 @@ const initial: RectangularColumnInput = {
   code: "ACI 318-19",
   width: 600,
   depth: 800,
-  fc: 35,
+  // 5000 psi → 34.47 MPa exact → 34.5 MPa (decision sheet D7–D10).
+  fcPsi: 5000,
+  fc: 34.5,
   fy: 420,
   es: 200000,
   cover: 40,
@@ -148,13 +154,14 @@ const initial: RectangularColumnInput = {
     },
   ],
 };
-const fields = [
-  ["width", "Width b", "mm"],
+/** Column Dimensions, in the order of the decision sheet (D12): h, b, cover. */
+const dimensionFields = [
   ["depth", "Depth h", "mm"],
-  ["fc", "Concrete f′c", "MPa"],
-  ["es", "Steel Es", "MPa"],
+  ["width", "Width b", "mm"],
   ["cover", "Clear cover to ties", "mm"],
 ] as const;
+/** ACI 318-19 20.2.2.2: Es = 200 000 MPa; another value is a designer override. */
+const ES_DEFAULT = 200000;
 export function RectangularColumnWorkspace({
   project,
   draft,
@@ -526,6 +533,16 @@ export function RectangularColumnWorkspace({
     setSaved(false);
     setRemarks(next);
   };
+  const drawingAction = (
+    <ColumnSectionDrawingButton
+      input={input}
+      tie={effectiveTie}
+      design={transverse.design ?? null}
+      hookBasis={quantity.hookBasis}
+      title={title}
+      projectName={project?.name}
+    />
+  );
   // Vux / Vuy are always shown and pasted, with or without shear design.
   const showShear = true;
   function updateTie(next: ColumnTieDesignInput) {
@@ -608,62 +625,48 @@ export function RectangularColumnWorkspace({
       <div className="rcGrid">
         <section className="rcPanel">
           <h2>01 · Section & Materials</h2>
-          <label>
-            Design code
-            <select
-              value={input.code}
-              onChange={(e) =>
-                update({
-                  ...input,
-                  code: e.target.value as RectangularColumnInput["code"],
-                })
-              }
-            >
-              <option>ACI 318-19</option>
-              <option value="NSCP 2015">
-                NSCP 2015 project — ACI 318-19 calculation basis
-              </option>
-              <option disabled>BS EN 1992 — Future Development</option>
-              <option disabled>AS 3600 — Future Development</option>
-            </select>
-          </label>
-          {input.code === "NSCP 2015" && (
-            <p className="rcAlert">
-              Project standard: NSCP 2015. Calculation basis: ACI 318-19. This
-              option uses the same ACI section-strength engine; it does not
-              confirm compliance with every NSCP 2015 provision.
-            </p>
-          )}
-          <div className="rcFields">
+          <DesignCodeFields input={input} onChange={update} />
+          <h3 className="rcSubhead">Column Dimensions</h3>
+          <div className="rcFields rcDimFields">
+            {dimensionFields.map(([key, label, unit]) => (
+              <NumberField
+                key={key}
+                label={label}
+                unit={unit}
+                value={input[key]}
+                onChange={(value) => update({ ...input, [key]: value })}
+              />
+            ))}
+          </div>
+          <h3 className="rcSubhead">Concrete Strength</h3>
+          <ConcreteStrengthFields input={input} onChange={update} />
+          <h3 className="rcSubhead">Rebar Information</h3>
+          {/* Standard | Es, then each diameter (left) with its grade (right). */}
+          <div className="rcFields rcSteelPairs">
             <RebarStandardSelect
               value={standard}
               onChange={(rebarStandard) => update({ ...input, rebarStandard })}
             />
-            {fields.map(([key, label, unit]) =>
-              key === "fc" ? (
-                // psi catalogue limited to this engine's 17–80 MPa range.
-                <ConcreteStrengthSelect
-                  key={key}
-                  layout="rc"
-                  label={label}
-                  minMpa={17}
-                  maxMpa={80}
-                  value={input.fc}
-                  onChange={(fc) => update({ ...input, fc })}
-                />
-              ) : (
-                <NumberField
-                  key={key}
-                  label={label}
-                  unit={unit}
-                  value={input[key]}
-                  onChange={(value) => update({ ...input, [key]: value })}
-                />
-              ),
-            )}
-          </div>
-          {/* Diameters on the left, their steel grade on the right. */}
-          <div className="rcFields rcSteelPairs">
+            <label className={input.es !== ES_DEFAULT ? "isOverride" : ""}>
+              Steel Es
+              <span className="rcUnit">MPa</span>
+              <input
+                type="number"
+                step="any"
+                value={Number.isFinite(input.es) ? input.es : ""}
+                onChange={(e) =>
+                  update({
+                    ...input,
+                    es: e.target.value === "" ? NaN : Number(e.target.value),
+                  })
+                }
+              />
+              {input.es !== ES_DEFAULT && (
+                <em className="overrideBadge">
+                  Override · ACI 20.2.2.2 default 200,000
+                </em>
+              )}
+            </label>
             <RebarSizeSelect
               label="Longitudinal Bar Diameter"
               standard={standard}
@@ -1387,6 +1390,7 @@ export function RectangularColumnWorkspace({
             onChange={updateTie}
             design={transverse.design}
             quantity={quantityEff}
+            drawingAction={drawingAction}
             onAdopt={() => {
               if (!transverse.design) return;
               editVersion.current++;
@@ -1412,6 +1416,7 @@ export function RectangularColumnWorkspace({
         <ColumnQuantityPanel
           section={input}
           value={quantityEff}
+          drawingAction={drawingAction}
           onChange={(next) => {
             editVersion.current++;
             changeQuantity(next);

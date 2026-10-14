@@ -165,7 +165,11 @@ export function ReportExportControls({
           value={type}
           onChange={(e) => setType(e.target.value as typeof type)}
         >
-          <option value="simple">Simple Report — Up To Two Pages</option>
+          <option value="simple">
+            {moduleName === "RC Column"
+              ? "Simple Report — Up To Three Pages"
+              : "Simple Report — Up To Two Pages"}
+          </option>
           <option value="complete">Complete Report</option>
         </select>
       </label>

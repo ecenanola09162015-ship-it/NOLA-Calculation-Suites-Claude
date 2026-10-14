@@ -1,4 +1,5 @@
 "use client";
+import type React from "react";
 import { useMemo, useState } from "react";
 import {
   estimateColumnQuantity,
@@ -47,10 +48,13 @@ export function ColumnQuantityPanel({
   section,
   value,
   onChange,
+  drawingAction,
 }: {
   section: RectangularColumnInput;
   value: ColumnQuantityInput;
   onChange: (q: ColumnQuantityInput) => void;
+  /** "Drawing Section" (CAD preview / DXF). */
+  drawingAction?: React.ReactNode;
 }) {
   const [diameter, setDiameter] = useState("all"),
     [grade, setGrade] = useState("all"),
@@ -94,6 +98,7 @@ export function ColumnQuantityPanel({
       className={`rcPanel cqPanel ${!value.enabled ? "cqDisabled" : ""}`}
     >
       <h2>Quantity Estimate · Column Segment</h2>
+      {drawingAction}
       <label className="cqToggle">
         <input
           type="checkbox"

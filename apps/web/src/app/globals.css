@@ -3446,3 +3446,70 @@ label.isOverride input {
   font-size: 12px;
   overflow-wrap: anywhere;
 }
+
+/* Drawing Section preview (CAD). */
+.sectionDrawing {
+  margin: 10px 0;
+}
+.sectionDrawingPreview {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid #dbe5eb;
+  border-radius: 8px;
+  background: #fff;
+  min-width: 0;
+}
+.sectionDrawingBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.sectionDrawingBar strong {
+  overflow-wrap: anywhere;
+}
+.sectionDrawingSvg svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 75vh;
+}
+
+/* Panel 01 (decision sheet 14 Oct 2026): subheadings, h | b | cover row,
+   code block, read-only MPa. Wraps on narrow panels — no side scrolling. */
+.rcPanel h3.rcSubhead {
+  margin: 18px 0 0;
+  font-size: 14px;
+  color: #1f3a68;
+}
+.rcFields.rcDimFields {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 8px;
+}
+@media (max-width: 560px) {
+  .rcFields.rcDimFields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.rcSubhead + .rcFields.rcSteelPairs {
+  margin-top: 8px;
+}
+.rcCodeBlock {
+  display: grid;
+  gap: 8px;
+}
+.rcCodeBlock input[type="text"] {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.rcCodeNote {
+  margin: 0;
+  font-size: 12px;
+}
+input.rcDerived {
+  background: #f2f5f7;
+  color: #344054;
+}

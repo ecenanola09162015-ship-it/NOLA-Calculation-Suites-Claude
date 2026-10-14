@@ -1,4 +1,5 @@
 "use client";
+import type React from "react";
 import type {
   ColumnQuantityInput,
   ColumnTieDesignInput,
@@ -1128,7 +1129,10 @@ export function ColumnTieDesignSummary({
   onAdopt,
   groups = [],
   policy,
+  drawingAction,
 }: {
+  /** "Drawing Section" (CAD preview / DXF). */
+  drawingAction?: React.ReactNode;
   /** Governing DCR per review group (flexure / shear / confinement). */
   groups?: { label: string; panel: string; dcr: number | null }[];
   policy?: DesignCheckPolicy;
@@ -1268,6 +1272,7 @@ export function ColumnTieDesignSummary({
       <button className="suitePrimary" onClick={onAdopt}>
         Adopt to estimate
       </button>
+      {drawingAction}
     </section>
   );
 }
