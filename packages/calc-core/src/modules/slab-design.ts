@@ -1,5 +1,12 @@
 import { designCheckPolicySchema, designRemarksSchema } from "../design-review";
 import { z } from "zod";
+import {
+  FC_ENGINE_MAX,
+  FC_ENGINE_MIN,
+  PSI_MAX,
+  PSI_MIN,
+  concreteStrengthNotes,
+} from "../concrete-units";
 import { slabQuantitySchema } from "./slab-quantity-schema";
 import { solveSlabPlate } from "./slab-plate";
 import {
@@ -224,8 +231,10 @@ export const slabInputSchema = z
     lx: z.number().min(0.5).max(30),
     ly: z.number().min(0.5).max(30),
     h: z.number().min(70).max(1000),
-    /** MPa. 1000-15000 psi range; < 17 MPa warns (ACI 318-19 19.2.1.1). */
-    fc: z.number().min(5).max(104),
+    /** MPa. 1000–15000 psi range; notes per concreteStrengthNotes (F5–F9). */
+    fc: z.number().min(FC_ENGINE_MIN).max(FC_ENGINE_MAX),
+    /** Concrete strength as entered, psi; fc = fcFromPsi(fcPsi). */
+    fcPsi: z.number().min(PSI_MIN).max(PSI_MAX).nullable().optional(),
     fy: z.number().min(200).max(420),
     rebarStandard: z.enum(["PNS49", "ASTM"]).optional(),
     gradeId: z.string().max(20).nullable().optional(),
@@ -2043,13 +2052,11 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     "Straight-bar development/cutoff screening is not a complete anchorage check. Support embedment, hooks, laps and curtailment beyond the theoretical cutoff require designer review.",
     "No openings, column-supported slabs, corner torsion steel, redistribution or pattern live loading are evaluated; punching only at entered point loads.",
   ];
-  if (i.fc < 17)
-    warnings.push(
-      `Concrete f′c = ${i.fc.toFixed(2)} MPa is below the 17 MPa minimum of ACI 318-19 Table 19.2.1.1 for structural concrete. Results are computed with the ACI expressions but are outside the code's applicability; use only for assessment of existing construction with engineering judgement.`,
-    );
+  // Concrete strength notes shared with the column (decisions F5–F11).
+  warnings.push(...concreteStrengthNotes(i.fc).map((n) => n.text));
   if (i.fc > 70)
     warnings.push(
-      `Concrete f′c = ${i.fc.toFixed(2)} MPa exceeds 70 MPa: √f′c is capped at 8.3 MPa for shear (ACI 318-19 22.5.3.1 / 22.6.3.1), β1 = 0.65; Ec = 4700√f′c may overestimate stiffness for high-strength concrete — verify with mix-specific data.`,
+      "Ec = 4700√f′c (19.2.2.1) may overestimate stiffness for high-strength concrete — verify deflection with mix-specific data.",
     );
   if (cant) {
     const strip = 0.5 * shortSpan ** 2,

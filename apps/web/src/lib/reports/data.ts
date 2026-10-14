@@ -29,6 +29,7 @@ import {
   slabLoadPatch,
   slabBeamSizes,
   psiToMpaExact,
+  concreteStrengthNotes,
 } from "@nola/calc-core";
 import { loadStyles } from "@/lib/load-styles";
 import type { ProjectRecord } from "../projects";
@@ -85,6 +86,11 @@ export type ReportData = {
 };
 export const f = (n: number | null | undefined, d = 2) =>
   n == null || !Number.isFinite(n) ? "Not Evaluated" : n.toFixed(d);
+/** Same f′c line for Column and Slab: "34.5 MPa (5000 psi; exact 34.47 MPa)". */
+export const fcText = (i: { fc: number; fcPsi?: number | null }) =>
+  i.fcPsi != null
+    ? `${f(i.fc, 1)} MPa (${i.fcPsi} psi; exact ${f(psiToMpaExact(i.fcPsi))} MPa)`
+    : `${f(i.fc)} MPa`;
 function status(
   dcr: number | null,
   policy: DesignCheckPolicy,
@@ -277,7 +283,7 @@ export function columnReportData(
       ["Approved By", project?.approvedBy ?? "Not Set"],
       [
         "Concrete / Steel",
-        `fc = ${input.fcPsi != null ? `${f(input.fc, 1)} MPa (${input.fcPsi} psi; exact ${f(psiToMpaExact(input.fcPsi))} MPa)` : `${f(input.fc)} MPa`}; ${rebarGradeLabel(std, input.fy, input.gradeId)}, fy = ${f(input.fy)} MPa (${std === "ASTM" ? "ASTM A615/A706" : "PNS 49"})`,
+        `fc = ${fcText(input)}; ${rebarGradeLabel(std, input.fy, input.gradeId)}, fy = ${f(input.fy)} MPa (${std === "ASTM" ? "ASTM A615/A706" : "PNS 49"})`,
       ],
       [
         "Elastic Modulus / Cover",
@@ -762,6 +768,10 @@ export function columnReportData(
     scopeNote: `Rectangular Tied Column. ${slender ? "Slenderness By Moment Magnification." : "Short Column (Slenderness Not Considered)."} ${shearOn ? "Shear Designed." : "Shear Not Evaluated."} ${t?.seismic ? `${t.frame} Confinement Designed.` : "Seismic Confinement Not Evaluated."}`,
     criticalNotes: result.warnings.slice(4),
     limitations: [
+      // Concrete strength notes (decisions F5–F11), SMF minimum when confined.
+      ...concreteStrengthNotes(input.fc, {
+        smf: !!tieDesign?.confinement.enabled && tieDesign.confinement.frame === "SMF",
+      }).map((n) => n.text),
       ...result.warnings,
       ...(t
         ? t.notes
@@ -820,7 +830,7 @@ export function slabReportData(
       ["Approved By", project?.approvedBy ?? "Not Set"],
       [
         "Concrete / Steel",
-        `fc = ${f(input.fc)} MPa (${f(input.fc / 0.00689476, 0)} psi)${input.fc < 17 ? " < 17 MPa, ACI 318-19 Table 19.2.1.1 minimum (assessment only)" : ""}; ${rebarGradeLabel(input.rebarStandard ?? "PNS49", input.fy, input.gradeId)}, fy = ${f(input.fy)} MPa; Es = ${f(input.es, 0)} MPa`,
+        `fc = ${fcText(input)}; ${rebarGradeLabel(input.rebarStandard ?? "PNS49", input.fy, input.gradeId)}, fy = ${f(input.fy)} MPa; Es = ${f(input.es, 0)} MPa`,
       ],
       [
         "Cover",

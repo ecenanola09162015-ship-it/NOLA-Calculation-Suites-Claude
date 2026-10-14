@@ -1403,7 +1403,8 @@ describe("concrete strength range (1000-15000 psi)", () => {
     const ok = analyzeSlab(defaultSlabInput());
     expect(ok.warnings.some((w) => w.includes("19.2.1.1"))).toBe(false);
     const hs = analyzeSlab({ ...defaultSlabInput(), fc: high });
-    expect(hs.warnings.some((w) => w.includes("exceeds 70 MPa"))).toBe(true);
+    expect(hs.warnings.some((w) => w.includes("ACI 363R"))).toBe(true);
+    expect(hs.warnings.some((w) => w.includes("22.5.3.1"))).toBe(true);
   });
   it("custom beam sizes drive the support widths", () => {
     const s = slabBeamSizes({

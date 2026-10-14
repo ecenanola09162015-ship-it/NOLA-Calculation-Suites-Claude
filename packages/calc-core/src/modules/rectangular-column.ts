@@ -1,3 +1,4 @@
+import { FC_ENGINE_MAX, FC_ENGINE_MIN } from "../concrete-units";
 /** Development engine: rectangular tied sections, SI units, compression-positive. */
 import {
   biaxialCapacityAt,
@@ -164,15 +165,15 @@ export function validateRectangularColumn(input: RectangularColumnInput) {
   if (!Number.isFinite(input.cover) || input.cover < 0)
     throw new Error("Cover must be a finite nonnegative number.");
   if (
-    input.fc < 17 ||
-    input.fc > 80 ||
+    input.fc < FC_ENGINE_MIN ||
+    input.fc > FC_ENGINE_MAX ||
     input.fy < 200 ||
     input.fy > 550 ||
     input.es < 100000 ||
     input.es > 250000
   )
     throw new Error(
-      "This development build supports f′c 17–80 MPa, fy 200–550 MPa, and Es 100,000–250,000 MPa.",
+      "This development build supports f′c 1000–15000 psi (6.9–103.4 MPa), fy 200–550 MPa, and Es 100,000–250,000 MPa.",
     );
   if (input.fy / input.es > 0.003)
     throw new Error(

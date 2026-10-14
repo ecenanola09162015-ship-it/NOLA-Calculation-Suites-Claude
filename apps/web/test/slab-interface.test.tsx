@@ -307,9 +307,10 @@ describe("bounding beams", () => {
       "Custom (here)",
       "Bounding beam sizes",
       "Rebar standard",
-      "1,000 psi = 6.89 MPa",
-      "4,000 psi = 27.58 MPa",
-      "15,000 psi = 103.42 MPa",
+      // Shared f′c fields (column style): psi dropdown | MPa (0.1).
+      "1,000 psi — below ACI minimum",
+      '<option value="4000" selected="">4,000 psi</option>',
+      "15,000 psi — high strength",
       "One-Way Shear Checks At d From Beam Face",
     ])
       expect(html).toContain(text);

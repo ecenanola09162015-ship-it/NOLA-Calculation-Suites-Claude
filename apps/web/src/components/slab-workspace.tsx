@@ -24,6 +24,7 @@ import {
   type SlabLocalLoadKind,
   type SlabLayer,
   type SlabResult,
+  fcFromPsi,
 } from "@nola/calc-core";
 import { DesignReviewPanel, DesignStatus } from "./design-review-panel";
 import { loadStyles } from "@/lib/load-styles";
@@ -71,7 +72,7 @@ import {
   type DraftDuplicate,
 } from "./duplicate-save-prompt";
 import { SlabQuantityPanel } from "./slab-quantity-panel";
-import { ConcreteStrengthSelect } from "./concrete-strength-select";
+import { ConcreteStrengthFields } from "./concrete-strength-fields";
 import { SlabPlan, SlabSection } from "./slab-diagrams";
 import {
   RebarGradeSelect,
@@ -142,7 +143,8 @@ export function SlabWorkspace({
       : null,
   );
   const [input, setInput] = useState<SlabInput>(
-    () => migrated?.input ?? defaultSlabInput(),
+    // New slabs start at 4000 psi → 27.58 → 27.6 MPa (f′c psi dropdown).
+    () => migrated?.input ?? { ...defaultSlabInput(), fcPsi: 4000, fc: fcFromPsi(4000) },
   );
   const [rawQuantity, setQuantity] = useState<SlabQuantityInput>(
     () => migrated?.quantity ?? defaultSlabQuantity(),
@@ -664,10 +666,9 @@ export function SlabWorkspace({
               value={input.sideCover}
               onChange={(v) => change("sideCover", v)}
             />
-            <ConcreteStrengthSelect
-              value={input.fc}
-              maxMpa={104}
-              onChange={(v) => change("fc", v)}
+            <ConcreteStrengthFields
+              value={input}
+              onChange={({ fc, fcPsi }) => update({ ...input, fc, fcPsi })}
             />
             <div className="slabRebarRow">
               <RebarStandardSelect

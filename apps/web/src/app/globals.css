@@ -3513,3 +3513,72 @@ input.rcDerived {
   background: #f2f5f7;
   color: #344054;
 }
+
+/* Concrete f′c (Column + Slab, shared): psi dropdown | read-only MPa, notes below. */
+.fcPair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+  margin: 8px 0 16px;
+  align-items: start;
+}
+.slabFieldGrid > .fcPair {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.fcPair > label {
+  display: block;
+  min-width: 0;
+}
+/* Unit sits right after the label text in both modules. */
+.fcPair > label .rcUnit {
+  float: none;
+  margin-left: 4px;
+  font-size: 11px;
+}
+.fcPair select,
+.fcPair input {
+  display: block;
+  width: 100%;
+  max-width: 260px;
+  margin-top: 5px;
+  box-sizing: border-box;
+}
+.fcPair small {
+  display: block;
+  margin-top: 4px;
+}
+.fcNotes {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+.fcNote {
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid;
+}
+.fcNote.warning {
+  color: #b42318;
+  background: #fef3f2;
+  border-color: #fecdca;
+}
+.fcNote.caution {
+  color: #9a6300;
+  background: #fff4dc;
+  border-color: #e8c77a;
+}
+.fcNote.info {
+  color: #475467;
+  background: #f2f4f7;
+  border-color: #d0d5dd;
+}
+@media (max-width: 560px) {
+  .fcPair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
