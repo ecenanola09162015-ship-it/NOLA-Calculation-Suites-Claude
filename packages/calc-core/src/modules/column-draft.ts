@@ -48,6 +48,10 @@ export const columnInputSchema = z
     tieFyt: z.number().min(200).max(700).optional(),
     tieGradeId: z.string().max(20).nullable().optional(),
     storey: columnStoreySchema.optional(),
+    /** Other codes, documentation only (no effect on the calculation). */
+    otherCodes: z.string().max(300).optional(),
+    /** Concrete strength as entered in psi; fc (MPa) is derived from it. */
+    fcPsi: z.number().min(2000).max(12000).nullable().optional(),
   })
   .refine(
     (input) =>
