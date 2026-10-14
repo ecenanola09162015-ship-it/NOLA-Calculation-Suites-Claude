@@ -4,22 +4,13 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
-  CONCRETE_PSI_OPTIONS,
-  MPA_PER_PSI,
   analyzeRectangularColumn,
   columnDraftSchema,
   defaultColumnQuantity,
   defaultDesignCheckPolicy,
-  fcFromPsi,
-  psiFromMpa,
-  psiToMpaExact,
   type RectangularColumnInput,
 } from "@nola/calc-core";
 import { RectangularColumnWorkspace } from "../src/components/rectangular-column-workspace";
-import {
-  ConcreteStrengthFields,
-  concretePsiState,
-} from "../src/components/column-materials-fields";
 import { columnReportData } from "../src/lib/reports/data";
 
 const fresh = () =>
@@ -28,44 +19,6 @@ const fresh = () =>
   );
 const panel01 = (html: string) =>
   html.slice(html.indexOf("01 · Section"), html.indexOf("02 · Reinforcement"));
-
-describe("concrete strength psi → MPa (exact factor, 0.1 MPa calculation value)", () => {
-  it("hand calculation, 1 psi = 6894.757 Pa (NIST SP 811)", () => {
-    expect(MPA_PER_PSI).toBe(0.006894757);
-    // 5000 × 0.006894757 = 34.473785 MPa → 34.5 MPa
-    expect(psiToMpaExact(5000)).toBeCloseTo(34.473785, 9);
-    expect(fcFromPsi(5000)).toBe(34.5);
-    // 4000 × 0.006894757 = 27.579028 → 27.6; 3000 → 20.684271 → 20.7
-    expect(fcFromPsi(4000)).toBe(27.6);
-    expect(fcFromPsi(3000)).toBe(20.7);
-    // 2500 → 17.2368925 → 17.2 (≥ 17 MPa, ACI 318-19 Table 19.2.1.1)
-    expect(fcFromPsi(2500)).toBe(17.2);
-    expect(fcFromPsi(8000)).toBe(55.2);
-    expect([...CONCRETE_PSI_OPTIONS]).toEqual([
-      2500, 3000, 3500, 4000, 4500, 5000, 6000, 7000, 8000,
-    ]);
-    // Older MPa drafts: 28 MPa / 0.006894757 = 4061.0 psi → 28.0 MPa back.
-    expect(psiFromMpa(28)).toBe(4061);
-    expect(fcFromPsi(psiFromMpa(28))).toBe(28);
-  });
-  it("dropdown state for stored strengths (D18)", () => {
-    expect(concretePsiState({ fc: 34.5, fcPsi: 5000 })).toEqual({ psi: 5000, option: 5000 });
-    expect(concretePsiState({ fc: 34.5 })).toEqual({ psi: 5000, option: 5000 });
-    expect(concretePsiState({ fc: 28 })).toEqual({ psi: 4061, option: "custom" });
-    expect(concretePsiState({ fc: 36.5, fcPsi: 5300 })).toEqual({ psi: 5300, option: "custom" });
-  });
-  it("renders psi dropdown + Custom typed in psi, MPa read-only", () => {
-    const base = { fc: 28 } as RectangularColumnInput;
-    const custom = renderToStaticMarkup(
-      <ConcreteStrengthFields input={base} onChange={() => {}} />,
-    );
-    expect(custom).toContain('aria-label="Custom concrete f′c (psi)"');
-    expect(custom).toContain('value="4061"');
-    expect(custom).toContain('value="28.0"');
-    expect(custom).toContain("readOnly");
-    expect(custom).toContain("Custom (type psi)");
-  });
-});
 
 describe("panel 01 layout", () => {
   it("code block, then h | b | cover, concrete, rebar information in order", () => {

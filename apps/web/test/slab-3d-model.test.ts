@@ -98,11 +98,11 @@ describe("3D slab scene model", () => {
     // Beam next to the Free north edge stops at the slab edge (no corner piece).
     expect(m.supports.some((s) => s.id.includes("north"))).toBe(false);
   });
-  it("takes Estimate beam sizes per edge; corner fills to the deeper beam", () => {
+  it("takes custom slab beam sizes per edge; corner fills to the deeper beam", () => {
     const est = buildSlab3DModel({
       ...input,
       beams: {
-        source: "estimate",
+        source: "custom",
         sizes: {
           west: { width: 300, depth: 600 },
           east: { width: 250, depth: 500 },

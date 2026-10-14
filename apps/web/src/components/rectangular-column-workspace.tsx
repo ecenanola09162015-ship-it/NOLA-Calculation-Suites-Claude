@@ -37,10 +37,8 @@ import {
 } from "./duplicate-save-prompt";
 import { ColumnQuantityPanel } from "./column-quantity-panel";
 import { StoreyGeometryFields } from "./column-storey-panel";
-import {
-  ConcreteStrengthFields,
-  DesignCodeFields,
-} from "./column-materials-fields";
+import { DesignCodeFields } from "./column-materials-fields";
+import { ConcreteStrengthFields } from "./concrete-strength-fields";
 import { ColumnSectionDrawingButton } from "./column-section-drawing-button";
 import dynamic from "next/dynamic";
 // Three.js loads only when results are shown.
@@ -639,7 +637,14 @@ export function RectangularColumnWorkspace({
             ))}
           </div>
           <h3 className="rcSubhead">Concrete Strength</h3>
-          <ConcreteStrengthFields input={input} onChange={update} />
+          <ConcreteStrengthFields
+            value={input}
+            smf={
+              tieDesign.confinement.enabled &&
+              tieDesign.confinement.frame === "SMF"
+            }
+            onChange={({ fc, fcPsi }) => update({ ...input, fc, fcPsi })}
+          />
           <h3 className="rcSubhead">Rebar Information</h3>
           {/* Standard | Es, then each diameter (left) with its grade (right). */}
           <div className="rcFields rcSteelPairs">

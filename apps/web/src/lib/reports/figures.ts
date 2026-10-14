@@ -1,4 +1,10 @@
 import {
+  pdfSectionFrame,
+  slabSectionOutline,
+  slabSectionScale,
+  slabSectionScaleNote,
+} from "../slab-section-scale";
+import {
   biaxialContour,
   biaxialSection,
   defaultReportStyle,
@@ -262,13 +268,17 @@ export function slabFigures(
       svg: svg(body, style),
     };
   });
+  // Proportional sections: one horizontal scale (longer total length fills
+  // the width) and one vertical scale (slab : beam in true ratio).
+  const scale = slabSectionScale(i, pdfSectionFrame);
   const sections = (["short", "long"] as const).map((dir) => {
-    const span = (dir === "short" ? r.shortSpan : r.longSpan) * 1000,
-      w = 226,
-      top = 18,
-      h = 28,
-      x = 12;
-    let body = `<rect x="${x}" y="${top}" width="${w}" height="${h}" fill="${style.colors.tint}" stroke="${teal}"/>`;
+    const g = scale[dir],
+      top = 16,
+      h = g.slabPx,
+      x = g.x0,
+      w = g.spanPx,
+      below = top + scale.depthPx;
+    let body = `<path d="${slabSectionOutline(g, top)}" fill="${style.colors.tint}" stroke="${teal}" stroke-width="0.6"/>`;
     for (const b of r.bars) {
       const color = b.group === "main" ? blue : extra,
         yy = top + h - (b.z / i.h) * h;
@@ -280,21 +290,31 @@ export function slabFigures(
             x + z * w,
             yy,
             color,
-            Math.max(0.8, (b.diameter / i.h) * h),
+            Math.max(0.6, (b.diameter / 1000) * scale.sV),
           );
       else
         for (const p of b.positions)
-          body += `<circle cx="${x + (p / span) * w}" cy="${yy}" r="${Math.max(0.8, ((b.diameter / i.h) * h) / 2)}" fill="${color}"/>`;
+          body += `<circle cx="${x + (p / 1000) * scale.sH}" cy="${yy}" r="${Math.max(0.6, ((b.diameter / 1000) * scale.sV) / 2)}" fill="${color}"/>`;
     }
+    const beamText = (b: { width: number; depth: number } | null) =>
+      b ? `${b.width}x${b.depth}` : "free";
     body +=
       text(
         7,
-        11,
-        dir === "short" ? "A-A Along Short Span" : "B-B Along Long Span",
+        10,
+        `${dir === "short" ? "A-A Along Short Span" : "B-B Along Long Span"}; L=${g.span.toFixed(2)} m clear; h=${i.h} mm`,
       ) +
-      text(7, 60, `L=${(span / 1000).toFixed(2)} m; h=${i.h} mm`) +
-      text(7, 74, `Cover: Top ${i.topCover}; Bottom ${i.bottomCover} mm`) +
-      text(7, 88, "Blue MAIN / Orange EXTRA; z From Soffit");
+      text(
+        7,
+        below + 10,
+        `Beams ${beamText(g.near)} / ${beamText(g.far)} mm; z From Soffit`,
+      ) +
+      text(
+        7,
+        below + 21,
+        `Cover: Top ${i.topCover}; Bottom ${i.bottomCover} mm`,
+      ) +
+      text(7, below + 32, slabSectionScaleNote(scale.ratio));
     return {
       title:
         dir === "short"

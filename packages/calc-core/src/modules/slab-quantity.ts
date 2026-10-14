@@ -4,6 +4,7 @@ import {
   slabInputSchema,
   slabPrimaryAxisX,
   slabSupportLayout,
+  SLAB_DEFAULT_BEAM,
   type SlabInput,
   type SlabEdge,
   type SlabResolvedBar,
@@ -14,6 +15,90 @@ import {
   type SlabQuantityInput,
 } from "./slab-quantity-schema";
 export * from "./slab-quantity-schema";
+
+const beamEdges = ["west", "east", "south", "north"] as const;
+/** Slab bounding-beam size per edge (mm), including Free edges (stored size). */
+export function slabInputBeamSize(i: Pick<SlabInput, "beams">, e: SlabEdge) {
+  return !i.beams || i.beams.source === "default"
+    ? { ...SLAB_DEFAULT_BEAM }
+    : { ...i.beams.sizes[e] };
+}
+/**
+ * The Estimate adopts the slab beam width x depth on every edge that is not
+ * overridden; overridden edges keep their own size (quantities only).
+ */
+export function slabAdoptBeams(
+  i: Pick<SlabInput, "beams">,
+  q: SlabQuantityInput,
+): SlabQuantityInput {
+  const beams = { ...q.beams };
+  let changed = false;
+  for (const e of beamEdges) {
+    if (q.beams[e].override) continue;
+    const s = slabInputBeamSize(i, e);
+    if (q.beams[e].width === s.width && q.beams[e].depth === s.depth) continue;
+    beams[e] = { ...q.beams[e], ...s };
+    changed = true;
+  }
+  return changed ? { ...q, beams } : q;
+}
+/**
+ * Drafts saved before slab-0.7 (no per-edge override flag):
+ * - slab beams "From Estimate" become custom slab sizes taken from the
+ *   Estimate (identical drawings and design), no Estimate overrides;
+ * - otherwise Estimate edges whose size differs from the slab size are
+ *   marked overridden so the saved quantities are unchanged.
+ */
+export function migrateSlabBeams(
+  input: SlabInput,
+  quantity: SlabQuantityInput,
+  rawQuantity: unknown,
+): { input: SlabInput; quantity: SlabQuantityInput } {
+  const raw = (
+    rawQuantity as { beams?: Record<string, { override?: unknown }> }
+  )?.beams;
+  const legacy =
+    !!raw && beamEdges.every((e) => raw[e]?.override === undefined);
+  if (input.beams?.source === "estimate") {
+    const sizes = Object.fromEntries(
+      beamEdges.map((e) => [
+        e,
+        { width: quantity.beams[e].width, depth: quantity.beams[e].depth },
+      ]),
+    ) as SlabInput["beams"]["sizes"];
+    return {
+      input: { ...input, beams: { source: "custom", sizes } },
+      quantity: legacy
+        ? {
+            ...quantity,
+            beams: Object.fromEntries(
+              beamEdges.map((e) => [
+                e,
+                { ...quantity.beams[e], override: false },
+              ]),
+            ) as SlabQuantityInput["beams"],
+          }
+        : quantity,
+    };
+  }
+  if (!legacy) return { input, quantity };
+  return {
+    input,
+    quantity: {
+      ...quantity,
+      beams: Object.fromEntries(
+        beamEdges.map((e) => {
+          const s = slabInputBeamSize(input, e),
+            b = quantity.beams[e];
+          return [
+            e,
+            { ...b, override: b.width !== s.width || b.depth !== s.depth },
+          ];
+        }),
+      ) as SlabQuantityInput["beams"],
+    },
+  };
+}
 export interface SlabQuantityRow {
   mark: string;
   group: "MAIN BARS" | "EXTRA BARS";

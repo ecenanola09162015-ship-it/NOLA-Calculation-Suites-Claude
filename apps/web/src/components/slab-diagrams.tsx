@@ -10,9 +10,13 @@ import {
   slabExtraActive,
   slabLoadPatch,
   slabPrimaryAxisX,
-  slabSpans,
 } from "@nola/calc-core";
 import { loadStyles } from "@/lib/load-styles";
+import {
+  slabSectionOutline,
+  slabSectionScale,
+  slabSectionScaleNote,
+} from "@/lib/slab-section-scale";
 const colors = { main: "#145da0", extra: "#e87916" };
 function segments(i: SlabInput, b: SlabResolvedBar): [number, number][] {
   if (b.group === "main") return [[0, 1]];
@@ -42,6 +46,12 @@ export function SlabPlan({
     !Number.isFinite(i.sideCover)
   )
     return <p>Complete valid cover and cutoff inputs to view the slab.</p>;
+  if (
+    Object.values(slabBeamSizes(i)).some(
+      (b) => b && !(Number.isFinite(b.width) && b.width > 0),
+    )
+  )
+    return <p>Complete valid bounding-beam sizes to view the slab.</p>;
   // Bounding beams outside the clear panel (true scale), joined at corners.
   const beams = slabBeamSizes(i),
     bw = (e: "west" | "east" | "south" | "north") =>
@@ -349,44 +359,6 @@ export function SlabPlan({
     </figure>
   );
 }
-/** Beam width on the section, px (true horizontal scale, 6–70 px). */
-const beamPx = (w: number, width: number, span: number) =>
-  Math.min(70, Math.max(6, (width * w) / (span * 1000)));
-/**
- * Slab + bounding-beam outline: beam tops flush with the slab top, beams
- * outside the clear span, downstand drawn compressed (slab is exaggerated).
- */
-function sectionOutline(
-  x: number,
-  width: number,
-  top: number,
-  height: number,
-  span: number,
-  h: number,
-  near: { width: number; depth: number } | null,
-  far: { width: number; depth: number } | null,
-) {
-  const soffit = top + height,
-    drop = (b: { depth: number } | null) =>
-      b && b.depth > h
-        ? Math.min(48, Math.max(14, ((b.depth - h) / h) * 18))
-        : 0,
-    wl = near ? beamPx(near.width, width, span) : 0,
-    wr = far ? beamPx(far.width, width, span) : 0,
-    dl = drop(near),
-    dr = drop(far);
-  return [
-    `M ${x - wl} ${top}`,
-    `H ${x + width + wr}`,
-    `V ${soffit + dr}`,
-    `H ${x + width}`,
-    `V ${soffit}`,
-    `H ${x}`,
-    `V ${soffit + dl}`,
-    `H ${x - wl}`,
-    "Z",
-  ].join(" ");
-}
 export function SlabSection({
   input: i,
   bars,
@@ -398,29 +370,31 @@ export function SlabSection({
 }) {
   if (!Number.isFinite(i.h) || i.h <= 0)
     return <p>Complete a valid slab thickness.</p>;
+  const beams = slabBeamSizes(i);
   if (
     ![i.lx, i.ly, i.topCover, i.bottomCover].every(
       (v) => Number.isFinite(v) && v > 0,
     ) ||
     bars.some((b) => !Number.isFinite(b.z)) ||
-    !Object.values(i.cutoffs).every(Number.isFinite)
+    !Object.values(i.cutoffs).every(Number.isFinite) ||
+    Object.values(beams).some(
+      (b) =>
+        b &&
+        !(Number.isFinite(b.width) && Number.isFinite(b.depth) && b.width > 0),
+    )
   )
     return (
       <p>
         Complete valid dimensions, cover and elevations to view the sections.
       </p>
     );
-  const spans = slabSpans(i),
-    span = direction === "short" ? spans.primary : spans.secondary,
-    alongX = (direction === "short") === spans.primaryX,
-    beams = slabBeamSizes(i),
-    nearBeam = beams[alongX ? "west" : "south"],
-    farBeam = beams[alongX ? "east" : "north"],
-    x = 70,
-    width = 630,
+  // Both sections share one horizontal and one vertical scale (proportional).
+  const scale = slabSectionScale(i),
+    g = scale[direction],
     top = 44,
-    height = 100,
-    zY = (z: number) => top + height * (1 - z / i.h),
+    zY = (z: number) => top + g.slabPx * (1 - z / i.h),
+    bottom = top + scale.depthPx,
+    viewHeight = Math.ceil(bottom + 76),
     title =
       direction === "short"
         ? "SECTION A–A · Along short span"
@@ -428,40 +402,39 @@ export function SlabSection({
   return (
     <figure className="slabFigure slabSection">
       <figcaption>
-        {title} ({span.toFixed(2)} m)
+        {title} ({g.span.toFixed(2)} m clear)
       </figcaption>
-      <svg viewBox="0 0 800 240" role="img" aria-label={title}>
+      <svg
+        viewBox={`0 0 800 ${viewHeight}`}
+        role="img"
+        aria-label={title}
+        data-scale-h={scale.sH.toFixed(4)}
+        data-scale-v={scale.sV.toFixed(4)}
+        data-span-px={g.spanPx.toFixed(3)}
+        data-slab-px={g.slabPx.toFixed(3)}
+      >
         <path
-          d={sectionOutline(
-            x,
-            width,
-            top,
-            height,
-            span,
-            i.h,
-            nearBeam,
-            farBeam,
-          )}
+          d={slabSectionOutline(g, top)}
           fill="#f0f3f4"
           stroke="#526671"
           strokeWidth="1.5"
-          data-beams={`${nearBeam ? `${nearBeam.width}x${nearBeam.depth}` : "free"}|${farBeam ? `${farBeam.width}x${farBeam.depth}` : "free"}`}
+          data-beams={`${g.near ? `${g.near.width}x${g.near.depth}` : "free"}|${g.far ? `${g.far.width}x${g.far.depth}` : "free"}`}
         />
         <g fill="#526671" fontSize="10" textAnchor="middle">
-          {nearBeam && (
+          {g.near && (
             <text
-              x={x - beamPx(nearBeam.width, width, span) / 2}
-              y={top + height + 64}
+              x={g.x0 - g.nearWidthPx / 2}
+              y={top + g.slabPx + g.nearDropPx + 14}
             >
-              {nearBeam.width} × {nearBeam.depth}
+              {g.near.width} × {g.near.depth}
             </text>
           )}
-          {farBeam && (
+          {g.far && (
             <text
-              x={x + width + beamPx(farBeam.width, width, span) / 2}
-              y={top + height + 64}
+              x={g.x0 + g.spanPx + g.farWidthPx / 2}
+              y={top + g.slabPx + g.farDropPx + 14}
             >
-              {farBeam.width} × {farBeam.depth}
+              {g.far.width} × {g.far.depth}
             </text>
           )}
         </g>
@@ -470,15 +443,14 @@ export function SlabSection({
           if (b.direction !== direction) {
             if (b.group === "extra" && !slabExtraActive(i, b.layer, 0.5))
               return null;
-            const actualSpan = span * 1000;
             return (
               <g key={`${b.group}-${b.layer}`} fill={colors[b.group]}>
                 {b.positions.map((p, k) => (
                   <circle
                     key={k}
-                    cx={x + (width * p) / actualSpan}
+                    cx={g.x0 + (p / 1000) * scale.sH}
                     cy={yy}
-                    r={Math.max(1.8, ((b.diameter / i.h) * height) / 2)}
+                    r={Math.max(1.8, ((b.diameter / 1000) * scale.sV) / 2)}
                   />
                 ))}
               </g>
@@ -496,8 +468,8 @@ export function SlabSection({
               {segments(i, b).map(([a, c], k) => (
                 <line
                   key={k}
-                  x1={x + width * a}
-                  x2={x + width * c}
+                  x1={g.x0 + g.spanPx * a}
+                  x2={g.x0 + g.spanPx * c}
                   y1={yy}
                   y2={yy}
                 />
@@ -506,17 +478,15 @@ export function SlabSection({
           );
         })}
         <g fill="#263d4d" fontSize="12">
-          <text x={x} y="25">
-            Top cover {i.topCover} mm
+          <text x={70} y="25">
+            Top cover {i.topCover} mm · Bottom cover {i.bottomCover} mm
           </text>
-          <text x={x + width - 160} y="25">
+          <text x={730} y="25" textAnchor="end">
             h = {i.h} mm
           </text>
-          <text x={x} y="228">
-            Bottom cover {i.bottomCover} mm
-          </text>
-          <text x={x + width - 330} y="228">
-            z = 0 at soffit · thickness exaggerated · beam depth not to scale
+          <text x={70} y={viewHeight - 12}>
+            z = 0 at soffit · spans and beam widths to one horizontal scale ·{" "}
+            {slabSectionScaleNote(scale.ratio)}
           </text>
         </g>
       </svg>

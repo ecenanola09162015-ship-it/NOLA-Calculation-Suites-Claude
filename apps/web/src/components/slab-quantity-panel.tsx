@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { SlabQuantityPlan } from "./slab-quantity-plan";
 import {
   estimateSlabQuantity,
+  slabInputBeamSize,
   slabQuantityEdges,
   slabQuantityLimitations,
   type SlabInput,
@@ -124,13 +125,44 @@ export function SlabQuantityPanel({
               return (
                 <fieldset key={edge}>
                   <legend>{edge[0].toUpperCase() + edge.slice(1)} Beam</legend>
+                  {(() => {
+                    const slab = slabInputBeamSize(input, edge);
+                    return beam.override ? (
+                      <p className="sqBeamOverride">
+                        <span className="slabOverrideMark">
+                          Estimate override
+                        </span>{" "}
+                        Slab size {slab.width} × {slab.depth} mm; this size
+                        affects quantities only.{" "}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            edit({ ...beam, ...slab, override: false })
+                          }
+                        >
+                          Reset to slab size
+                        </button>
+                      </p>
+                    ) : (
+                      <p className="sqBeamOverride slabMuted">
+                        Adopted from slab inputs ({slab.width} × {slab.depth}{" "}
+                        mm). Editing width or depth overrides it here.
+                      </p>
+                    );
+                  })()}
                   <div className="cqControls">
                     {(["width", "depth", "cover"] as const).map((k) => (
                       <NumberField
                         key={k}
                         label={`${edge[0].toUpperCase() + edge.slice(1)} ${k[0].toUpperCase() + k.slice(1)} (mm)`}
                         value={beam[k]}
-                        change={(v) => edit({ ...beam, [k]: v ?? NaN })}
+                        change={(v) =>
+                          edit({
+                            ...beam,
+                            [k]: v ?? NaN,
+                            ...(k === "cover" ? {} : { override: true }),
+                          })
+                        }
                       />
                     ))}
                   </div>

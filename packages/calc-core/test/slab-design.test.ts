@@ -16,6 +16,8 @@ import {
   slabTopBarFactor,
   slabSupportLayout,
   slabLoadPatch,
+  slabInputSchema,
+  slabBeamSizes,
 } from "../src/modules/slab-design";
 import { solveSlabPlate } from "../src/modules/slab-plate";
 const pinned = {
@@ -617,7 +619,7 @@ describe("point (patch) loads and ACI 318-19 22.6 punching shear", () => {
     const r = analyzeSlab(defaultSlabInput());
     expect(r.punching).toEqual([]);
     expect(r.shear.every((v) => !v.concentratedWithinD)).toBe(true);
-    expect(r.engineVersion).toBe("slab-0.6.0");
+    expect(r.engineVersion).toBe("slab-0.7.0");
   });
   it("interior punching, hand calculation (h 200, 300 × 300, PD 150 + PL 100)", () => {
     const r = analyzeSlab(
@@ -1383,5 +1385,41 @@ describe("line and area loads", () => {
       },
     });
     expect(parsed.input.pointLoads[0].kind).toBe("point");
+  });
+});
+describe("concrete strength range (1000-15000 psi)", () => {
+  it("accepts 6.89-103.42 MPa and warns below 17 MPa (ACI 318-19 19.2.1.1)", () => {
+    const low = 1000 * 0.00689476,
+      high = 15000 * 0.00689476;
+    expect(high).toBeCloseTo(103.4214, 4);
+    expect(4000 * 0.00689476).toBeCloseTo(27.58, 2);
+    const parse = (fc: number) =>
+      slabInputSchema.safeParse({ ...defaultSlabInput(), fc }).success;
+    expect(parse(low)).toBe(true);
+    expect(parse(high)).toBe(true);
+    expect(parse(110)).toBe(false);
+    const r = analyzeSlab({ ...defaultSlabInput(), fc: low });
+    expect(r.warnings.some((w) => w.includes("19.2.1.1"))).toBe(true);
+    const ok = analyzeSlab(defaultSlabInput());
+    expect(ok.warnings.some((w) => w.includes("19.2.1.1"))).toBe(false);
+    const hs = analyzeSlab({ ...defaultSlabInput(), fc: high });
+    expect(hs.warnings.some((w) => w.includes("ACI 363R"))).toBe(true);
+    expect(hs.warnings.some((w) => w.includes("22.5.3.1"))).toBe(true);
+  });
+  it("custom beam sizes drive the support widths", () => {
+    const s = slabBeamSizes({
+      ...defaultSlabInput(),
+      beams: {
+        source: "custom",
+        sizes: {
+          west: { width: 300, depth: 600 },
+          east: { width: 250, depth: 500 },
+          south: { width: 400, depth: 700 },
+          north: { width: 250, depth: 500 },
+        },
+      },
+    });
+    expect(s.west).toEqual({ width: 300, depth: 600 });
+    expect(s.south).toEqual({ width: 400, depth: 700 });
   });
 });

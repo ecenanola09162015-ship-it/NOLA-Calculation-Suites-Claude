@@ -1,5 +1,6 @@
 import { designCheckPolicySchema, designRemarksSchema } from "../design-review";
 import { z } from "zod";
+import { FC_ENGINE_MAX, FC_ENGINE_MIN, PSI_MAX, PSI_MIN } from "../concrete-units";
 import { columnQuantitySchema } from "./column-quantity";
 import { columnSlendernessSchema } from "./column-slenderness";
 import { columnStoreySchema } from "./column-storey";
@@ -9,7 +10,7 @@ export const columnInputSchema = z
     code: z.enum(["ACI 318-19", "NSCP 2015"]),
     width: z.number().positive().max(10000),
     depth: z.number().positive().max(10000),
-    fc: z.number().min(17).max(80),
+    fc: z.number().min(FC_ENGINE_MIN).max(FC_ENGINE_MAX),
     fy: z.number().min(200).max(550),
     es: z.number().min(100000).max(250000),
     cover: z.number().nonnegative().max(1000),
@@ -51,7 +52,7 @@ export const columnInputSchema = z
     /** Other codes, documentation only (no effect on the calculation). */
     otherCodes: z.string().max(300).optional(),
     /** Concrete strength as entered in psi; fc (MPa) is derived from it. */
-    fcPsi: z.number().min(2000).max(12000).nullable().optional(),
+    fcPsi: z.number().min(PSI_MIN).max(PSI_MAX).nullable().optional(),
   })
   .refine(
     (input) =>

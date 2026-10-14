@@ -3,6 +3,8 @@ import {
   defaultSlabInput,
   defaultSlabQuantity,
   estimateSlabQuantity,
+  migrateSlabBeams,
+  slabAdoptBeams,
   slabDraftSchema,
   slabEstimateEnd,
 } from "../src/index";
@@ -158,5 +160,55 @@ describe("slab quantities", () => {
     const d = defaultSlabQuantity();
     for (const e of ["west", "east", "south", "north"] as const)
       expect([d.beams[e].width, d.beams[e].depth]).toEqual([250, 500]);
+  });
+});
+describe("estimate adopts slab beam sizes (slab-0.7)", () => {
+  const custom = {
+    source: "custom" as const,
+    sizes: {
+      west: { width: 300, depth: 600 },
+      east: { width: 250, depth: 500 },
+      south: { width: 400, depth: 700 },
+      north: { width: 250, depth: 450 },
+    },
+  };
+  it("follows the slab size on every edge that is not overridden", () => {
+    const q = defaultSlabQuantity();
+    q.beams.south = {
+      ...q.beams.south,
+      width: 350,
+      depth: 800,
+      override: true,
+    };
+    const a = slabAdoptBeams({ beams: custom }, q);
+    expect([a.beams.west.width, a.beams.west.depth]).toEqual([300, 600]);
+    expect([a.beams.north.width, a.beams.north.depth]).toEqual([250, 450]);
+    // Overridden edge keeps the Estimate-only size.
+    expect([a.beams.south.width, a.beams.south.depth]).toEqual([350, 800]);
+    // Already adopted: same object (no re-render loop).
+    expect(slabAdoptBeams({ beams: custom }, a)).toBe(a);
+  });
+  it("migrates legacy 'From Estimate' drafts to custom slab sizes", () => {
+    const q = defaultSlabQuantity(300),
+      raw = JSON.parse(JSON.stringify(q));
+    for (const e of ["west", "east", "south", "north"] as const)
+      delete raw.beams[e].override;
+    const m = migrateSlabBeams(
+      { ...defaultSlabInput(), beams: { ...custom, source: "estimate" } },
+      q,
+      raw,
+    );
+    expect(m.input.beams.source).toBe("custom");
+    expect(m.input.beams.sizes.west).toEqual({ width: 300, depth: 500 });
+    expect(m.quantity.beams.west.override).toBe(false);
+  });
+  it("marks legacy Estimate sizes that differ from the default as overrides", () => {
+    const q = defaultSlabQuantity(300),
+      raw = JSON.parse(JSON.stringify(q));
+    for (const e of ["west", "east", "south", "north"] as const)
+      delete raw.beams[e].override;
+    const m = migrateSlabBeams(defaultSlabInput(), q, raw);
+    expect(m.quantity.beams.east.override).toBe(true);
+    expect(slabAdoptBeams(m.input, m.quantity).beams.east.width).toBe(300);
   });
 });
