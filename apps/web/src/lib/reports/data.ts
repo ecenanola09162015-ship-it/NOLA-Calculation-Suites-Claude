@@ -1,4 +1,6 @@
 import { OVERRIDE_COLOR } from "../override-style";
+import { columnSectionDrawing } from "../cad/column-section-drawing";
+import { sectionDrawingToSvg } from "../cad/section-svg";
 import {
   columnHookBasisLabel,
   storeyClearHeights,
@@ -588,6 +590,25 @@ export function columnReportData(
         policy,
         project?.reportSettings?.style,
       ),
+      // CAD section drawing (same model as the DXF), Complete report only.
+      ...(t && tieDesign
+        ? [
+            {
+              title: "Column Section Drawing",
+              svg: sectionDrawingToSvg(
+                columnSectionDrawing({
+                  input,
+                  tie: tieDesign,
+                  design: t,
+                  hookBasis: quantity.hookBasis,
+                  title,
+                  projectName: project?.name,
+                }),
+                { maxWidth: 900 },
+              ),
+            },
+          ]
+        : []),
     ],
     checks: checkTable(checks, policy, remarks),
     sections: [

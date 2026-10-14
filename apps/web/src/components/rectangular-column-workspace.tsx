@@ -37,6 +37,7 @@ import {
 } from "./duplicate-save-prompt";
 import { ColumnQuantityPanel } from "./column-quantity-panel";
 import { StoreyGeometryFields } from "./column-storey-panel";
+import { ColumnSectionDrawingButton } from "./column-section-drawing-button";
 import dynamic from "next/dynamic";
 // Three.js loads only when results are shown.
 const ColumnInteraction3D = dynamic(
@@ -525,6 +526,16 @@ export function RectangularColumnWorkspace({
     setSaved(false);
     setRemarks(next);
   };
+  const drawingAction = (
+    <ColumnSectionDrawingButton
+      input={input}
+      tie={effectiveTie}
+      design={transverse.design ?? null}
+      hookBasis={quantity.hookBasis}
+      title={title}
+      projectName={project?.name}
+    />
+  );
   // Vux / Vuy are always shown and pasted, with or without shear design.
   const showShear = true;
   function updateTie(next: ColumnTieDesignInput) {
@@ -1373,6 +1384,7 @@ export function RectangularColumnWorkspace({
             onChange={updateTie}
             design={transverse.design}
             quantity={quantityEff}
+            drawingAction={drawingAction}
             onAdopt={() => {
               if (!transverse.design) return;
               editVersion.current++;
@@ -1398,6 +1410,7 @@ export function RectangularColumnWorkspace({
         <ColumnQuantityPanel
           section={input}
           value={quantityEff}
+          drawingAction={drawingAction}
           onChange={(next) => {
             editVersion.current++;
             changeQuantity(next);
