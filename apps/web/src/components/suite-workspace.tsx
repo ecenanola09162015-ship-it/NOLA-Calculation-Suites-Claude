@@ -175,7 +175,7 @@ export function SuiteWorkspace({
         key={item.slug}
         onClick={() => openModule(item)}
       >
-        <Image src={`/icons/${item.slug}.svg`} width={84} height={84} alt="" />
+        <Image src={`/icons/${item.slug}.webp`} width={84} height={84} alt="" />
         <strong>{item.name}</strong>
         <span className={`suiteBadge ${item.pilot ? "isPilot" : ""}`}>
           {item.pilot ? "Pilot" : "Future Development"}
@@ -423,7 +423,7 @@ export function SuiteWorkspace({
           ) : (
             <section className="suiteDraftWorkspace">
               <Image
-                src={`/icons/${module.slug}.svg`}
+                src={`/icons/${module.slug}.webp`}
                 width={120}
                 height={120}
                 alt=""
