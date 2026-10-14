@@ -73,6 +73,16 @@ export interface RectangularColumnInput {
   tieGradeId?: string | null;
   /** Storey geometry; when present it sets ℓu for slenderness (6.2.4). */
   storey?: ColumnStorey;
+  /**
+   * Other codes for documentation only (e.g. "NSCP 2015; ASCE 7-16"). They
+   * never change the calculation basis, which `code` sets.
+   */
+  otherCodes?: string;
+  /**
+   * Concrete strength as entered, psi. When set, fc = fcFromPsi(fcPsi)
+   * (exact conversion rounded to 0.1 MPa). Absent on drafts typed in MPa.
+   */
+  fcPsi?: number | null;
 }
 export interface ColumnState {
   c: number;

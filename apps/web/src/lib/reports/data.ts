@@ -28,6 +28,7 @@ import {
   type SlabQuantityInput,
   slabLoadPatch,
   slabBeamSizes,
+  psiToMpaExact,
 } from "@nola/calc-core";
 import { loadStyles } from "@/lib/load-styles";
 import type { ProjectRecord } from "../projects";
@@ -141,8 +142,17 @@ export function governingTransverseRows(
     .filter((c) => keep.has(c.id))
     .map((check) => ({ check, group: groupOf(check.id) }));
 }
-const refColumn = (shear: boolean, seismic: boolean, slender: boolean) =>
+const refColumn = (
+  shear: boolean,
+  seismic: boolean,
+  slender: boolean,
+  otherCodes = "",
+) =>
   section("Code References — ACI 318-19", [
+    // Documentation only (decision D5): never changes the calculation basis.
+    ...(otherCodes.trim()
+      ? [["Other Codes (Reference Only)", otherCodes.trim()]]
+      : []),
     ["Axial / Flexure / Biaxial", "22.2, 22.4; strength factors 21.2"],
     ["Reinforcement Limits", "10.6; detailing 10.7"],
     [slender ? "Slenderness" : "Slenderness (Not Considered)", "6.2.5, 6.6.4"],
@@ -267,7 +277,7 @@ export function columnReportData(
       ["Approved By", project?.approvedBy ?? "Not Set"],
       [
         "Concrete / Steel",
-        `fc = ${f(input.fc)} MPa; ${rebarGradeLabel(std, input.fy, input.gradeId)}, fy = ${f(input.fy)} MPa (${std === "ASTM" ? "ASTM A615/A706" : "PNS 49"})`,
+        `fc = ${input.fcPsi != null ? `${f(input.fc, 1)} MPa (${input.fcPsi} psi; exact ${f(psiToMpaExact(input.fcPsi))} MPa)` : `${f(input.fc)} MPa`}; ${rebarGradeLabel(std, input.fy, input.gradeId)}, fy = ${f(input.fy)} MPa (${std === "ASTM" ? "ASTM A615/A706" : "PNS 49"})`,
       ],
       [
         "Elastic Modulus / Cover",
@@ -748,7 +758,7 @@ export function columnReportData(
       ),
       ...extra,
     ],
-    references: refColumn(shearOn, !!t?.seismic, slender),
+    references: refColumn(shearOn, !!t?.seismic, slender, input.otherCodes),
     scopeNote: `Rectangular Tied Column. ${slender ? "Slenderness By Moment Magnification." : "Short Column (Slenderness Not Considered)."} ${shearOn ? "Shear Designed." : "Shear Not Evaluated."} ${t?.seismic ? `${t.frame} Confinement Designed.` : "Seismic Confinement Not Evaluated."}`,
     criticalNotes: result.warnings.slice(4),
     limitations: [
