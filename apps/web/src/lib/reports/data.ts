@@ -45,6 +45,11 @@ export type ReportSection = {
   title: string;
   columns: string[];
   rows: (string | Cell)[][];
+  /**
+   * Rows printed in the Simple report instead of `rows` (e.g. one governing
+   * check per group). The Complete report always prints `rows`.
+   */
+  simpleRows?: (string | Cell)[][];
 };
 export type ReportFigure = {
   title: string;
@@ -74,6 +79,8 @@ export type ReportData = {
   completeFigures?: ReportFigure[];
   /** Scope sentence printed in the simple-report overview. */
   scopeNote?: string;
+  /** Simple report page limit (Column 3; Slab 2 when omitted). */
+  simplePageLimit?: 2 | 3;
 };
 export const f = (n: number | null | undefined, d = 2) =>
   n == null || !Number.isFinite(n) ? "Not Evaluated" : n.toFixed(d);
@@ -97,6 +104,43 @@ const section = (
   rows: (string | Cell)[][],
   columns = ["Item", "Value"],
 ): ReportSection => ({ title, columns, rows });
+/**
+ * Simple report: one governing (highest DCR) row per transverse check group,
+ * plus every row needing engineering judgment or improvement (amber / red
+ * are never hidden). The Complete report lists every check.
+ */
+export const TRANSVERSE_GROUPS: [string, (id: string) => boolean][] = [
+  ["Shear", (id) => /^tie:shear/.test(id)],
+  ["Tie Spacing / lo", (id) => /^tie:ties:(spacing|lo)/.test(id)],
+  ["Tie Size / Lateral Support", (id) => /^tie:ties:(diameter|support)/.test(id)],
+  ["Confinement Ash", (id) => id.startsWith("tie:ash:")],
+  ["Seismic Hoop Detailing", (id) => /^tie:smf:(hx|all-supported|crosstie-hooks)/.test(id)],
+  ["SMF Geometry / rho", (id) => /^tie:smf:(geometry|rho)/.test(id)],
+  ["Steel Grade", (id) => id.startsWith("tie:smf:grade")],
+  ["Strong Column-Weak Beam", (id) => id.startsWith("tie:smf:scwb")],
+];
+export function governingTransverseRows(
+  checks: ReturnType<typeof columnTransverseChecks>,
+  policy: DesignCheckPolicy,
+): { check: ReturnType<typeof columnTransverseChecks>[number]; group: string }[] {
+  const rank = (d: number | null) => (d === null || Number.isNaN(d) ? -1 : d);
+  const groupOf = (id: string) =>
+    TRANSVERSE_GROUPS.find(([, m]) => m(id))?.[0] ?? "Other";
+  const keep = new Set<string>();
+  const best = new Map<string, ReturnType<typeof columnTransverseChecks>[number]>();
+  for (const c of checks) {
+    const g = groupOf(c.id);
+    const b = best.get(g);
+    if (!b || rank(c.dcr) > rank(b.dcr)) best.set(g, c);
+    const id = designCheckStatus(c.dcr, policy).id;
+    if (id === "judgment" || id === "improve" || id === "unavailable")
+      keep.add(c.id);
+  }
+  for (const c of best.values()) keep.add(c.id);
+  return checks
+    .filter((c) => keep.has(c.id))
+    .map((check) => ({ check, group: groupOf(check.id) }));
+}
 const refColumn = (shear: boolean, seismic: boolean, slender: boolean) =>
   section("Code References — ACI 318-19", [
     ["Axial / Flexure / Biaxial", "22.2, 22.4; strength factors 21.2"],
@@ -183,6 +227,41 @@ export function columnReportData(
   const barGroups = new Map<number, number>();
   for (const bar of input.bars)
     barGroups.set(bar.diameter, (barGroups.get(bar.diameter) ?? 0) + 1);
+  const checkRow = (
+    c: ReturnType<typeof columnTransverseChecks>[number],
+    label = c.label,
+  ): (string | Cell)[] => [
+    label,
+    {
+      text: `DCR ${f(c.dcr, 3)} | ${status(c.dcr, policy, remarks[c.id]).text}`,
+      color: designCheckStatus(c.dcr, policy).color,
+    },
+  ];
+  // Simple report: the storey line is printed in the Complete report only.
+  const withoutStorey = (s: ReportSection): ReportSection => ({
+    ...s,
+    simpleRows: s.rows.filter((r) => r[0] !== "Storey Geometry"),
+  });
+  const transverseChecks = columnTransverseChecks(t);
+  const transverseSummary = (
+    title: string,
+    head: (string | Cell)[][],
+  ): ReportSection => ({
+    ...section(title, [...head, ...transverseChecks.map((c) => checkRow(c))]),
+    simpleRows: [
+      ...head,
+      ...governingTransverseRows(transverseChecks, policy).map(
+        ({ check, group }) =>
+          checkRow(
+            check,
+            // Group name as a prefix unless the label already starts with it.
+            check.label.toLowerCase().startsWith(group.split(/[ /]/)[0]!.toLowerCase())
+              ? check.label
+              : `${group}: ${check.label}`,
+          ),
+      ),
+    ],
+  });
   const summary = [
     section("Materials", [
       ["Approved By", project?.approvedBy ?? "Not Set"],
@@ -195,7 +274,7 @@ export function columnReportData(
         `Es = ${f(input.es, 0)} MPa; cover = ${f(input.cover, 0)} mm`,
       ],
     ]),
-    section("Section And Reinforcement", [
+    withoutStorey(section("Section And Reinforcement", [
       [
         "Section",
         `${input.width} x ${input.depth} mm; Ag = ${f(result.grossArea, 0)} mm²`,
@@ -232,7 +311,7 @@ export function columnReportData(
         "Steel Ratio",
         `rho = ${f(result.steelRatio * 100)}%; ${result.steelRatio >= 0.01 && result.steelRatio <= 0.08 ? "Within General 1–8% Range" : "Outside General 1–8% Range — Review Required"}`,
       ],
-    ]),
+    ])),
     section("Governing Loads And Design", [
       ["Combination", g?.load.id ?? "None"],
       [
@@ -275,7 +354,7 @@ export function columnReportData(
     ]),
     ...(t
       ? [
-          section(
+          transverseSummary(
             t.seismic
               ? `Shear And Confinement Design (${t.frame})`
               : "Shear Design",
@@ -289,13 +368,6 @@ export function columnReportData(
                     ],
                   ]
                 : []),
-              ...columnTransverseChecks(t).map((c) => [
-                c.label,
-                {
-                  text: `DCR ${f(c.dcr, 3)} | ${status(c.dcr, policy, remarks[c.id]).text}`,
-                  color: designCheckStatus(c.dcr, policy).color,
-                },
-              ]),
             ],
           ),
         ]
@@ -514,6 +586,8 @@ export function columnReportData(
               : ""),
       ],
     ]);
+    // Simple report: total concrete volume, rebar weight and ratio only.
+    estimate.simpleRows = estimate.rows.slice(0, 3);
     extra.push(
       section(
         "Rebar Cutting Schedule",
@@ -549,8 +623,14 @@ export function columnReportData(
     summary,
     figures: [
       ...columnFigures(input, result, project?.reportSettings?.style),
+      // Storey figure: Complete report only.
       ...(storey
-        ? [columnStoreyFigure(storey, project?.reportSettings?.style)]
+        ? [
+            {
+              ...columnStoreyFigure(storey, project?.reportSettings?.style),
+              completeOnly: true,
+            },
+          ]
         : []),
       ...(twoPages
         ? [columnBiaxialFigure(input, result, project?.reportSettings?.style)]
@@ -687,6 +767,7 @@ export function columnReportData(
     ],
     generatedAt: new Date().toISOString(),
     estimate,
+    simplePageLimit: 3,
   };
 }
 export function slabReportData(
