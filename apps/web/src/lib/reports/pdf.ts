@@ -121,12 +121,51 @@ export async function svgReportPng(svg: string): Promise<string> {
     URL.revokeObjectURL(url);
   }
 }
+/** Column width fractions of a report table (shared by drawing and measuring). */
+function columnFractions(s: ReportSection): number[] {
+  return s.columns.length === 2
+    ? [0.34, 0.66]
+    : s.columns.length === 3
+      ? s.columns[2] === "Status / Remarks"
+        ? [0.43, 0.08, 0.49]
+        : [0.22, 0.6, 0.18]
+      : s.columns.length === 4 && s.columns[3] === "Status / Remarks"
+        ? [0.33, 0.25, 0.08, 0.34]
+        : Array(s.columns.length).fill(1 / s.columns.length);
+}
+/** Longest summary table that may sit in a side-by-side column. */
+export const SUMMARY_SIDE_BY_SIDE_ROWS = 10;
+/**
+ * Group summary tables into layout rows: consecutive short two-column
+ * tables share a row (up to three); a long table (more rows than
+ * SUMMARY_SIDE_BY_SIDE_ROWS or more than two columns) takes a row alone.
+ */
+export function summaryRows(sections: ReportSection[]): ReportSection[][] {
+  const out: ReportSection[][] = [];
+  let current: ReportSection[] = [];
+  const flush = () => {
+    if (current.length) out.push(current);
+    current = [];
+  };
+  for (const s of sections) {
+    if (!s.rows.length) continue;
+    if (s.columns.length > 2 || s.rows.length > SUMMARY_SIDE_BY_SIDE_ROWS) {
+      flush();
+      out.push([s]);
+      continue;
+    }
+    current.push(s);
+    if (current.length === 3) flush();
+  }
+  flush();
+  return out;
+}
 class SimpleOverflow extends Error {}
-/** The Simple report cannot fit two pages; the UI offers the Complete report. */
+/** The Simple report cannot fit its page limit; the UI offers the Complete report. */
 export class ReportTooLongError extends Error {
-  constructor(module: string) {
+  constructor(module: string, limit: 2 | 3 = 2) {
     super(
-      `The ${module === "Slab Design" ? "Slab" : "Column"} Simple Report Exceeds Two Pages. Shorten Project Descriptions / Remarks Or Select Complete Report.`,
+      `The ${module === "Slab Design" ? "Slab" : "Column"} Simple Report Exceeds ${limit === 3 ? "Three" : "Two"} Pages. Shorten Project Descriptions / Remarks Or Select Complete Report.`,
     );
     this.name = "ReportTooLongError";
   }
@@ -136,7 +175,7 @@ async function build(
   options: ReportOptions,
   fontSize: number,
   figureHeight: number,
-  maximumSimplePages = 1,
+  maximumSimplePages: 1 | 2 | 3 = 1,
 ) {
   const settings = projectReportSettingsSchema.parse(
       data.project?.reportSettings ?? defaultProjectReportSettings,
@@ -362,23 +401,49 @@ async function build(
       colors.white,
     );
   };
-  const table = (s: ReportSection, x = margin, w = W, compact = false) => {
+  /** Simple report prints `simpleRows` when a section provides them. */
+  const forReport = (s: ReportSection): ReportSection =>
+    options.type === "simple" && s.simpleRows ? { ...s, rows: s.simpleRows } : s;
+  /** Drawn height of a whole table at width w (title bar to last row + gap). */
+  const blockHeight = (section: ReportSection, w: number, compact = false) => {
+    const s = forReport(section);
+    if (!s.rows.length) return 0;
     const size = compact
       ? fontSize
       : options.type === "complete"
         ? Math.max(7, fontSize - 0.5)
         : fontSize;
-    const fractions =
-      s.columns.length === 2
-        ? [0.34, 0.66]
-        : s.columns.length === 3
-          ? s.columns[2] === "Status / Remarks"
-            ? [0.43, 0.08, 0.49]
-            : [0.22, 0.6, 0.18]
-          : s.columns.length === 4 && s.columns[3] === "Status / Remarks"
-            ? [0.33, 0.25, 0.08, 0.34]
-            : Array(s.columns.length).fill(1 / s.columns.length);
-    const colW = fractions.map((v) => v * w);
+    const colW = columnFractions(s).map((v) => v * w);
+    const wrap = (v: string, font: PDFFont, sz: number, k: number) =>
+      wrapReportText(v, font, sz, colW[k] - 2 * style.tablePaddingPt).length;
+    return (
+      14 +
+      Math.max(...s.columns.map((v, k) => wrap(v, bold, style.tableHeaderFontSize, k))) *
+        (style.tableHeaderFontSize + style.lineGapPt) +
+      5 +
+      s.rows.reduce(
+        (total, row) =>
+          total +
+          Math.max(
+            ...row.map((v, k) =>
+              wrap(typeof v === "string" ? v : v.text, regular, size, k),
+            ),
+          ) *
+            (size + style.lineGapPt) +
+          5,
+        0,
+      ) +
+      gap
+    );
+  };
+  const table = (section: ReportSection, x = margin, w = W, compact = false) => {
+    const s = forReport(section);
+    const size = compact
+      ? fontSize
+      : options.type === "complete"
+        ? Math.max(7, fontSize - 0.5)
+        : fontSize;
+    const colW = columnFractions(s).map((v) => v * w);
     if (!s.rows.length) return;
     const headingHeight =
       14 +
@@ -538,18 +603,27 @@ async function build(
     }
     y += gap;
   };
-  const summaryStart = y,
-    boxWidth = (W - 2 * gap) / 3;
-  let maximum = summaryStart;
-  if (options.type === "simple" && maximumSimplePages === 2) {
-    for (const s of data.summary) table(s, margin, W, true);
-  } else {
-    for (let k = 0; k < data.summary.length; k++) {
-      y = summaryStart;
-      table(data.summary[k], margin + k * (boxWidth + gap), boxWidth, true);
-      maximum = Math.max(maximum, y);
+  // Summary: short two-column tables side by side (up to three per row);
+  // long tables (check lists) full width. A row of side-by-side tables that
+  // would not fit the rest of the page is stacked full width instead, so no
+  // table is ever split across pages in a narrow column.
+  for (const row of summaryRows(data.summary.map(forReport))) {
+    if (row.length === 1) {
+      table(row[0], margin, W, true);
+      continue;
     }
-    y = maximum;
+    const w = (W - (row.length - 1) * gap) / row.length;
+    const tallest = Math.max(...row.map((s) => blockHeight(s, w, true)));
+    if (y + tallest > bottom) {
+      for (const s of row) table(s, margin, W, true);
+      continue;
+    }
+    const start = y;
+    row.forEach((s, k) => {
+      y = start;
+      table(s, margin + k * (w + gap), w, true);
+    });
+    y = start + tallest;
   }
   const figureColumns = 3,
     fw = (W - (figureColumns - 1) * gap) / figureColumns;
@@ -752,15 +826,22 @@ export async function generateCalculationPdf(
     Math.max(style.minimumFontSize, style.simpleFontSize - 0.5),
     style.minimumFontSize,
   ];
-  // Simple report, both modules: up to two pages. Readability first — one
-  // page at the normal or slightly reduced font, then two pages; the minimum
-  // font is used only when two pages are still not enough.
-  const attempts: [number, number, 1 | 2][] = [
+  // Simple report: Slab up to two pages, Column up to three. Readability
+  // first — at each page count the normal, then slightly reduced font; the
+  // minimum font only when the last page count is still not enough.
+  const limit = data.simplePageLimit ?? 2;
+  const attempts: [number, number, 1 | 2 | 3][] = [
     [sizes[0], 150, 1],
     [sizes[1], 140, 1],
     [sizes[0], 150, 2],
     [sizes[1], 140, 2],
-    [sizes[2], 137, 2],
+    ...(limit === 3
+      ? ([
+          [sizes[0], 150, 3],
+          [sizes[1], 140, 3],
+          [sizes[2], 137, 3],
+        ] as [number, number, 3][])
+      : ([[sizes[2], 137, 2]] as [number, number, 2][])),
   ];
   for (const [size, figureHeight, pages] of attempts)
     try {
@@ -768,5 +849,5 @@ export async function generateCalculationPdf(
     } catch (error) {
       if (!(error instanceof SimpleOverflow)) throw error;
     }
-  throw new ReportTooLongError(data.module);
+  throw new ReportTooLongError(data.module, limit);
 }
