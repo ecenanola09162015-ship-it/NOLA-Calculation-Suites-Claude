@@ -708,7 +708,7 @@ export function slabReportData(
       ["Approved By", project?.approvedBy ?? "Not Set"],
       [
         "Concrete / Steel",
-        `fc = ${f(input.fc)} MPa; ${rebarGradeLabel(input.rebarStandard ?? "PNS49", input.fy, input.gradeId)}, fy = ${f(input.fy)} MPa; Es = ${f(input.es, 0)} MPa`,
+        `fc = ${f(input.fc)} MPa (${f(input.fc / 0.00689476, 0)} psi)${input.fc < 17 ? " < 17 MPa, ACI 318-19 Table 19.2.1.1 minimum (assessment only)" : ""}; ${rebarGradeLabel(input.rebarStandard ?? "PNS49", input.fy, input.gradeId)}, fy = ${f(input.fy)} MPa; Es = ${f(input.es, 0)} MPa`,
       ],
       [
         "Cover",
@@ -999,6 +999,15 @@ export function slabReportData(
       ["Concrete Volume", `${f(q.concrete, 3)} m³ (Bounding Beams Excluded)`],
       ["Total Rebar Weight", `${f(q.total)} kg`],
       ["Steel / Concrete", `${f(q.ratio)} kg/m³`],
+      [
+        "Estimate Beam Sizes",
+        (["west", "east", "south", "north"] as const)
+          .map(
+            (e) =>
+              `${e}: ${quantity.beams[e].width}x${quantity.beams[e].depth}${quantity.beams[e].override ? " (Estimate override, quantities only)" : ""}`,
+          )
+          .join("; "),
+      ],
       [
         "Flexural / Distribution Weight",
         `${f(q.flexuralPercent)}% / ${f(q.distributionPercent)}%`,

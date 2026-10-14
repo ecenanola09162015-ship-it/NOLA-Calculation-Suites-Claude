@@ -304,7 +304,12 @@ describe("bounding beams", () => {
     for (const text of [
       "Bounding beams",
       "Default 250 × 500 mm",
-      "From Estimate section",
+      "Custom (here)",
+      "Bounding beam sizes",
+      "Rebar standard",
+      "1,000 psi = 6.89 MPa",
+      "4,000 psi = 27.58 MPa",
+      "15,000 psi = 103.42 MPa",
       "One-Way Shear Checks At d From Beam Face",
     ])
       expect(html).toContain(text);

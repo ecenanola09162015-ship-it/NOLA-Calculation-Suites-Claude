@@ -198,8 +198,12 @@ const defaultBeams = () => ({
 });
 export const slabBeamsSchema = z
   .object({
-    /** default: 250 x 500 on every supported edge; estimate: sizes from the Estimate section. */
-    source: z.enum(["default", "estimate"]),
+    /**
+     * default: 250 x 500 on every supported edge; custom: per-edge sizes
+     * entered in the slab inputs. "estimate" is legacy (≤ slab-0.6 drafts)
+     * and is treated as custom with the stored sizes.
+     */
+    source: z.enum(["default", "custom", "estimate"]),
     sizes: z.object({
       west: beamSizeSchema,
       east: beamSizeSchema,
@@ -220,7 +224,8 @@ export const slabInputSchema = z
     lx: z.number().min(0.5).max(30),
     ly: z.number().min(0.5).max(30),
     h: z.number().min(70).max(1000),
-    fc: z.number().min(17).max(70),
+    /** MPa. 1000-15000 psi range; < 17 MPa warns (ACI 318-19 19.2.1.1). */
+    fc: z.number().min(5).max(104),
     fy: z.number().min(200).max(420),
     rebarStandard: z.enum(["PNS49", "ASTM"]).optional(),
     gradeId: z.string().max(20).nullable().optional(),
@@ -525,7 +530,7 @@ export function defaultSlabInput(): SlabInput {
 }
 /**
  * Effective bounding-beam size per edge (mm): the 250 x 500 default or the
- * Estimate-section sizes; null on Free edges (no beam).
+ * custom per-edge sizes; null on Free edges (no beam).
  */
 export function slabBeamSizes(
   i: Pick<SlabInput, "supports"> & { beams?: SlabInput["beams"] },
@@ -534,7 +539,7 @@ export function slabBeamSizes(
   const size = (e: SlabEdge) =>
     i.supports[e] === "Free"
       ? null
-      : beams.source === "estimate"
+      : beams.source !== "default"
         ? { ...beams.sizes[e] }
         : { ...SLAB_DEFAULT_BEAM };
   return {
@@ -2038,6 +2043,14 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     "Straight-bar development/cutoff screening is not a complete anchorage check. Support embedment, hooks, laps and curtailment beyond the theoretical cutoff require designer review.",
     "No openings, column-supported slabs, corner torsion steel, redistribution or pattern live loading are evaluated; punching only at entered point loads.",
   ];
+  if (i.fc < 17)
+    warnings.push(
+      `Concrete f′c = ${i.fc.toFixed(2)} MPa is below the 17 MPa minimum of ACI 318-19 Table 19.2.1.1 for structural concrete. Results are computed with the ACI expressions but are outside the code's applicability; use only for assessment of existing construction with engineering judgement.`,
+    );
+  if (i.fc > 70)
+    warnings.push(
+      `Concrete f′c = ${i.fc.toFixed(2)} MPa exceeds 70 MPa: √f′c is capped at 8.3 MPa for shear (ACI 318-19 22.5.3.1 / 22.6.3.1), β1 = 0.65; Ec = 4700√f′c may overestimate stiffness for high-strength concrete — verify with mix-specific data.`,
+    );
   if (cant) {
     const strip = 0.5 * shortSpan ** 2,
       rootCoef = Math.abs(coefficients[`${layout.fixedEdge!}Negative`]);
@@ -2187,7 +2200,7 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
     warnings,
     dead,
     unit: "metric",
-    engineVersion: "slab-0.6.0",
+    engineVersion: "slab-0.7.0",
   };
 }
 export function parseSlabLoads(text: string): SlabInput["loads"] {

@@ -80,6 +80,14 @@ export function buildSlab3DModel(i: SlabInput): Slab3DModel {
       (beam[e]?.width ?? 0) / 1000,
     dz = (e: "west" | "east" | "south" | "north") =>
       Math.max(0, (beam[e]?.depth ?? 0) / 1000 - h);
+  if (
+    Object.values(beam).some(
+      (b) =>
+        b &&
+        !(Number.isFinite(b.width) && Number.isFinite(b.depth) && b.width > 0),
+    )
+  )
+    throw new Error("Invalid bounding-beam size.");
   const footprint = {
     x0: -w("west"),
     x1: i.lx + w("east"),

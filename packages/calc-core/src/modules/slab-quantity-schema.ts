@@ -11,6 +11,11 @@ const beamSchema = z.object({
   width: mm.min(100).max(3000),
   depth: mm.min(100).max(5000),
   cover: mm.min(10).max(150),
+  /**
+   * false: width/depth follow the slab bounding-beam size (adopted
+   * automatically); true: Estimate-only override (quantities only).
+   */
+  override: z.boolean().default(false),
   main: endSchema,
   extra: endSchema,
 });
@@ -33,6 +38,7 @@ export function defaultSlabQuantity(width = 250): SlabQuantityInput {
     width,
     depth: 500,
     cover: 40,
+    override: false,
     main: {
       extensionMode: "half" as const,
       extension: 0,

@@ -16,7 +16,9 @@ import {
   slabDraftSchema,
   slabLayers,
   slabSupportLayout,
-  slabBeamSizes,
+  SLAB_DEFAULT_BEAM,
+  migrateSlabBeams,
+  slabAdoptBeams,
   type SlabInput,
   type SlabLocalLoad,
   type SlabLocalLoadKind,
@@ -69,6 +71,7 @@ import {
   type DraftDuplicate,
 } from "./duplicate-save-prompt";
 import { SlabQuantityPanel } from "./slab-quantity-panel";
+import { ConcreteStrengthSelect } from "./concrete-strength-select";
 import { SlabPlan, SlabSection } from "./slab-diagrams";
 import {
   RebarGradeSelect,
@@ -127,13 +130,27 @@ export function SlabWorkspace({
     () => slabDraftSchema.safeParse(draft?.payload),
     [draft],
   );
-  const [input, setInput] = useState<SlabInput>(() =>
-    restored.success ? restored.data.input : defaultSlabInput(),
-  );
-  const [quantity, setQuantity] = useState<SlabQuantityInput>(() =>
+  // Drafts before slab-0.7: "From Estimate" beams become custom slab sizes;
+  // differing Estimate sizes become Estimate-only overrides (no number changes).
+  const [migrated] = useState(() =>
     restored.success
-      ? (restored.data.quantity ?? defaultSlabQuantity())
-      : defaultSlabQuantity(),
+      ? migrateSlabBeams(
+          restored.data.input,
+          restored.data.quantity ?? defaultSlabQuantity(),
+          (draft?.payload as { quantity?: unknown } | undefined)?.quantity,
+        )
+      : null,
+  );
+  const [input, setInput] = useState<SlabInput>(
+    () => migrated?.input ?? defaultSlabInput(),
+  );
+  const [rawQuantity, setQuantity] = useState<SlabQuantityInput>(
+    () => migrated?.quantity ?? defaultSlabQuantity(),
+  );
+  // The Estimate adopts the slab beam sizes on every edge not overridden there.
+  const quantity = useMemo(
+    () => slabAdoptBeams(input, rawQuantity),
+    [input, rawQuantity],
   );
   const policy =
     project?.designCheckPolicy ??
@@ -171,30 +188,10 @@ export function SlabWorkspace({
   const editVersion = useRef(0);
   // Point loads add a plate FE solve (~0.1–0.5 s): defer the analysis so
   // typing stays responsive; results follow the latest input when idle.
-  // Bounding beams: "From Estimate section" takes each edge's beam width and
-  // depth from the Estimate inputs; the resolved input drives analysis,
-  // drawings, 3D, report and the saved draft.
-  const designInput = useMemo<SlabInput>(
-    () =>
-      input.beams?.source === "estimate"
-        ? {
-            ...input,
-            beams: {
-              source: "estimate",
-              sizes: Object.fromEntries(
-                (["west", "east", "south", "north"] as const).map((e) => [
-                  e,
-                  {
-                    width: quantity.beams[e].width,
-                    depth: quantity.beams[e].depth,
-                  },
-                ]),
-              ) as SlabInput["beams"]["sizes"],
-            },
-          }
-        : input,
-    [input, quantity],
-  );
+  // Bounding beams: default 250 x 500 or custom per-edge sizes entered here;
+  // they drive analysis (ℓ), drawings, 3D and the report. Estimate overrides
+  // affect quantities only.
+  const designInput = input;
   const analysedInput = useDeferredValue(designInput);
   const analysis = useMemo(() => {
     try {
@@ -667,24 +664,27 @@ export function SlabWorkspace({
               value={input.sideCover}
               onChange={(v) => change("sideCover", v)}
             />
-            <Numeric
-              label="Concrete f′c"
+            <ConcreteStrengthSelect
               value={input.fc}
-              unit="MPa"
+              maxMpa={104}
               onChange={(v) => change("fc", v)}
             />
-            <RebarStandardSelect
-              value={input.rebarStandard ?? "PNS49"}
-              onChange={(rebarStandard) => update({ ...input, rebarStandard })}
-            />
-            <RebarGradeSelect
-              label="Steel grade (fy)"
-              standard={input.rebarStandard ?? "PNS49"}
-              fy={input.fy}
-              gradeId={input.gradeId}
-              maxFy={420}
-              onChange={(fy, gradeId) => update({ ...input, fy, gradeId })}
-            />
+            <div className="slabRebarRow">
+              <RebarStandardSelect
+                value={input.rebarStandard ?? "PNS49"}
+                onChange={(rebarStandard) =>
+                  update({ ...input, rebarStandard })
+                }
+              />
+              <RebarGradeSelect
+                label="Steel grade (fy)"
+                standard={input.rebarStandard ?? "PNS49"}
+                fy={input.fy}
+                gradeId={input.gradeId}
+                maxFy={420}
+                onChange={(fy, gradeId) => update({ ...input, fy, gradeId })}
+              />
+            </div>
           </div>
           <p className="slabClassification">
             Auto: {r?.type.toUpperCase() ?? "CHECK INPUTS"} · Long/short{" "}
@@ -718,32 +718,80 @@ export function SlabWorkspace({
           <label className="slabBeamSource">
             Bounding beams
             <select
-              value={input.beams?.source ?? "default"}
+              value={input.beams?.source === "default" ? "default" : "custom"}
               onChange={(e) =>
                 update({
                   ...input,
                   beams: {
-                    ...(input.beams ?? designInput.beams),
-                    source: e.target.value as "default" | "estimate",
+                    ...input.beams,
+                    source: e.target.value as "default" | "custom",
                   },
                 })
               }
             >
               <option value="default">Default 250 × 500 mm</option>
-              <option value="estimate">From Estimate section</option>
+              <option value="custom">Custom (here)</option>
             </select>
           </label>
+          <table className="slabBeamTable" aria-label="Bounding beam sizes">
+            <thead>
+              <tr>
+                <th>Edge</th>
+                <th>Support</th>
+                <th>Width (mm)</th>
+                <th>Depth (mm)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(["west", "east", "south", "north"] as const).map((e) => {
+                const free = input.supports[e] === "Free",
+                  custom = input.beams.source !== "default",
+                  size = custom ? input.beams.sizes[e] : SLAB_DEFAULT_BEAM;
+                return (
+                  <tr key={e} className={free ? "isFree" : undefined}>
+                    <td>{e[0].toUpperCase() + e.slice(1)}</td>
+                    <td>{free ? "Free · no beam" : input.supports[e]}</td>
+                    {(["width", "depth"] as const).map((k) => (
+                      <td key={k}>
+                        <input
+                          type="number"
+                          step="any"
+                          aria-label={`${e} beam ${k}`}
+                          disabled={free || !custom}
+                          value={Number.isFinite(size[k]) ? size[k] : ""}
+                          onChange={(ev) =>
+                            update({
+                              ...input,
+                              beams: {
+                                ...input.beams,
+                                sizes: {
+                                  ...input.beams.sizes,
+                                  [e]: {
+                                    ...input.beams.sizes[e],
+                                    [k]:
+                                      ev.target.value === ""
+                                        ? NaN
+                                        : Number(ev.target.value),
+                                  },
+                                },
+                              },
+                            })
+                          }
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
           <p className="slabMuted">
             Lx and Ly are clear spans between inner beam faces. Beams on Fixed
-            and Pinned edges, none on Free edges; tops flush with the slab top.{" "}
-            {(["west", "east", "south", "north"] as const)
-              .map((e) => {
-                const b = slabBeamSizes(designInput)[e];
-                return `${e} ${b ? `${b.width} × ${b.depth}` : "free"}`;
-              })
-              .join(" · ")}
-            . Support condition governs the design; ℓ for minimum thickness and
-            the deflection limit is centre-to-centre (clear + beam widths / 2).
+            and Pinned edges, none on Free edges; tops flush with the slab top.
+            The Estimate adopts these sizes unless an edge is overridden there
+            (quantities only). Support condition governs the design; ℓ for
+            minimum thickness and the deflection limit is centre-to-centre
+            (clear + beam widths / 2).
           </p>
           {cantilever && (
             <p className="slabMuted">

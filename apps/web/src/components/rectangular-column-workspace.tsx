@@ -68,6 +68,7 @@ import {
   ColumnSlendernessInputs,
   ColumnSlendernessResults,
 } from "./column-slenderness-panel";
+import { ConcreteStrengthSelect } from "./concrete-strength-select";
 /** New calculations start with Vux = Vuy = 400 kN (user decision); imports stay as pasted. */
 export const DEFAULT_SHEAR = 400;
 const initial: RectangularColumnInput = {
@@ -638,15 +639,28 @@ export function RectangularColumnWorkspace({
               value={standard}
               onChange={(rebarStandard) => update({ ...input, rebarStandard })}
             />
-            {fields.map(([key, label, unit]) => (
-              <NumberField
-                key={key}
-                label={label}
-                unit={unit}
-                value={input[key]}
-                onChange={(value) => update({ ...input, [key]: value })}
-              />
-            ))}
+            {fields.map(([key, label, unit]) =>
+              key === "fc" ? (
+                // psi catalogue limited to this engine's 17–80 MPa range.
+                <ConcreteStrengthSelect
+                  key={key}
+                  layout="rc"
+                  label={label}
+                  minMpa={17}
+                  maxMpa={80}
+                  value={input.fc}
+                  onChange={(fc) => update({ ...input, fc })}
+                />
+              ) : (
+                <NumberField
+                  key={key}
+                  label={label}
+                  unit={unit}
+                  value={input[key]}
+                  onChange={(value) => update({ ...input, [key]: value })}
+                />
+              ),
+            )}
           </div>
           {/* Diameters on the left, their steel grade on the right. */}
           <div className="rcFields rcSteelPairs">

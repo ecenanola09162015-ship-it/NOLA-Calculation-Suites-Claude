@@ -1868,6 +1868,105 @@ select {
 .slabNumeric input {
   width: 100%;
 }
+/* Rebar selects and the beam switch use the slab input font (C1/C2). */
+.slabFieldGrid > label,
+.slabRebarRow > label,
+.slabBeamSource {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+}
+.slabRebarRow {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+.slabRebarRow select,
+.slabRebarRow input {
+  width: 100%;
+}
+.slabRebarRow > label {
+  display: block;
+}
+.slabRebarRow > label select,
+.slabRebarRow > label input {
+  display: block;
+  margin-top: 5px;
+}
+.slabRebarRow .rcUnit {
+  float: none;
+  margin-left: 4px;
+  font-size: 11px;
+}
+.fcSelect {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+.fcSelect select {
+  width: 100%;
+}
+.fcEquivalent {
+  color: #617c8c;
+}
+.fcWarning {
+  display: block;
+  font-size: 11px;
+  color: #a5541a;
+  line-height: 1.4;
+}
+.slabBeamSource {
+  margin-top: 4px;
+}
+.slabBeamTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin: 8px 0 4px;
+}
+.slabBeamTable th,
+.slabBeamTable td {
+  padding: 3px 4px;
+  text-align: left;
+  border-bottom: 1px solid #dbe6ea;
+}
+.slabBeamTable th {
+  font-weight: 600;
+  color: #45616f;
+}
+.slabBeamTable input {
+  width: 100%;
+  max-width: 90px;
+  font-size: 12px;
+}
+.slabBeamTable tr.isFree td {
+  color: #9aa9b1;
+}
+.slabBeamTable input:disabled {
+  background: #eef2f4;
+  color: #8b9aa3;
+}
+.sqBeamOverride {
+  font-size: 12px;
+  margin: 4px 0 8px;
+}
+.slabOverrideMark {
+  display: inline-block;
+  background: #fde8d4;
+  color: #8a3f0b;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-weight: 600;
+}
+.sqBeamOverride button {
+  font-size: 11px;
+  margin-left: 4px;
+}
+.rcFields .fcWarning {
+  grid-column: 1 / -1;
+}
 .slabSupportGrid {
   display: grid;
   grid-template-columns: 1fr 1fr;
