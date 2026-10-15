@@ -108,6 +108,7 @@ def materials():
     MAT['roof'] = _flat((0.42, 0.52, 0.62), 28)
     MAT['door'] = _flat((0.50, 0.56, 0.62), 29)
     MAT['orange'] = _flat((0.96, 0.52, 0.16), 30, 0.02)
+    MAT['orange2'] = _flat((0.88, 0.30, 0.13), 33, 0.02)
     MAT['water'] = _flat((0.30, 0.62, 0.86), 31, 0.05)
     MAT['rock'] = _soil((0.56, 0.55, 0.53), 32, grains=1.0, gsize=(0.6, 1.8), var=0.35)
     return MAT
@@ -340,14 +341,22 @@ class Scene:
         c = tuple(int(v * 255) for v in col) + (255,)
         self._layer(lambda d: d.text(tuple(q), s, fill=c, font=f, anchor='mm', stroke_width=3, stroke_fill=(255, 255, 255, 255)))
 
-    def badge_seismic(self, fx=0.84, fy=0.15, fr=0.125):
-        W = self.W; cx, cy, r = fx * W, fy * W, fr * W
+    def badge_seismic(self, fx=0.70, fy=0.11, fw=0.56):
+        """Seismic sign: seismogram running into epicentre rings, on a white plate (per reference)."""
+        W = self.W; w = fw * W; h = w * 0.40
+        x0, y0 = fx * W - w / 2, fy * W - h / 2
+        red = (206, 44, 40, 255)
         def draw(d):
-            d.ellipse([cx - r - 4, cy - r - 4 + 5, cx + r + 4, cy + r + 4 + 5], fill=(0, 0, 0, 50))
-            d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(210, 52, 46, 255), outline=(255, 255, 255, 255), width=int(W / 160))
-            xs = np.linspace(cx - r * 0.72, cx + r * 0.72, 11)
-            amp = [0, .1, -.25, .55, -.8, .8, -.55, .3, -.15, .08, 0]
-            d.line([(x, cy + a * r * 0.62) for x, a in zip(xs, amp)], fill=(255, 255, 255, 255), width=int(W / 110), joint='curve')
+            d.rounded_rectangle([x0 + 3, y0 + 6, x0 + w + 3, y0 + h + 6], radius=h * 0.28, fill=(0, 0, 0, 45))
+            d.rounded_rectangle([x0, y0, x0 + w, y0 + h], radius=h * 0.28, fill=(255, 255, 255, 250), outline=(230, 232, 236, 255), width=2)
+            cx, cy = x0 + w * 0.76, y0 + h / 2; R = h * 0.42
+            for k in range(5):
+                r = R * (1 - k * 0.18); lw = max(2, int(W / 230 * (1 + k * 0.5)))
+                d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=red, width=lw)
+            d.ellipse([cx - R * 0.16, cy - R * 0.16, cx + R * 0.16, cy + R * 0.16], fill=red)
+            xs = np.linspace(x0 + w * 0.07, cx - R * 0.05, 26)
+            amp = [0, 0, .2, -.15, .45, -.9, .95, -.3, .15, 0, 0, .2, -.15, .45, -.9, .95, -.3, .15, 0, 0, .3, -.5, .7, -.2, 0, 0]
+            d.line([(x, cy - a * h * 0.36) for x, a in zip(xs, amp)], fill=red, width=int(W / 170), joint='curve')
         self._layer(draw)
 
     def contact_shadow(self, poly_xy, z, spread=0.22, strength=150):

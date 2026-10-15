@@ -99,18 +99,31 @@ def shear_wall():         # I-05: vertical load + 2 layers protruding bars
     return s
 
 
-def steel_deck():         # I-06: composite — concrete fills the deck ribs
+def steel_deck():         # I-06 rev 3: composite slab, cut-away showing deck, mesh, stud, I-beam below
+    P_, Y, L, A, B = 3.0, 15.0, 16.0, 7.0, 6.0
     prof = []
-    for k in range(4):
-        y0 = 3 * k
+    for k in range(int(Y / P_)):
+        y0 = P_ * k
         prof += [(y0, 1.4), (y0 + 0.7, 1.4), (y0 + 1.0, 0), (y0 + 2.0, 0), (y0 + 2.3, 1.4)]
-    prof.append((12, 1.4))
-    conc = [(0, 3.2), (12, 3.2)] + list(reversed(prof))
+    prof.append((Y, 1.4))
+    conc = [(0, 3.4), (Y, 3.4)] + list(reversed(prof))
     deck = prof + [(y, z - 0.22) for y, z in reversed(prof)]
-    s = Scene((0, 0, -0.3), (14, 12, 3.2), margin=0.08)
-    s.contact_shadow([(0, 0), (14, 0), (14, 12), (0, 12)], 0, 0.06, 110)
-    s.prism_yz(conc, 0, 14, 'concrete', 1)
-    s.prism_yz(deck, 0, 14, 'galv', 20, lines=[('e2', 0.7, .08)])
+    def clip_y(poly, y1):                               # keep y <= y1
+        sw = [(z, y) for y, z in poly]
+        return [(y, z) for z, y in clip_band(sw, -1e9, y1)]
+    s = Scene((0, -1, -4.3), (L, Y + 1, 3.4), margin=0.06)
+    s.contact_shadow([(11, -1), (14, -1), (14, Y + 1), (11, Y + 1)], -4.3, 0.2, 110)
+    # supporting I-beam (runs across the ribs)
+    s.box(11, -1, -4.22, 3, Y + 2, 0.5, 'steel', 1); s.box(12.3, -1, -3.72, 0.4, Y + 2, 3.0, 'steel', 2); s.box(11, -1, -0.72, 3, Y + 2, 0.5, 'steel', 3)
+    s.prism_yz(deck, 0, L, 'galv', 20, lines=[('e2', 0.8, .10)])
+    s.prism_yz(conc, 0, A, 'concrete', 1)               # full slab behind the cut
+    s.prism_yz(clip_y(conc, B), A, L, 'concrete', 30)   # slab strip along the back edge
+    s.cyl(A + 3.0, B + 1.5, 0, 0.28, 2.3, 'galv', 40); s.cyl(A + 3.0, B + 1.5, 2.3, 0.6, 0.35, 'galv', 41)   # shear stud
+    rust = (0.74, 0.40, 0.20)
+    for y in np.arange(B + 1.2, Y, 2.0):
+        s.bar((A - 0.1, y, 2.3), (L - 0.4, y, 2.3), 0.13, rust, ribs=0)
+    for x in np.arange(A + 1.5, L, 2.5):
+        s.bar((x, B - 0.1, 2.56), (x, Y - 0.4, 2.56), 0.13, rust, ribs=0)
     return s
 
 
@@ -213,14 +226,14 @@ def base_plate():         # I-14: base plate + anchor bolts highlighted
     return s
 
 
-def purlins():            # I-15: C purlins supported on an I-beam rafter
-    s = Scene((0, -1, -4.2), (13, 13, 3.4), margin=0.06)
-    s.contact_shadow([(5, -1), (7.4, -1), (7.4, 13), (5, 13)], -4.2, 0.4, 100)
-    s.box(5, -1, -4.2, 2.4, 14, 0.4, 'steel', 1); s.box(6.0, -1, -3.8, 0.4, 14, 3.4, 'steel', 2); s.box(5, -1, -0.4, 2.4, 14, 0.4, 'steel', 3)
-    for k, y in enumerate((0.0, 4.5, 9.0)):
-        s.box(0, y, 0, 13, 1.4, 0.3, 'galv', 10 + k); s.box(0, y, 0.3, 13, 0.3, 2.8, 'galv', 20 + k)
-        s.box(0, y + 1.1, 0.3, 13, 0.3, 0.6, 'galv', 30 + k)
-        s.box(0, y, 3.1, 13, 1.4, 0.3, 'galv', 40 + k); s.box(0, y + 1.1, 2.5, 13, 0.3, 0.6, 'galv', 50 + k)
+def purlins():            # I-15 rev 3: C purlins highlighted (blue) on a muted I-beam rafter; wider spacing
+    s = Scene((0, -1, -4.2), (13, 15.6, 4.0), margin=0.06)
+    s.contact_shadow([(5, -1), (7.4, -1), (7.4, 15.6), (5, 15.6)], -4.2, 0.4, 100)
+    s.box(5, -1, -4.2, 2.4, 16.6, 0.4, 'muted', 1); s.box(6.0, -1, -3.8, 0.4, 16.6, 3.4, 'muted', 2); s.box(5, -1, -0.4, 2.4, 16.6, 0.4, 'muted', 3)
+    for k, y in enumerate((0.0, 6.6, 13.2)):
+        s.box(0, y, 0, 13, 1.9, 0.38, 'steel_hi', 10 + k); s.box(0, y, 0.38, 13, 0.38, 3.24, 'steel_hi', 20 + k)
+        s.box(0, y + 1.52, 0.38, 13, 0.38, 0.8, 'steel_hi', 30 + k)
+        s.box(0, y, 3.62, 13, 1.9, 0.38, 'steel_hi', 40 + k); s.box(0, y + 1.52, 2.82, 13, 0.38, 0.8, 'steel_hi', 50 + k)
     return s
 
 
@@ -235,28 +248,47 @@ def seismic_loads():      # I-16: 3 storeys + seismic badge
         s.box(1, 1, z0 + 3.4, 11, 11, 0.8, 'concrete', st * 10 + 5)
     for z, L in [(4.0, 3.0), (8.2, 5.5), (12.4, 8.0)]:
         s.arrow((3.6 - L, 13, z), (3.6, 13, z), EQ)
-    s.badge_seismic(0.83, 0.16)
+    s.badge_seismic()
     return s
 
 
-def wind_loads():         # I-17: gable warehouse
-    s = Scene((-1, -1, -0.6), (17, 17, 8.6), margin=0.06)
+def wind_loads():         # I-17 rev 4: gable warehouse + wind gusts curling toward the wall
+    s = Scene((-1, -1, -0.6), (17, 11, 8.6), margin=0.05, extra=[(0, 30, 6), (0, 30, -1)])
     s.box(-1, -1, -0.6, 18, 12, 0.6, 'concrete', 1)
     sec = [(0, 0), (10, 0), (10, 6), (5, 8.6), (0, 6)]
     s.prism_yz(sec, 0, 16, 'cladding', 2, cap_lines=[('e1', 0.6, .10)], lines=[('e2', 0.6, .10)],
                mats=[None, 'cladding', 'roof', 'roof', 'cladding'])
     s.face([(16.02, 3.2, 0), (16.02, 6.8, 0), (16.02, 6.8, 4.2), (16.02, 3.2, 4.2)], (1, 0, 0), 'door', 9, lines=[('e2', 0.35, .12)])
-    for x, z in [(3, 2.6), (8, 4.2), (13, 2.6)]:
-        s.arrow((x, 17.5, z), (x, 10.5, z), WIND)
+    # curling wind gusts drawn flat (symbol style, per reference), flowing toward the long wall
+    W = s.W
+    def gust(end3, length, r, up, width):
+        wx, ey = s.P(end3); ex = wx - r * 1.25; sx = ex - length
+        pts = [(sx, ey), (ex, ey)]                       # tail upwind, curl at the wall end
+        for t in np.linspace(0, 1.55 * math.pi, 40):
+            rr = r * (1 - 0.30 * t / (2 * math.pi))
+            pts.append((ex + rr * math.sin(t), ey - up * (r - rr * math.cos(t))))
+        def draw(d):
+            d.line(pts, fill=(255, 255, 255, 255), width=int(width + W / 110), joint='curve')
+            d.line(pts, fill=(22, 128, 210, 255), width=int(width), joint='curve')
+            for p in (pts[0], pts[-1]):
+                rr2 = width / 2
+                d.ellipse([p[0] - rr2, p[1] - rr2, p[0] + rr2, p[1] + rr2], fill=(22, 128, 210, 255))
+        s._layer(draw)
+    gust((0.6, 10.2, 7.4), W * 0.22, W * 0.046, 1, W / 50)
+    gust((2.5, 10.2, 4.4), W * 0.34, W * 0.044, 1, W / 50)
+    gust((5.5, 10.2, 1.2), W * 0.24, W * 0.040, -1, W / 50)
     return s
 
 
-def load_combinations():  # I-18: Σ in the same 3D style
+def load_combinations():  # I-18 rev 3: Σ followed by a stylised L, same 3D style
     sig = [(0, 0), (9, 0), (9, 2.6), (4.4, 2.6), (7.0, 6), (4.4, 9.4), (9, 9.4), (9, 12), (0, 12), (0, 10.2), (3.6, 6), (0, 1.8)]
-    s = Scene((-1, -1, -0.6), (10, 3.6, 12), margin=0.08)
-    s.contact_shadow([(-1, -1), (10, -1), (10, 3.6), (-1, 3.6)], -0.6, 0.1, 110)
-    s.box(-1, -1, -0.6, 11, 4.6, 0.6, 'concrete', 1)
+    ell = [(0, 0), (6.4, 0), (6.4, 2.6), (2.9, 2.6), (2.9, 12), (0, 12)]
+    ell = [(10.6 + x + 0.20 * z, z) for x, z in ell]          # italic shear
+    s = Scene((-1, -1, -0.6), (20.5, 3.6, 12), margin=0.07)
+    s.contact_shadow([(-1, -1), (20.5, -1), (20.5, 3.6), (-1, 3.6)], -0.6, 0.06, 110)
+    s.box(-1, -1, -0.6, 21.5, 4.6, 0.6, 'concrete', 1)
     s.prism_xz(sig, 0, 1.6, 'orange', 2)
+    s.prism_xz(ell, 0, 1.6, 'orange2', 3)
     return s
 
 
@@ -343,7 +375,7 @@ def liquefaction():       # I-23: seismic badge + granular saturated sand
     for x, y in [(3, 9), (11.5, 3.5)]:
         s.cone_down(x, y, 0.6, 0.9, -0.0001, 'sand', 9)
     s.tilted_box(5, 4, 0, 4.2, 4.2, 7.5, math.radians(9), 'concrete', 3, lines=[('e1', 2.5, .05)])
-    s.badge_seismic(0.83, 0.16)
+    s.badge_seismic()
     return s
 
 
