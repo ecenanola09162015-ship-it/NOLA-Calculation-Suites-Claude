@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import {
   DuplicateNameError,
   createProject,
+  renameCalculationDraft,
   saveCalculationDraft,
   updateProject,
 } from "@/lib/projects";
@@ -12,6 +13,7 @@ import {
   projectReportSettingsSchema,
 } from "@nola/calc-core";
 import { uiCatalogue } from "@/lib/ui-catalogue";
+import { titleProblem } from "@/lib/explorer-tree";
 
 /**
  * Server actions return their outcome instead of throwing: Next.js hides the
@@ -171,4 +173,27 @@ async function updateProjectChecked(id: string, formData: FormData) {
   const project = await updateProject(userId, id, input);
   revalidatePath("/launcher");
   return project;
+}
+
+/** Rename a calculation from the project explorer. */
+export async function renameCalculationAction(id: string, title: string) {
+  return outcome(
+    () => renameCalculationChecked(id, title),
+    "Calculation could not be renamed. Please retry.",
+  );
+}
+async function renameCalculationChecked(id: string, title: string) {
+  const { userId } = await auth();
+  if (!userId) throw new ActionInputError("Please sign in again.");
+  if (
+    typeof id !== "string" ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+  )
+    throw new ActionInputError("Invalid calculation.");
+  const value = typeof title === "string" ? title.trim() : "";
+  const problem = titleProblem(value);
+  if (problem) throw new ActionInputError(problem);
+  const draft = await renameCalculationDraft(userId, id, value);
+  revalidatePath("/launcher");
+  return draft;
 }

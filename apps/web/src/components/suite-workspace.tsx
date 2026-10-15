@@ -14,10 +14,12 @@ const SlabWorkspace = dynamic(
   { loading: () => <p>Opening slab workspace…</p> },
 );
 import { ProjectContext, ProjectEditor } from "./project-context";
+import { ProjectExplorer, type RenameResult } from "./project-explorer";
 import { BrandMark } from "./brand-mark";
 import {
   createProjectAction,
   createInterfaceDraftAction,
+  renameCalculationAction,
   updateProjectAction,
   type DuplicateInfo,
 } from "@/app/actions";
@@ -167,6 +169,44 @@ export function SuiteWorkspace({
       setBusy(false);
     }
   }
+  function openDraft(d: CalculationDraftRecord) {
+    const item = uiCatalogue.find((m) => m.slug === d.moduleSlug);
+    if (!item) return;
+    setProjectId(d.projectId);
+    setWorkspaceSession((previous) => previous + 1);
+    setModule(item);
+    setDraftId(d.id);
+    setTitle(d.title);
+    setMessage("");
+    setExplorer(false);
+  }
+  async function renameDraft(id: string, value: string): Promise<RenameResult> {
+    try {
+      const res = await renameCalculationAction(id, value);
+      if (!res.ok)
+        return {
+          ok: false,
+          error: res.error,
+          suggestion: res.duplicate?.suggestion,
+        };
+      const item = res.value;
+      setDrafts((previous) =>
+        previous.map((d) => (d.id === item.id ? item : d)),
+      );
+      if (draftId === item.id) {
+        // Reopen the calculation so the workspace shows (and later saves) the new name.
+        setTitle(item.title);
+        setWorkspaceSession((previous) => previous + 1);
+      }
+      setMessage(`Renamed to “${item.title}”.`);
+      return { ok: true };
+    } catch {
+      return {
+        ok: false,
+        error: "Calculation could not be renamed. Please retry.",
+      };
+    }
+  }
   function card(item: UiModule) {
     return (
       <button
@@ -213,8 +253,8 @@ export function SuiteWorkspace({
           className={`suiteExplorer ${explorer ? "isOpen" : ""}`}
           aria-label="Project explorer"
         >
-          <div className="suiteExplorerHeading">
-            <h2>PROJECT EXPLORER</h2>
+          <div className="suiteExplorerHeading mobileOnly">
+            <span />
             <button
               className="mobileOnly"
               onClick={() => setExplorer(false)}
@@ -223,97 +263,38 @@ export function SuiteWorkspace({
               ×
             </button>
           </div>
-          <button
-            className="suitePrimary"
-            onClick={() => {
+          <ProjectExplorer
+            projects={projects}
+            drafts={drafts}
+            projectId={projectId}
+            draftId={draftId}
+            search={search}
+            onSearch={setSearch}
+            onSelectProject={selectProject}
+            onOpenDraft={openDraft}
+            onNewProject={() => {
               setNewProject(true);
               setProjectDuplicate(null);
               setMessage("");
               setExplorer(false);
             }}
-          >
-            ＋ New project
-          </button>
-          <label className="suiteSearch">
-            <span className="srOnly">Search projects</span>
-            <input
-              placeholder="Search projects…"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </label>
-          <div className="suiteTree">
-            {projects
-              .filter((item) =>
-                `${item.name} ${item.buildingName}`
-                  .toLowerCase()
-                  .includes(search.toLowerCase()),
-              )
-              .map((item) => (
-                <div key={item.id}>
-                  <button
-                    className={`suiteFolder ${projectId === item.id ? "selected" : ""}`}
-                    onClick={() => selectProject(item.id)}
-                  >
-                    <span aria-hidden="true">
-                      {projectId === item.id ? "▾" : "▸"} ▣
-                    </span>{" "}
-                    {item.name}
-                  </button>
-                  {projectId === item.id && (
-                    <div className="suiteTreeChildren">
-                      <button
-                        onClick={() => {
-                          setModule(null);
-                          setDraftId("");
-                        }}
-                      >
-                        ▤ Project information
-                      </button>
-                      <p>▾ Calculations</p>
-                      {drafts
-                        .filter((d) => d.projectId === item.id)
-                        .map((d) => (
-                          <button
-                            className={draftId === d.id ? "selected" : ""}
-                            key={d.id}
-                            onClick={() => {
-                              const item = uiCatalogue.find(
-                                (m) => m.slug === d.moduleSlug,
-                              );
-                              if (item) {
-                                setWorkspaceSession((previous) => previous + 1);
-                                setModule(item);
-                                setDraftId(d.id);
-                                setTitle(d.title);
-                                setMessage("");
-                                setExplorer(false);
-                              }
-                            }}
-                          >
-                            ▤ {d.title}
-                            <small>
-                              {d.moduleSlug === "rc-column"
-                                ? "Column draft"
-                                : d.moduleSlug === "slab"
-                                  ? "Slab draft"
-                                  : "UI draft"}
-                            </small>
-                          </button>
-                        ))}
-                      {!drafts.some((d) => d.projectId === item.id) && (
-                        <span className="suiteEmpty">No calculations yet</span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
-            {!projects.length && (
-              <p className="suiteEmpty">
-                Create your first project to organize calculation drafts.
-              </p>
-            )}
-          </div>
+            onNewCalculation={(id) => {
+              selectProject(id);
+              const name =
+                projects.find((p) => p.id === id)?.name ?? "this project";
+              setMessage(
+                `Choose a module below to start a new calculation in ${name}.`,
+              );
+            }}
+            onProjectInfo={(id) => {
+              const target = projects.find((p) => p.id === id);
+              if (!target) return;
+              selectProject(id);
+              setNewProject(false);
+              setEditingProject(target);
+            }}
+            onRename={renameDraft}
+          />
         </aside>
         <section className="suiteMain">
           <ProjectContext

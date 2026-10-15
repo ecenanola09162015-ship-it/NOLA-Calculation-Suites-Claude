@@ -3638,3 +3638,243 @@ input.rcDerived {
     height: 112px;
   }
 }
+
+/* Project explorer (UI chat, claude/ui-project-explorer). Scoped to .ex* classes. */
+.exRoot {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.exHead h2 {
+  margin: 0;
+  font-size: 18px;
+  letter-spacing: 0;
+  color: #1c2a3a;
+}
+.exRoot .suiteSearch {
+  margin: 0;
+}
+.exProjects,
+.exProjects ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.exProject {
+  border-radius: 8px;
+}
+.exProject.selected > .exProjectRow {
+  background: #ddd4e2;
+}
+.exProjectRow {
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+}
+.exTwisty,
+.exProjectName,
+.exNewCalc,
+.exLink,
+.exCalcOpen,
+.exMore {
+  background: transparent;
+  border: 0;
+  color: #293b50;
+  font-size: 13px;
+  text-align: left;
+}
+.exTwisty {
+  width: 28px;
+  height: 36px;
+  flex: 0 0 28px;
+}
+.exProjectName {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 6px 8px 0;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+.exProjectName small {
+  display: block;
+  font-weight: 400;
+  color: #68788a;
+  font-size: 11px;
+}
+.exProjectBody {
+  padding: 4px 0 8px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.exNewCalc {
+  margin: 2px 0 4px;
+  padding: 8px 10px;
+  border: 1px dashed #a9b6c4;
+  border-radius: 7px;
+  font-weight: 700;
+  color: #613c60;
+}
+.exNewCalc:hover {
+  background: #f3eef5;
+}
+.exLink {
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+.exProjectBody details summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #34465b;
+}
+.exProjectBody details summary::-webkit-details-marker {
+  display: none;
+}
+.exProjectBody details summary::before {
+  content: "▸";
+  display: inline-block;
+  width: 14px;
+  color: #7a8a9b;
+}
+.exProjectBody details[open] > summary::before {
+  content: "▾";
+}
+.exTrade > summary {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 11.5px;
+}
+.exSub,
+.exModule {
+  margin-left: 12px;
+}
+.exModule > summary {
+  font-weight: 600;
+}
+.exCount {
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #5a6676;
+  background: #dde6ee;
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+.exCalc {
+  display: flex;
+  align-items: center;
+  margin-left: 14px;
+  border-radius: 6px;
+}
+.exCalc:hover {
+  background: #e2e9ef;
+}
+.exCalc.selected {
+  background: #ddd4e2;
+}
+.exCalc.selected .exCalcOpen {
+  color: #613c60;
+  font-weight: 700;
+}
+.exCalcOpen {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 8px;
+  overflow-wrap: anywhere;
+}
+.exMore {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border-radius: 6px;
+  opacity: 0.55;
+}
+.exCalc:hover .exMore,
+.exMore:focus-visible {
+  opacity: 1;
+}
+.exTwisty:focus-visible,
+.exProjectName:focus-visible,
+.exCalcOpen:focus-visible,
+.exMore:focus-visible,
+.exNewCalc:focus-visible,
+.exLink:focus-visible {
+  outline: 3px solid #805277;
+  outline-offset: 1px;
+}
+.exCalc.isEditing {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 4px 4px 6px;
+  background: #fff;
+  border: 1px solid #c7d3de;
+}
+.exRename {
+  width: 100%;
+  border: 1px solid #805277;
+  border-radius: 6px;
+  padding: 7px 8px;
+  font-size: 13px;
+}
+.exError {
+  margin: 0;
+  font-size: 12px;
+  color: #a1323d;
+}
+.exError button {
+  display: block;
+  margin-top: 4px;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: #613c60;
+  font-weight: 700;
+  text-decoration: underline;
+}
+.exConfirm p {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: #5a4a12;
+}
+.exConfirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.exConfirm p {
+  flex-basis: 100%;
+}
+.exConfirm button {
+  padding: 7px 10px;
+  font-size: 12px;
+}
+.exMenu {
+  position: fixed;
+  z-index: 80;
+  min-width: 150px;
+  padding: 4px;
+  background: #fff;
+  border: 1px solid #d3dbe3;
+  border-radius: 8px;
+  box-shadow: 0 10px 28px #1b283a2e;
+}
+.exMenu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.exMenu button:hover,
+.exMenu button:focus-visible {
+  background: #eef2f6;
+  outline: none;
+}
