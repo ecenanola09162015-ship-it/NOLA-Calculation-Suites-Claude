@@ -73,6 +73,9 @@ import {
 } from "./duplicate-save-prompt";
 import { SlabQuantityPanel } from "./slab-quantity-panel";
 import { ConcreteStrengthFields } from "./concrete-strength-fields";
+import { DesignCodeFields } from "./column-materials-fields";
+/** ACI 318-19 20.2.2.2. */
+const SLAB_ES_DEFAULT = 200000;
 import { SlabPlan, SlabSection } from "./slab-diagrams";
 import {
   RebarGradeSelect,
@@ -144,7 +147,12 @@ export function SlabWorkspace({
   );
   const [input, setInput] = useState<SlabInput>(
     // New slabs start at 4000 psi → 27.58 → 27.6 MPa (f′c psi dropdown).
-    () => migrated?.input ?? { ...defaultSlabInput(), fcPsi: 4000, fc: fcFromPsi(4000) },
+    () =>
+      migrated?.input ?? {
+        ...defaultSlabInput(),
+        fcPsi: 4000,
+        fc: fcFromPsi(4000),
+      },
   );
   const [rawQuantity, setQuantity] = useState<SlabQuantityInput>(
     () => migrated?.quantity ?? defaultSlabQuantity(),
@@ -528,20 +536,6 @@ export function SlabWorkspace({
             }}
           />
         </label>
-        <label>
-          Project code
-          <select
-            value={input.code}
-            onChange={(e) =>
-              update({ ...input, code: e.target.value as SlabInput["code"] })
-            }
-          >
-            <option>ACI 318-19</option>
-            <option value="NSCP 2015">NSCP 2015</option>
-            <option disabled>BS EN 1992 — Future Development</option>
-            <option disabled>AS 3600 — Future Development</option>
-          </select>
-        </label>
         <button
           className="suitePrimary"
           onClick={() => save()}
@@ -632,8 +626,11 @@ export function SlabWorkspace({
       )}
       <div className="slabGrid">
         <aside className="slabInputs slabPanel">
-          <h2>Slab Inputs</h2>
-          <div className="slabFieldGrid">
+          <h2>01 · Slab Geometry & Materials</h2>
+          {/* Same structure as the column panel 01 (decisions 15 Oct 2026). */}
+          <DesignCodeFields input={input} onChange={update} engine="slab" />
+          <h3 className="rcSubhead">Slab Dimensions</h3>
+          <div className="slabFieldGrid slabDimRow">
             <Numeric
               label="Span X"
               value={input.lx}
@@ -651,6 +648,8 @@ export function SlabWorkspace({
               value={input.h}
               onChange={(v) => change("h", v)}
             />
+          </div>
+          <div className="slabFieldGrid slabDimRow">
             <Numeric
               label="Top Clear Cover"
               value={input.topCover}
@@ -666,10 +665,16 @@ export function SlabWorkspace({
               value={input.sideCover}
               onChange={(v) => change("sideCover", v)}
             />
+          </div>
+          <h3 className="rcSubhead">Concrete Strength</h3>
+          <div className="slabFieldGrid">
             <ConcreteStrengthFields
               value={input}
               onChange={({ fc, fcPsi }) => update({ ...input, fc, fcPsi })}
             />
+          </div>
+          <h3 className="rcSubhead">Rebar Information</h3>
+          <div className="slabFieldGrid">
             <div className="slabRebarRow">
               <RebarStandardSelect
                 value={input.rebarStandard ?? "PNS49"}
@@ -677,6 +682,30 @@ export function SlabWorkspace({
                   update({ ...input, rebarStandard })
                 }
               />
+              {/* ACI 318-19 20.2.2.2: Es = 200 000 MPa; another value is an override. */}
+              <label
+                className={`slabNumeric${input.es !== SLAB_ES_DEFAULT ? " isOverride" : ""}`}
+              >
+                <span>
+                  Steel Es <small>(MPa)</small>
+                </span>
+                <input
+                  type="number"
+                  step="any"
+                  value={Number.isFinite(input.es) ? input.es : ""}
+                  onChange={(e) =>
+                    change(
+                      "es",
+                      e.target.value === "" ? NaN : Number(e.target.value),
+                    )
+                  }
+                />
+                {input.es !== SLAB_ES_DEFAULT && (
+                  <em className="overrideBadge">
+                    Override · ACI 20.2.2.2 default 200,000
+                  </em>
+                )}
+              </label>
               <RebarGradeSelect
                 label="Steel grade (fy)"
                 standard={input.rebarStandard ?? "PNS49"}
@@ -687,6 +716,7 @@ export function SlabWorkspace({
               />
             </div>
           </div>
+          <h3 className="rcSubhead">Supports & Bounding Beams</h3>
           <p className="slabClassification">
             Auto: {r?.type.toUpperCase() ?? "CHECK INPUTS"} · Long/short{" "}
             {fmt(r?.ratio)} · Short span {r?.shortAxis ?? "—"}
@@ -883,12 +913,6 @@ export function SlabWorkspace({
                 value={input.nu}
                 unit=""
                 onChange={(v) => change("nu", v)}
-              />
-              <Numeric
-                label="Steel Es"
-                value={input.es}
-                unit="MPa"
-                onChange={(v) => change("es", v)}
               />
               <Numeric
                 label="Concrete Unit Weight"
