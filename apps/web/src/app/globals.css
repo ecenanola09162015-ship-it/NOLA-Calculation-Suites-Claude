@@ -3582,3 +3582,59 @@ input.rcDerived {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Launcher module catalogue — neutral frame for the textured module icons
+   (UI chat, claude/ui-module-icons). Scoped to .suiteTrade / .suiteGroup / .suiteModule / .suiteBadge. */
+.suiteTrade {
+  background: #fbfcfd;
+  border-color: #dfe5ea;
+}
+.suiteTrade > h2,
+.geotechnical > h2 {
+  background: #273440;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+}
+.suiteGroup h3,
+.geotechnical > h3 {
+  background: #fff;
+  border: 1px solid #dfe5ea;
+  border-left: 4px solid var(--suite-group, #8a96a3);
+  color: var(--suite-group-ink, #273440);
+}
+.groupConcrete {
+  --suite-group: #1fa396;
+  --suite-group-ink: #1d5c57;
+}
+.groupLOADS {
+  --suite-group: #e5701f;
+  --suite-group-ink: #6b3412;
+}
+.groupSteel {
+  --suite-group: #3f6fe8;
+  --suite-group-ink: #22346b;
+}
+.geotechnical {
+  --suite-group: #b7801c;
+  --suite-group-ink: #5c4316;
+}
+.suiteModule {
+  border-color: #e3e8ec;
+}
+.suiteModule:hover {
+  border-color: var(--suite-group, #8a96a3);
+}
+.suiteBadge {
+  background: #eef1f4;
+  color: #5a6676;
+}
+.suiteBadge.isPilot {
+  background: #dcf2e7;
+  color: #1b5a41;
+}
+@media (min-width: 1001px) {
+  .suiteModule img {
+    width: 112px;
+    height: 112px;
+  }
+}
