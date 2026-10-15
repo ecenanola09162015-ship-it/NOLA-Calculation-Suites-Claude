@@ -119,9 +119,15 @@ const section = (
 export const TRANSVERSE_GROUPS: [string, (id: string) => boolean][] = [
   ["Shear", (id) => /^tie:shear/.test(id)],
   ["Tie Spacing / lo", (id) => /^tie:ties:(spacing|lo)/.test(id)],
-  ["Tie Size / Lateral Support", (id) => /^tie:ties:(diameter|support)/.test(id)],
+  [
+    "Tie Size / Lateral Support",
+    (id) => /^tie:ties:(diameter|support)/.test(id),
+  ],
   ["Confinement Ash", (id) => id.startsWith("tie:ash:")],
-  ["Seismic Hoop Detailing", (id) => /^tie:smf:(hx|all-supported|crosstie-hooks)/.test(id)],
+  [
+    "Seismic Hoop Detailing",
+    (id) => /^tie:smf:(hx|all-supported|crosstie-hooks)/.test(id),
+  ],
   ["SMF Geometry / rho", (id) => /^tie:smf:(geometry|rho)/.test(id)],
   ["Steel Grade", (id) => id.startsWith("tie:smf:grade")],
   ["Strong Column-Weak Beam", (id) => id.startsWith("tie:smf:scwb")],
@@ -129,12 +135,18 @@ export const TRANSVERSE_GROUPS: [string, (id: string) => boolean][] = [
 export function governingTransverseRows(
   checks: ReturnType<typeof columnTransverseChecks>,
   policy: DesignCheckPolicy,
-): { check: ReturnType<typeof columnTransverseChecks>[number]; group: string }[] {
+): {
+  check: ReturnType<typeof columnTransverseChecks>[number];
+  group: string;
+}[] {
   const rank = (d: number | null) => (d === null || Number.isNaN(d) ? -1 : d);
   const groupOf = (id: string) =>
     TRANSVERSE_GROUPS.find(([, m]) => m(id))?.[0] ?? "Other";
   const keep = new Set<string>();
-  const best = new Map<string, ReturnType<typeof columnTransverseChecks>[number]>();
+  const best = new Map<
+    string,
+    ReturnType<typeof columnTransverseChecks>[number]
+  >();
   for (const c of checks) {
     const g = groupOf(c.id);
     const b = best.get(g);
@@ -171,16 +183,21 @@ const refColumn = (
       seismic ? "18.4.3 / 18.7.4–18.7.6; 25.7.2" : "10.7, 25.3, 25.7",
     ],
   ]);
-const refSlab = section("Code References — ACI 318-19", [
-  ["Flexure / Strength Factors", "22.2, 22.3, 21.2"],
-  ["One-Way / Punching Shear", "Table 22.5.5.1, 7.4.3.2; 22.6"],
-  [
-    "Minimum Thickness / Deflection",
-    "Tables 7.3.1.1, 8.3.1.2, 24.2.3.5, 24.2.2; immediate only",
-  ],
-  ["Minimum Reinforcement / Spacing", "7.6, 8.6, 7.7.2, 8.7.2, 24.4, 25.2"],
-  ["Cover / Development / Cutoffs", "20.5, 25.4, 7.7.3, 8.7.4"],
-]);
+const refSlab = (otherCodes = "") =>
+  section("Code References — ACI 318-19", [
+    // Documentation only (same as the column): never changes the basis.
+    ...(otherCodes.trim()
+      ? [["Other Codes (Reference Only)", otherCodes.trim()]]
+      : []),
+    ["Flexure / Strength Factors", "22.2, 22.3, 21.2"],
+    ["One-Way / Punching Shear", "Table 22.5.5.1, 7.4.3.2; 22.6"],
+    [
+      "Minimum Thickness / Deflection",
+      "Tables 7.3.1.1, 8.3.1.2, 24.2.3.5, 24.2.2; immediate only",
+    ],
+    ["Minimum Reinforcement / Spacing", "7.6, 8.6, 7.7.2, 8.7.2, 24.4, 25.2"],
+    ["Cover / Development / Cutoffs", "20.5, 25.4, 7.7.3, 8.7.4"],
+  ]);
 function checkTable(
   checks: ReturnType<typeof columnDesignChecks>,
   policy: DesignCheckPolicy,
@@ -271,7 +288,9 @@ export function columnReportData(
           checkRow(
             check,
             // Group name as a prefix unless the label already starts with it.
-            check.label.toLowerCase().startsWith(group.split(/[ /]/)[0]!.toLowerCase())
+            check.label
+              .toLowerCase()
+              .startsWith(group.split(/[ /]/)[0]!.toLowerCase())
               ? check.label
               : `${group}: ${check.label}`,
           ),
@@ -290,44 +309,46 @@ export function columnReportData(
         `Es = ${f(input.es, 0)} MPa; cover = ${f(input.cover, 0)} mm`,
       ],
     ]),
-    withoutStorey(section("Section And Reinforcement", [
-      [
-        "Section",
-        `${input.width} x ${input.depth} mm; Ag = ${f(result.grossArea, 0)} mm²`,
-      ],
-      ...(storey
-        ? [
-            [
-              "Storey Geometry",
-              storey.luOverrideX !== null || storey.luOverrideY !== null
-                ? { text: storeyLine, color: OVERRIDE_COLOR }
-                : storeyLine,
-            ] as (string | Cell)[],
-          ]
-        : []),
-      [
-        "Longitudinal Bars",
-        [...barGroups]
-          .map(([d, n]) => `${n}-${rebarDesignation(std, d)}`)
-          .join("; ") + `; As = ${f(result.steelArea, 0)} mm²`,
-      ],
-      t && tieDesign
-        ? [
-            "Ties (Design)",
-            {
-              text: `${rebarDesignation(std, tieDesign.tie.diameter)} ${rebarGradeLabel(std, tieDesign.tie.fyt, tieDesign.tie.gradeId)} hoop + cross-ties, ${t.layout.legsX} x ${t.layout.legsY} legs${t.midSeparate ? ` in lo, ${t.layoutMid.legsX} x ${t.layoutMid.legsY} outside lo` : ""}; ${t.seismic ? `lo ${t.adopted.lo} mm${ov("lo")} @ ${t.adopted.sEnd}${ov("sEnd")}; outside lo @ ${t.adopted.sMid} mm${ov("sMid")}` : `@ ${t.adopted.sMid} mm${ov("sMid")}`}`,
-              ...(anyOverride ? { color: OVERRIDE_COLOR } : {}),
-            },
-          ]
-        : [
-            "Ties",
-            `${rebarDesignation(std, input.tieDiameter)}; estimating spacing ${quantity.enabled ? quantity.zones.map((z) => z.name + ": " + z.spacing + " mm").join("; ") : "Not Defined In Design Inputs"}`,
-          ],
-      [
-        "Steel Ratio",
-        `rho = ${f(result.steelRatio * 100)}%; ${result.steelRatio >= 0.01 && result.steelRatio <= 0.08 ? "Within General 1–8% Range" : "Outside General 1–8% Range — Review Required"}`,
-      ],
-    ])),
+    withoutStorey(
+      section("Section And Reinforcement", [
+        [
+          "Section",
+          `${input.width} x ${input.depth} mm; Ag = ${f(result.grossArea, 0)} mm²`,
+        ],
+        ...(storey
+          ? [
+              [
+                "Storey Geometry",
+                storey.luOverrideX !== null || storey.luOverrideY !== null
+                  ? { text: storeyLine, color: OVERRIDE_COLOR }
+                  : storeyLine,
+              ] as (string | Cell)[],
+            ]
+          : []),
+        [
+          "Longitudinal Bars",
+          [...barGroups]
+            .map(([d, n]) => `${n}-${rebarDesignation(std, d)}`)
+            .join("; ") + `; As = ${f(result.steelArea, 0)} mm²`,
+        ],
+        t && tieDesign
+          ? [
+              "Ties (Design)",
+              {
+                text: `${rebarDesignation(std, tieDesign.tie.diameter)} ${rebarGradeLabel(std, tieDesign.tie.fyt, tieDesign.tie.gradeId)} hoop + cross-ties, ${t.layout.legsX} x ${t.layout.legsY} legs${t.midSeparate ? ` in lo, ${t.layoutMid.legsX} x ${t.layoutMid.legsY} outside lo` : ""}; ${t.seismic ? `lo ${t.adopted.lo} mm${ov("lo")} @ ${t.adopted.sEnd}${ov("sEnd")}; outside lo @ ${t.adopted.sMid} mm${ov("sMid")}` : `@ ${t.adopted.sMid} mm${ov("sMid")}`}`,
+                ...(anyOverride ? { color: OVERRIDE_COLOR } : {}),
+              },
+            ]
+          : [
+              "Ties",
+              `${rebarDesignation(std, input.tieDiameter)}; estimating spacing ${quantity.enabled ? quantity.zones.map((z) => z.name + ": " + z.spacing + " mm").join("; ") : "Not Defined In Design Inputs"}`,
+            ],
+        [
+          "Steel Ratio",
+          `rho = ${f(result.steelRatio * 100)}%; ${result.steelRatio >= 0.01 && result.steelRatio <= 0.08 ? "Within General 1–8% Range" : "Outside General 1–8% Range — Review Required"}`,
+        ],
+      ]),
+    ),
     section("Governing Loads And Design", [
       ["Combination", g?.load.id ?? "None"],
       [
@@ -654,7 +675,9 @@ export function columnReportData(
       ...(t && tieDesign
         ? [
             columnTieElevationFigure(
-              t.seismic ? t.clearHeight || tieDesign.confinement.clearHeight : 3000,
+              t.seismic
+                ? t.clearHeight || tieDesign.confinement.clearHeight
+                : 3000,
               t,
               project?.reportSettings?.style,
               overridden,
@@ -714,13 +737,31 @@ export function columnReportData(
             section(
               "Storey Geometry (ACI 318-19 6.2.4, 18.7.5.1, 18.7.6.1.1, 18.8.3)",
               [
-                ["Floor-to-floor height H (top of slab to top of slab)", `${f(storey.height, 0)} mm`],
-                ["Beam along X / along Y (depth)", `${f(storey.beamX, 0)} / ${f(storey.beamY, 0)} mm`],
-                ["Capital / drop / haunch; bottom deduction", `${f(storey.capital ?? 0, 0)} / ${f(storey.bottom ?? 0, 0)} mm`],
-                ["ℓu,x (Mux) = H − beam ∥Y − capital − bottom", `${f(sh.derivedX, 0)} mm${storey.luOverrideX !== null ? `; override ${f(storey.luOverrideX, 0)} mm` : ""}`],
-                ["ℓu,y (Muy) = H − beam ∥X − capital − bottom", `${f(sh.derivedY, 0)} mm${storey.luOverrideY !== null ? `; override ${f(storey.luOverrideY, 0)} mm` : ""}`],
+                [
+                  "Floor-to-floor height H (top of slab to top of slab)",
+                  `${f(storey.height, 0)} mm`,
+                ],
+                [
+                  "Beam along X / along Y (depth)",
+                  `${f(storey.beamX, 0)} / ${f(storey.beamY, 0)} mm`,
+                ],
+                [
+                  "Capital / drop / haunch; bottom deduction",
+                  `${f(storey.capital ?? 0, 0)} / ${f(storey.bottom ?? 0, 0)} mm`,
+                ],
+                [
+                  "ℓu,x (Mux) = H − beam ∥Y − capital − bottom",
+                  `${f(sh.derivedX, 0)} mm${storey.luOverrideX !== null ? `; override ${f(storey.luOverrideX, 0)} mm` : ""}`,
+                ],
+                [
+                  "ℓu,y (Muy) = H − beam ∥X − capital − bottom",
+                  `${f(sh.derivedY, 0)} mm${storey.luOverrideY !== null ? `; override ${f(storey.luOverrideY, 0)} mm` : ""}`,
+                ],
                 ["Clear height for lo (larger ℓu)", `${f(sh.loClear, 0)} mm`],
-                ["Joint depth (deeper beam) / estimate clear height", `${f(sh.joint, 0)} / ${f(storey.height - sh.joint, 0)} mm`],
+                [
+                  "Joint depth (deeper beam) / estimate clear height",
+                  `${f(sh.joint, 0)} / ${f(storey.height - sh.joint, 0)} mm`,
+                ],
               ],
               ["Item", "Value"],
             ),
@@ -770,7 +811,9 @@ export function columnReportData(
     limitations: [
       // Concrete strength notes (decisions F5–F11), SMF minimum when confined.
       ...concreteStrengthNotes(input.fc, {
-        smf: !!tieDesign?.confinement.enabled && tieDesign.confinement.frame === "SMF",
+        smf:
+          !!tieDesign?.confinement.enabled &&
+          tieDesign.confinement.frame === "SMF",
       }).map((n) => n.text),
       ...result.warnings,
       ...(t
@@ -1183,7 +1226,7 @@ export function slabReportData(
     ],
     checks: checkTable(checks, policy, remarks),
     sections: equations,
-    references: refSlab,
+    references: refSlab(input.otherCodes),
     criticalNotes: r.detailing.messages,
     limitations: [
       ...r.warnings,

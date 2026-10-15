@@ -1,16 +1,21 @@
 "use client";
 /**
- * Panel 01 blocks (user decision sheet, 14 Oct 2026): Primary Design Code,
- * Other Codes (documentation only). Concrete f′c: concrete-strength-fields.tsx.
+ * Panel 01 blocks shared by Column and Slab (decision sheets 14–15 Oct 2026):
+ * Primary Design Code, Other Codes (documentation only). Concrete f′c:
+ * concrete-strength-fields.tsx.
  */
-import type { RectangularColumnInput } from "@nola/calc-core";
+type DesignCode = "ACI 318-19" | "NSCP 2015";
+type CodeInput = { code: DesignCode; otherCodes?: string };
 
-export function DesignCodeFields({
+export function DesignCodeFields<T extends CodeInput>({
   input,
   onChange,
+  engine = "section-strength",
 }: {
-  input: RectangularColumnInput;
-  onChange: (next: RectangularColumnInput) => void;
+  input: T;
+  onChange: (next: T) => void;
+  /** Wording of the NSCP note ("section-strength" column, "slab" slab). */
+  engine?: "section-strength" | "slab";
 }) {
   return (
     <div className="rcCodeBlock">
@@ -21,7 +26,7 @@ export function DesignCodeFields({
           onChange={(e) =>
             onChange({
               ...input,
-              code: e.target.value as RectangularColumnInput["code"],
+              code: e.target.value as DesignCode,
             })
           }
         >
@@ -36,8 +41,9 @@ export function DesignCodeFields({
       {input.code === "NSCP 2015" && (
         <p className="rcAlert">
           Project standard: NSCP 2015. Calculation basis: ACI 318-19. This
-          option uses the same ACI section-strength engine; it does not confirm
-          compliance with every NSCP 2015 provision.
+          option uses the same ACI{" "}
+          {engine === "slab" ? "slab design" : "section-strength"} engine; it
+          does not confirm compliance with every NSCP 2015 provision.
         </p>
       )}
       <label>

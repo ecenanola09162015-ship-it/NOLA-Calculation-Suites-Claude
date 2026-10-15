@@ -3582,3 +3582,49 @@ input.rcDerived {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Slab panel 01 in the column format (15 Oct 2026): code block, subheadings,
+   3-across dimension rows; f′c block uses the slab's 12 px input style. */
+.slabPanel h3.rcSubhead {
+  margin: 16px 0 8px;
+  font-size: 13px;
+  color: #087987;
+}
+.slabPanel .rcCodeBlock > label {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+}
+.slabPanel .rcCodeBlock select,
+.slabPanel .rcCodeBlock input {
+  width: 100%;
+  box-sizing: border-box;
+}
+.slabFieldGrid.slabDimRow {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.slabDimRow + .slabDimRow {
+  margin-top: 10px;
+}
+@media (max-width: 560px) {
+  .slabFieldGrid.slabDimRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.slabFieldGrid > .fcPair > label {
+  font-size: 12px;
+  font-weight: inherit;
+}
+.slabFieldGrid > .fcPair > label .rcUnit {
+  font-size: 11px;
+  font-weight: normal;
+  color: #617c8c;
+}
+.slabFieldGrid > .fcPair select,
+.slabFieldGrid > .fcPair input {
+  max-width: 220px;
+  font-size: inherit;
+}
+.slabRebarRow .overrideBadge {
+  margin: 4px 0 0;
+}

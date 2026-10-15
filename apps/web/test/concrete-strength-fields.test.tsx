@@ -167,3 +167,48 @@ describe("report (F11): same f′c line; notes in Assumptions / Limitations", ()
     expect(s.limitations.join(" ")).toContain("ACI 363R");
   });
 });
+
+describe("slab panel 01 in the column format (15 Oct 2026)", () => {
+  const slab = () => renderToStaticMarkup(<SlabWorkspace cloudReady={false} onSaved={() => {}} />);
+  it("title, code block, subheadings and field order", () => {
+    const html = slab();
+    const panel = html.slice(html.indexOf("01 · Slab Geometry"), html.indexOf("Extra-Bar Cutoff"));
+    const order = [
+      "01 · Slab Geometry &amp; Materials",
+      "Primary Design Code",
+      "NSCP 2015 project — ACI 318-19 calculation basis",
+      "Other Codes*",
+      "Documentation only",
+      "Slab Dimensions",
+      "Span X",
+      "Span Y",
+      "Slab Thickness",
+      "Top Clear Cover",
+      "Bottom Clear Cover",
+      "Side Clear Cover",
+      "Concrete Strength",
+      "Concrete f′c",
+      "Rebar Information",
+      "Rebar standard",
+      "Steel Es",
+      "Steel grade (fy)",
+      "Supports &amp; Bounding Beams",
+      "WEST support",
+    ].map((t) => panel.indexOf(t));
+    expect(order.every((i) => i > -1), JSON.stringify(order)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    // One place for the code: not in the toolbar; Es not duplicated in Detailing.
+    expect(html).not.toContain("Project code");
+    expect(html.match(/Steel Es/g)?.length).toBe(1);
+    expect(panel).not.toContain("Override · ACI 20.2.2.2");
+  });
+  it("Other Codes saved with the slab and printed in Code References only", () => {
+    const si = { ...defaultSlabInput(), otherCodes: "NSCP 2015; ASCE 7-16" };
+    expect(slabInputSchema.parse(si).otherCodes).toBe("NSCP 2015; ASCE 7-16");
+    const s = slabReportData(undefined, "S1", si, analyzeSlab(si), { ...defaultSlabQuantity(), enabled: false }, defaultDesignCheckPolicy, {});
+    expect(s.references.rows[0]!.join(" | ")).toBe("Other Codes (Reference Only) | NSCP 2015; ASCE 7-16");
+    expect(JSON.stringify(s.summary)).not.toContain("ASCE 7-16");
+    const plain = slabReportData(undefined, "S1", defaultSlabInput(), analyzeSlab(defaultSlabInput()), { ...defaultSlabQuantity(), enabled: false }, defaultDesignCheckPolicy, {});
+    expect(plain.references.rows.some((r) => String(r[0]).startsWith("Other Codes"))).toBe(false);
+  });
+});

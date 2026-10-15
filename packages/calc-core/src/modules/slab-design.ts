@@ -228,6 +228,8 @@ const barsSchema = z.object({
 export const slabInputSchema = z
   .object({
     code: z.enum(["ACI 318-19", "NSCP 2015"]),
+    /** Other codes, documentation only (no effect on the calculation). */
+    otherCodes: z.string().max(300).optional(),
     lx: z.number().min(0.5).max(30),
     ly: z.number().min(0.5).max(30),
     h: z.number().min(70).max(1000),
