@@ -145,3 +145,23 @@ export const uiCatalogue = [
   },
 ] as const;
 export type UiModule = (typeof uiCatalogue)[number];
+
+/**
+ * Trade → sub-level structure shared by the launcher catalogue and the project
+ * explorer. Keep this system: Structural (Concrete, Loads, Steel) and
+ * Geotechnical (Foundation & soil). `group` is the UiModule.group key.
+ */
+export const uiTrades = [
+  {
+    trade: "Structural",
+    subs: [
+      { group: "Concrete", label: "Concrete" },
+      { group: "LOADS", label: "Loads" },
+      { group: "Steel", label: "Steel" },
+    ],
+  },
+  {
+    trade: "Geotechnical",
+    subs: [{ group: "Geotechnical", label: "Foundation & soil" }],
+  },
+] as const;

@@ -449,6 +449,57 @@ export async function saveCalculationDraft(
   };
 }
 
+/**
+ * Rename a calculation the owner holds. Same uniqueness rule as save: titles
+ * are unique per project and module (case and extra spaces ignored).
+ */
+export async function renameCalculationDraft(
+  ownerId: string,
+  id: string,
+  title: string,
+): Promise<CalculationDraftRecord> {
+  await ensureSchema();
+  const db = getDb();
+  const found = await db.execute(sql`
+    select project_id, module_slug from nola_calculation_drafts
+    where id = ${id}::uuid and owner_id = ${ownerId}
+    limit 1
+  `);
+  const own = found.rows[0];
+  if (!own) throw new Error("Calculation not found for this account.");
+  const projectId = String(own.project_id);
+  const moduleSlug = String(own.module_slug);
+  const conflict = await draftTitleConflict(ownerId, projectId, moduleSlug, title, id);
+  if (conflict) throw conflict;
+  const result = await db
+    .execute(
+      sql`
+    update nola_calculation_drafts set title = ${title}, updated_at = now()
+    where id = ${id}::uuid and owner_id = ${ownerId}
+    returning id, project_id, module_slug, title, payload, verification_status, updated_at
+  `,
+    )
+    .catch(async (e) => {
+      if (isUniqueViolation(e))
+        throw (await draftTitleConflict(ownerId, projectId, moduleSlug, title, id)) ?? e;
+      throw e;
+    });
+  const row = result.rows[0];
+  if (!row) throw new Error("Calculation not found for this account.");
+  return {
+    id: String(row.id),
+    projectId: String(row.project_id),
+    moduleSlug: String(row.module_slug),
+    title: String(row.title),
+    payload: row.payload,
+    verificationStatus:
+      row.verification_status === "verification-required"
+        ? "verification-required"
+        : "interface-only",
+    updatedAt: new Date(String(row.updated_at)).toISOString(),
+  };
+}
+
 export async function listCalculationDrafts(
   ownerId: string,
 ): Promise<CalculationDraftRecord[]> {

@@ -3628,3 +3628,653 @@ input.rcDerived {
 .slabRebarRow .overrideBadge {
   margin: 4px 0 0;
 }
+
+/* Launcher themes (UI chat, claude/ui-launcher-themes).
+   Themed: top bar, project explorer and the launcher home view only.
+   Calculation workspaces (data-view="workspace") keep their own styling. */
+.suiteApp[data-theme="blueprint"] {
+  --lt-font: var(--font-archivo), system-ui, sans-serif;
+  --lt-head-font: var(--font-archivo), system-ui, sans-serif;
+  --lt-head-stretch: 118%;
+  --lt-top: #0e2133;
+  --lt-top-ink: #e8f1f8;
+  --lt-top-line: #22394f;
+  --lt-side: #f7f9fb;
+  --lt-ink: #13202e;
+  --lt-muted: #566577;
+  --lt-line: #d6dee6;
+  --lt-bg: #f1f4f7;
+  --lt-panel: #f7f9fb;
+  --lt-card: #ffffff;
+  --lt-card-line: #dce3ea;
+  --lt-accent: #0e8ba6;
+  --lt-accent-ink: #ffffff;
+  --lt-accent-soft: #e0f4f8;
+  --lt-accent-text: #0b6f85;
+  --lt-hero: linear-gradient(135deg, #0e2133 0%, #163452 100%);
+  --lt-hero-ink: #f2f7fb;
+  --lt-hero-muted: #a9bdce;
+  --lt-badge: #ecf0f4;
+  --lt-badge-ink: #566577;
+  --lt-pilot-bg: #dff3ea;
+  --lt-pilot-ink: #167a55;
+  --lt-switch-on: rgba(255, 255, 255, 0.14);
+}
+.suiteApp[data-theme="concrete"] {
+  --lt-font: var(--font-sora), system-ui, sans-serif;
+  --lt-head-font: var(--font-sora), system-ui, sans-serif;
+  --lt-head-stretch: 100%;
+  --lt-top: #ffffff;
+  --lt-top-ink: #1a2028;
+  --lt-top-line: #d8dee4;
+  --lt-side: #f6f7f9;
+  --lt-ink: #1a2028;
+  --lt-muted: #5d6774;
+  --lt-line: #d8dee4;
+  --lt-bg: #eceff2;
+  --lt-panel: #f6f7f9;
+  --lt-card: #ffffff;
+  --lt-card-line: #dee3e8;
+  --lt-accent: #5a43df;
+  --lt-accent-ink: #ffffff;
+  --lt-accent-soft: #ece9ff;
+  --lt-accent-text: #4a35c8;
+  --lt-hero: linear-gradient(180deg, #ffffff 0%, #f4f2ff 100%);
+  --lt-hero-ink: #1a2028;
+  --lt-hero-muted: #5d6774;
+  --lt-badge: #eef1f4;
+  --lt-badge-ink: #5d6774;
+  --lt-pilot-bg: #e1f4ea;
+  --lt-pilot-ink: #1f8a5b;
+  --lt-switch-on: #eef0f6;
+}
+.suiteApp[data-theme="night"] {
+  --lt-font: var(--font-manrope), system-ui, sans-serif;
+  --lt-head-font: var(--font-manrope), system-ui, sans-serif;
+  --lt-head-stretch: 100%;
+  --lt-top: #0d1217;
+  --lt-top-ink: #e8edf2;
+  --lt-top-line: #222c36;
+  --lt-side: #141b22;
+  --lt-ink: #e8edf2;
+  --lt-muted: #95a2af;
+  --lt-line: #26303a;
+  --lt-bg: #11161c;
+  --lt-panel: #141b22;
+  --lt-card: #182029;
+  --lt-card-line: #26303a;
+  --lt-accent: #f2a33a;
+  --lt-accent-ink: #1a1206;
+  --lt-accent-soft: #2d2414;
+  --lt-accent-text: #f7be6e;
+  --lt-hero: radial-gradient(120% 140% at 85% 30%, #1e2d3c 0%, #141b22 60%);
+  --lt-hero-ink: #f1f5f8;
+  --lt-hero-muted: #a3b0bc;
+  --lt-badge: #202932;
+  --lt-badge-ink: #95a2af;
+  --lt-pilot-bg: #173327;
+  --lt-pilot-ink: #5fd49c;
+  --lt-switch-on: rgba(255, 255, 255, 0.12);
+}
+
+/* Top bar */
+.suiteApp[data-theme] .suiteTopbar {
+  background: var(--lt-top);
+  color: var(--lt-top-ink);
+  border-bottom: 1px solid var(--lt-top-line);
+  font-family: var(--lt-font);
+}
+.suiteApp[data-theme] .suiteTopbar .brandMark small {
+  color: inherit;
+  opacity: 0.75;
+}
+.suiteApp[data-theme] .suiteTopbar nav button {
+  color: inherit;
+}
+.suiteApp[data-theme] .suiteTopbar nav .active {
+  background: var(--lt-accent);
+  color: var(--lt-accent-ink);
+}
+.themeSwitch {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 11px;
+  border: 1px solid var(--lt-top-line);
+  margin-left: auto;
+}
+.themeSwitch button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-size: 12.5px;
+  opacity: 0.75;
+}
+.themeSwitch button[aria-pressed="true"] {
+  background: var(--lt-switch-on);
+  opacity: 1;
+  font-weight: 700;
+}
+.themeSwitch button:focus-visible {
+  outline: 2px solid var(--lt-accent);
+  outline-offset: 1px;
+}
+.themeSwitch i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+@media (max-width: 1100px) {
+  .themeSwitch span {
+    display: none;
+  }
+}
+
+/* Project explorer */
+.suiteApp[data-theme] .suiteExplorer {
+  background: var(--lt-side);
+  border-color: var(--lt-line);
+  font-family: var(--lt-font);
+}
+.suiteApp[data-theme] .suiteExplorer .suitePrimary {
+  background: var(--lt-accent);
+  color: var(--lt-accent-ink);
+}
+.suiteApp[data-theme] .exProject.selected > .exProjectRow,
+.suiteApp[data-theme] .exCalc.selected {
+  background: var(--lt-accent-soft);
+}
+.suiteApp[data-theme] .exCalc.selected .exCalcOpen,
+.suiteApp[data-theme] .exNewCalc {
+  color: var(--lt-accent-text);
+}
+.suiteApp[data-theme="night"] .exHead h2,
+.suiteApp[data-theme="night"] .exTwisty,
+.suiteApp[data-theme="night"] .exProjectName,
+.suiteApp[data-theme="night"] .exLink,
+.suiteApp[data-theme="night"] .exCalcOpen,
+.suiteApp[data-theme="night"] .exMore,
+.suiteApp[data-theme="night"] .exProjectBody details summary {
+  color: #dfe6ec;
+}
+.suiteApp[data-theme="night"] .exProjectName small,
+.suiteApp[data-theme="night"] .suiteEmpty {
+  color: #95a2af;
+}
+.suiteApp[data-theme="night"] .exCount {
+  background: #26303a;
+  color: #c3ccd6;
+}
+.suiteApp[data-theme="night"] .exCalc:hover {
+  background: #1f2832;
+}
+.suiteApp[data-theme="night"] .exNewCalc {
+  border-color: #3a4652;
+}
+.suiteApp[data-theme="night"] .suiteSearch input {
+  background: #182029;
+  color: #e8edf2;
+  border-color: #2a3440;
+}
+.suiteApp[data-theme="night"] .suiteFooter {
+  background: #0d1217;
+  color: #95a2af;
+  border-color: #222c36;
+}
+
+/* Launcher home view */
+.suiteApp[data-view="home"] {
+  background: var(--lt-bg);
+}
+.suiteApp[data-view="home"] .suiteMain {
+  font-family: var(--lt-font);
+  color: var(--lt-ink);
+}
+.suiteApp[data-theme] .suiteNotice {
+  color: #4f3a0b;
+}
+.lxHero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  align-items: center;
+  min-height: 280px;
+  margin-bottom: 18px;
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--lt-hero);
+  color: var(--lt-hero-ink);
+  border: 1px solid var(--lt-line);
+}
+.lxHeroText {
+  padding: 30px 0 30px 34px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.lxMeta {
+  margin: 0;
+  font-size: 13px;
+  color: var(--lt-hero-muted);
+}
+.lxHero h1 {
+  margin: 0;
+  max-width: 15ch;
+  font-family: var(--lt-head-font);
+  font-stretch: var(--lt-head-stretch);
+  font-weight: 800;
+  font-size: clamp(28px, 3vw, 40px);
+  line-height: 1.08;
+  letter-spacing: -0.01em;
+}
+.lxLead {
+  margin: 0;
+  max-width: 46ch;
+  line-height: 1.55;
+  color: var(--lt-hero-muted);
+}
+.lxQuick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+.lxQuick button {
+  height: 42px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--lt-accent);
+  color: var(--lt-accent-ink);
+  font-weight: 700;
+}
+.lxQuick button:focus-visible,
+.lxRecent button:focus-visible {
+  outline: 3px solid var(--lt-accent);
+  outline-offset: 2px;
+}
+.lxArt img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+@media (max-width: 900px) {
+  .lxHero {
+    grid-template-columns: 1fr;
+  }
+  .lxHeroText {
+    padding: 24px 20px 0;
+  }
+}
+.lxContinue h2 {
+  margin: 0 0 10px;
+  font-family: var(--lt-head-font);
+  font-stretch: var(--lt-head-stretch);
+  font-size: 17px;
+}
+.lxRecent {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.lxRecent button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  text-align: left;
+  border-radius: 12px;
+  background: var(--lt-card);
+  border: 1px solid var(--lt-card-line);
+  color: var(--lt-ink);
+}
+.lxRecent b {
+  display: block;
+  font-size: 14px;
+}
+.lxRecent small {
+  color: var(--lt-muted);
+}
+
+/* Trade headings: STRUCTURAL (blue bands) and GEOTECHNICAL (brown hexagons) */
+.suiteApp[data-theme] .suiteTrade {
+  background: var(--lt-panel);
+  border-color: var(--lt-line);
+  border-radius: 16px;
+}
+.suiteTrade > h2.tradeHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 112px;
+  margin: 0;
+  padding: 0 26px;
+  background-color: #10324d;
+  background-size: cover;
+  background-position: left center;
+  color: #ffffff;
+  font-family: var(--font-archivo), system-ui, sans-serif;
+  font-weight: 900;
+  font-stretch: 125%;
+  font-size: clamp(30px, 4.4vw, 54px);
+  letter-spacing: 0.03em;
+  line-height: 1;
+  text-transform: uppercase;
+  text-shadow:
+    0 2px 0 rgba(0, 0, 0, 0.25),
+    0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.tradeStructural > h2.tradeHeading {
+  background-image:
+    linear-gradient(90deg, rgba(6, 24, 40, 0.35), rgba(6, 24, 40, 0) 45%),
+    url("/launcher/band-structural.jpg");
+}
+.tradeGeotechnical > h2.tradeHeading {
+  background-color: #2a1a0c;
+  background-image:
+    linear-gradient(90deg, rgba(20, 10, 2, 0.25), rgba(20, 10, 2, 0) 45%),
+    url("/launcher/band-geotechnical.jpg");
+}
+.tradeHeading small {
+  flex-shrink: 0;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.28);
+  font-family: var(--font-archivo), system-ui, sans-serif;
+  font-stretch: 100%;
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+@media (max-width: 760px) {
+  .tradeHeading small {
+    display: none;
+  }
+}
+.suiteApp[data-theme] .suiteGroup h3,
+.suiteApp[data-theme] .geotechnical > h3 {
+  background: var(--lt-card);
+  border: 1px solid var(--lt-card-line);
+  border-left: 4px solid #1e6fa8;
+  color: var(--lt-ink);
+}
+.suiteApp[data-theme] .geotechnical > h3 {
+  border-left-color: #a8661a;
+}
+.suiteApp[data-theme] .suiteModule {
+  background: var(--lt-card);
+  border-color: var(--lt-card-line);
+  color: var(--lt-ink);
+}
+.tradeStructural .suiteModule:has(.isPilot) {
+  border-color: #1e6fa8;
+  box-shadow: inset 0 0 0 1px #1e6fa8;
+}
+.tradeGeotechnical .suiteModule:has(.isPilot) {
+  border-color: #a8661a;
+  box-shadow: inset 0 0 0 1px #a8661a;
+}
+.suiteApp[data-theme] .suiteBadge {
+  background: var(--lt-badge);
+  color: var(--lt-badge-ink);
+}
+.suiteApp[data-theme] .suiteBadge.isPilot {
+  background: var(--lt-pilot-bg);
+  color: var(--lt-pilot-ink);
+}
+@media (min-width: 1001px) {
+  .suiteModule img {
+    width: 112px;
+    height: 112px;
+  }
+}
+
+/* Project explorer (UI chat, claude/ui-project-explorer). Scoped to .ex* classes. */
+.exRoot {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.exHead h2 {
+  margin: 0;
+  font-size: 18px;
+  letter-spacing: 0;
+  color: #1c2a3a;
+}
+.exRoot .suiteSearch {
+  margin: 0;
+}
+.exProjects,
+.exProjects ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.exProject {
+  border-radius: 8px;
+}
+.exProject.selected > .exProjectRow {
+  background: #ddd4e2;
+}
+.exProjectRow {
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+}
+.exTwisty,
+.exProjectName,
+.exNewCalc,
+.exLink,
+.exCalcOpen,
+.exMore {
+  background: transparent;
+  border: 0;
+  color: #293b50;
+  font-size: 13px;
+  text-align: left;
+}
+.exTwisty {
+  width: 28px;
+  height: 36px;
+  flex: 0 0 28px;
+}
+.exProjectName {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 6px 8px 0;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+.exProjectName small {
+  display: block;
+  font-weight: 400;
+  color: #68788a;
+  font-size: 11px;
+}
+.exProjectBody {
+  padding: 4px 0 8px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.exNewCalc {
+  margin: 2px 0 4px;
+  padding: 8px 10px;
+  border: 1px dashed #a9b6c4;
+  border-radius: 7px;
+  font-weight: 700;
+  color: #613c60;
+}
+.exNewCalc:hover {
+  background: #f3eef5;
+}
+.exLink {
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+.exProjectBody details summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #34465b;
+}
+.exProjectBody details summary::-webkit-details-marker {
+  display: none;
+}
+.exProjectBody details summary::before {
+  content: "▸";
+  display: inline-block;
+  width: 14px;
+  color: #7a8a9b;
+}
+.exProjectBody details[open] > summary::before {
+  content: "▾";
+}
+.exTrade > summary {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 11.5px;
+}
+.exSub,
+.exModule {
+  margin-left: 12px;
+}
+.exModule > summary {
+  font-weight: 600;
+}
+.exCount {
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #5a6676;
+  background: #dde6ee;
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+.exCalc {
+  display: flex;
+  align-items: center;
+  margin-left: 14px;
+  border-radius: 6px;
+}
+.exCalc:hover {
+  background: #e2e9ef;
+}
+.exCalc.selected {
+  background: #ddd4e2;
+}
+.exCalc.selected .exCalcOpen {
+  color: #613c60;
+  font-weight: 700;
+}
+.exCalcOpen {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 8px;
+  overflow-wrap: anywhere;
+}
+.exMore {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border-radius: 6px;
+  opacity: 0.55;
+}
+.exCalc:hover .exMore,
+.exMore:focus-visible {
+  opacity: 1;
+}
+.exTwisty:focus-visible,
+.exProjectName:focus-visible,
+.exCalcOpen:focus-visible,
+.exMore:focus-visible,
+.exNewCalc:focus-visible,
+.exLink:focus-visible {
+  outline: 3px solid #805277;
+  outline-offset: 1px;
+}
+.exCalc.isEditing {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 4px 4px 6px;
+  background: #fff;
+  border: 1px solid #c7d3de;
+}
+.exRename {
+  width: 100%;
+  border: 1px solid #805277;
+  border-radius: 6px;
+  padding: 7px 8px;
+  font-size: 13px;
+}
+.exError {
+  margin: 0;
+  font-size: 12px;
+  color: #a1323d;
+}
+.exError button {
+  display: block;
+  margin-top: 4px;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: #613c60;
+  font-weight: 700;
+  text-decoration: underline;
+}
+.exConfirm p {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: #5a4a12;
+}
+.exConfirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.exConfirm p {
+  flex-basis: 100%;
+}
+.exConfirm button {
+  padding: 7px 10px;
+  font-size: 12px;
+}
+.exMenu {
+  position: fixed;
+  z-index: 80;
+  min-width: 150px;
+  padding: 4px;
+  background: #fff;
+  border: 1px solid #d3dbe3;
+  border-radius: 8px;
+  box-shadow: 0 10px 28px #1b283a2e;
+}
+.exMenu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.exMenu button:hover,
+.exMenu button:focus-visible {
+  background: #eef2f6;
+  outline: none;
+}
