@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState, type ReactNode } from "react";
+import { Fragment, useRef, useState, type ReactNode } from "react";
 import Image from "next/image";
 import dynamic from "next/dynamic";
 const RectangularColumnWorkspace = dynamic(
@@ -15,6 +15,8 @@ const SlabWorkspace = dynamic(
 );
 import { ProjectContext, ProjectEditor } from "./project-context";
 import { ProjectExplorer, type RenameResult } from "./project-explorer";
+import { ThemeSwitcher, useLauncherTheme } from "./launcher-theme";
+import { LauncherHero } from "./launcher-hero";
 import { BrandMark } from "./brand-mark";
 import {
   createProjectAction,
@@ -24,7 +26,7 @@ import {
   type DuplicateInfo,
 } from "@/app/actions";
 import type { ProjectRecord, CalculationDraftRecord } from "@/lib/projects";
-import { uiCatalogue, type UiModule } from "@/lib/ui-catalogue";
+import { uiCatalogue, uiTrades, type UiModule } from "@/lib/ui-catalogue";
 const projectFields = [
   ["name", "Project Name"],
   ["buildingName", "Building Name"],
@@ -46,6 +48,7 @@ export function SuiteWorkspace({
   cloudReady: boolean;
   account: ReactNode;
 }) {
+  const [theme, setTheme] = useLauncherTheme();
   const [projects, setProjects] = useState(initialProjects);
   const [drafts, setDrafts] = useState(initialDrafts);
   const [projectId, setProjectId] = useState(initialProjects[0]?.id ?? "");
@@ -68,6 +71,11 @@ export function SuiteWorkspace({
   const newProjectForm = useRef<HTMLFormElement>(null);
   const project = projects.find((item) => item.id === projectId);
   const selectedDraft = drafts.find((item) => item.id === draftId);
+  const recent = drafts
+    .filter((d) => !projectId || d.projectId === projectId)
+    .slice()
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, 3);
   function selectProject(id: string) {
     setProjectId(id);
     setModule(null);
@@ -224,7 +232,11 @@ export function SuiteWorkspace({
     );
   }
   return (
-    <main className="suiteApp">
+    <main
+      className="suiteApp"
+      data-theme={theme}
+      data-view={module ? "workspace" : "home"}
+    >
       <header className="suiteTopbar">
         <BrandMark />
         <nav aria-label="Main navigation">
@@ -246,6 +258,7 @@ export function SuiteWorkspace({
             Calculation modules
           </button>
         </nav>
+        <ThemeSwitcher value={theme} onChange={setTheme} />
         {account}
       </header>
       <div className="suiteBody">
@@ -297,33 +310,35 @@ export function SuiteWorkspace({
           />
         </aside>
         <section className="suiteMain">
-          <ProjectContext
-            project={project}
-            moduleName={module?.name ?? "Calculation Modules"}
-            onEdit={() => {
-              if (project) {
-                setNewProject(false);
-                setMessage("");
-                setEditingProject(project);
-              }
-            }}
-          />
+          {module ? (
+            <ProjectContext
+              project={project}
+              moduleName={module?.name ?? "Calculation Modules"}
+              onEdit={() => {
+                if (project) {
+                  setNewProject(false);
+                  setMessage("");
+                  setEditingProject(project);
+                }
+              }}
+            />
+          ) : null}
           <button
             className="suiteSecondary mobileOnly"
             onClick={() => setExplorer(true)}
           >
             ☰ Project explorer
           </button>
-          <div className="suiteHeading">
-            <div>
-              <h1>{module?.name ?? "Calculation modules"}</h1>
-              <p>
-                {project
-                  ? `${project.buildingName || "Building name not set"} · ${project.location}`
-                  : "Interface preview · Pilot and future modules"}
-              </p>
-            </div>
-            {module && (
+          {module ? (
+            <div className="suiteHeading">
+              <div>
+                <h1>{module.name}</h1>
+                <p>
+                  {project
+                    ? `${project.buildingName || "Building name not set"} · ${project.location}`
+                    : "Interface preview · Pilot and future modules"}
+                </p>
+              </div>
               <button
                 className="suiteSecondary"
                 onClick={() => {
@@ -333,8 +348,19 @@ export function SuiteWorkspace({
               >
                 ← All modules
               </button>
-            )}
-          </div>
+            </div>
+          ) : (
+            <LauncherHero
+              theme={theme}
+              project={project}
+              quickOpen={uiCatalogue
+                .filter((m) => m.slug === "rc-column" || m.slug === "slab")
+                .map((m) => ({
+                  label: `Open ${m.name}`,
+                  onOpen: () => openModule(m),
+                }))}
+            />
+          )}
           <div className="suiteNotice">
             Development build — RC column and slab screening available;
             engineering review pending.
@@ -344,36 +370,86 @@ export function SuiteWorkspace({
           </p>
           {!module ? (
             <>
-              <section
-                aria-labelledby="structural-heading"
-                className="suiteTrade"
-              >
-                <h2 id="structural-heading">STRUCTURAL</h2>
-                <div className="suiteStructural">
-                  {["Concrete", "LOADS", "Steel"].map((group) => (
-                    <section key={group} className={`suiteGroup group${group}`}>
-                      <h3>{group}</h3>
-                      <div className="suiteCards">
-                        {uiCatalogue
-                          .filter((item) => item.group === group)
-                          .map(card)}
+              {recent.length ? (
+                <section className="lxContinue" aria-labelledby="lx-continue">
+                  <h2 id="lx-continue">Continue</h2>
+                  <div className="lxRecent">
+                    {recent.map((d) => {
+                      const m = uiCatalogue.find(
+                        (x) => x.slug === d.moduleSlug,
+                      );
+                      return (
+                        <button
+                          key={d.id}
+                          type="button"
+                          onClick={() => openDraft(d)}
+                        >
+                          <Image
+                            src={`/icons/${d.moduleSlug}.webp`}
+                            width={44}
+                            height={44}
+                            alt=""
+                          />
+                          <span>
+                            <b>{d.title}</b>
+                            <small>{m?.name ?? d.moduleSlug}</small>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : null}
+              {uiTrades.map(({ trade, subs }) => {
+                const id = `${trade.toLowerCase()}-heading`;
+                const count = subs
+                  .map(
+                    (sub) =>
+                      `${sub.label} ${uiCatalogue.filter((m) => m.group === sub.group).length}`,
+                  )
+                  .join(" · ");
+                const geo = trade === "Geotechnical";
+                return (
+                  <section
+                    key={trade}
+                    aria-labelledby={id}
+                    className={`suiteTrade trade${trade}${geo ? " geotechnical" : ""}`}
+                  >
+                    <h2 id={id} className="tradeHeading">
+                      <span>{trade}</span>
+                      <small>{count}</small>
+                    </h2>
+                    {geo ? (
+                      subs.map((sub) => (
+                        <Fragment key={sub.group}>
+                          <h3>{sub.label}</h3>
+                          <div className="suiteGeoCards">
+                            {uiCatalogue
+                              .filter((item) => item.group === sub.group)
+                              .map(card)}
+                          </div>
+                        </Fragment>
+                      ))
+                    ) : (
+                      <div className="suiteStructural">
+                        {subs.map((sub) => (
+                          <section
+                            key={sub.group}
+                            className={`suiteGroup group${sub.group}`}
+                          >
+                            <h3>{sub.label}</h3>
+                            <div className="suiteCards">
+                              {uiCatalogue
+                                .filter((item) => item.group === sub.group)
+                                .map(card)}
+                            </div>
+                          </section>
+                        ))}
                       </div>
-                    </section>
-                  ))}
-                </div>
-              </section>
-              <section
-                aria-labelledby="geotechnical-heading"
-                className="suiteTrade geotechnical"
-              >
-                <h2 id="geotechnical-heading">GEOTECHNICAL</h2>
-                <h3>Foundation & soil</h3>
-                <div className="suiteGeoCards">
-                  {uiCatalogue
-                    .filter((item) => item.group === "Geotechnical")
-                    .map(card)}
-                </div>
-              </section>
+                    )}
+                  </section>
+                );
+              })}
             </>
           ) : module.slug === "rc-column" ? (
             <RectangularColumnWorkspace
