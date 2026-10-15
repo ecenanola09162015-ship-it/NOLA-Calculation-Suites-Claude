@@ -2188,6 +2188,79 @@ select {
   text-transform: none;
   line-height: 1.5;
 }
+/* Only the layer name is capitalised ("300 mm", not "300 Mm"). */
+.slabRecommendation span,
+.slabRecommendation button {
+  text-transform: none;
+}
+/* Suggested Design: modes, adopt buttons, undo (slab only). */
+.slabSuggestModes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  margin: 12px 0 4px;
+  border: 1px solid #b9cdd4;
+  border-radius: 6px;
+  overflow: hidden;
+  width: fit-content;
+  max-width: 100%;
+}
+.slabSuggestModes button {
+  border: 0;
+  border-right: 1px solid #b9cdd4;
+  background: #fff;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  color: #263d4d;
+}
+.slabSuggestModes button:last-child {
+  border-right: 0;
+}
+.slabSuggestModes button.isActive {
+  background: #0e6f7a;
+  color: #fff;
+  font-weight: 600;
+}
+.slabMutedInline {
+  color: #7b8d97;
+}
+.slabUpsized {
+  font-style: normal;
+  font-size: 11px;
+  color: #8a3f0b;
+  background: #fde8d4;
+  border-radius: 4px;
+  padding: 0 5px;
+  text-transform: none;
+}
+.slabSuggestLayerButtons {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.slabSuggestLayerButtons button {
+  font-size: 11px;
+  padding: 3px 8px;
+  border: 1px solid #0e6f7a;
+  border-radius: 4px;
+  background: #fff;
+  color: #0e6f7a;
+  cursor: pointer;
+}
+.slabUpsizeConfirm {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  font-size: 12px;
+  margin: 10px 0 6px;
+}
+.slabAdoptButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
 .slabError {
   color: #a02d21;
   padding: 10px 14px;
