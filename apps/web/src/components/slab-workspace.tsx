@@ -72,6 +72,7 @@ import {
   type DraftDuplicate,
 } from "./duplicate-save-prompt";
 import { SlabQuantityPanel } from "./slab-quantity-panel";
+import { SlabSpacingSuggestions } from "./slab-spacing-suggestions";
 import { ConcreteStrengthFields } from "./concrete-strength-fields";
 import { DesignCodeFields } from "./column-materials-fields";
 /** ACI 318-19 20.2.2.2. */
@@ -195,6 +196,9 @@ export function SlabWorkspace({
   const [recommendations, setRecommendations] = useState<
     SlabResult["recommendations"]
   >([]);
+  // Adopted suggestions: inputs before each adopt (Undo) and the note.
+  const [adoptHistory, setAdoptHistory] = useState<SlabInput[]>([]),
+    [adoptedNote, setAdoptedNote] = useState("");
   const editVersion = useRef(0);
   // Point loads add a plate FE solve (~0.1–0.5 s): defer the analysis so
   // typing stays responsive; results follow the latest input when idle.
@@ -284,7 +288,26 @@ export function SlabWorkspace({
     setInput(next);
     setSaved(false);
     setRecommendations([]);
+    setAdoptHistory([]);
+    setAdoptedNote("");
     setMessage("");
+  }
+  /** Adopt keeps the suggestions on screen so main and extra can both be adopted. */
+  function adoptSuggestion(next: SlabInput, note: string) {
+    editVersion.current++;
+    setAdoptHistory((h) => [...h, input]);
+    setInput(next);
+    setSaved(false);
+    setAdoptedNote(note);
+  }
+  function undoAdopt() {
+    const previous = adoptHistory.at(-1);
+    if (!previous) return;
+    editVersion.current++;
+    setAdoptHistory((h) => h.slice(0, -1));
+    setInput(previous);
+    setSaved(false);
+    setAdoptedNote(adoptHistory.length > 1 ? "Last adopt undone." : "");
   }
   function change(key: keyof SlabInput, value: number) {
     update({ ...input, [key]: value });
@@ -1439,12 +1462,14 @@ export function SlabWorkspace({
               </dl>
               <h3>Suggested Design</h3>
               <p>
-                Largest practical main-bar spacing on a 25 mm grid, keeping the
-                entered diameter and extra bars.
+                Largest practical spacing on a 25 mm grid: main only, extra
+                only, or main + extra. Adopt writes the spacing into the bar
+                tables; Undo restores the previous spacings.
               </p>
-              <button
-                className="suiteSecondary"
-                onClick={() => {
+              <SlabSpacingSuggestions
+                input={input}
+                recommendations={recommendations}
+                onSuggest={() => {
                   try {
                     setRecommendations(
                       analyzeSlab(input, true).recommendations,
@@ -1457,22 +1482,11 @@ export function SlabWorkspace({
                     );
                   }
                 }}
-              >
-                Suggest spacing
-              </button>
-              {recommendations.map((rec) => (
-                <div className="slabRecommendation" key={rec.layer}>
-                  <strong>{layerLabel(rec.layer)}</strong>
-                  <span>
-                    Ø{rec.diameter} @ {rec.spacing ?? "—"} mm
-                  </span>
-                  <small>{rec.reason}</small>
-                </div>
-              ))}
-              <p className="slabMuted">
-                Your inputs remain unchanged. Recheck the full design after any
-                manual change.
-              </p>
+                onAdopt={adoptSuggestion}
+                onUndo={undoAdopt}
+                canUndo={adoptHistory.length > 0}
+                adoptedNote={adoptedNote}
+              />
             </>
           )}
         </aside>

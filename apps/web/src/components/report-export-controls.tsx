@@ -88,7 +88,7 @@ export function ReportExportControls({
   disabledReason?: string;
   /** Non-blocking notice, e.g. remarks still required. */
   hint?: string;
-  moduleName: "RC Column" | "Slab Design" | "Concrete Retaining Wall";
+  moduleName: "RC Column" | "Slab Design" | "Base Plate" | "Stairs" | "Concrete Retaining Wall";
   onData: () => Promise<ReportData>;
 }) {
   const [type, setType] = useState<"simple" | "complete">("simple"),
@@ -166,7 +166,7 @@ export function ReportExportControls({
           onChange={(e) => setType(e.target.value as typeof type)}
         >
           <option value="simple">
-            {moduleName === "RC Column"
+            {moduleName !== "Slab Design"
               ? "Simple Report — Up To Three Pages"
               : "Simple Report — Up To Two Pages"}
           </option>

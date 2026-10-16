@@ -15,7 +15,7 @@ export const uiCatalogue = [
     slug: "stairs",
     name: "Stairs",
     group: "Concrete",
-    pilot: false,
+    pilot: true,
   },
   {
     slug: "steel-deck",
@@ -66,6 +66,18 @@ export const uiCatalogue = [
     pilot: false,
   },
   {
+    slug: "gravity-loads",
+    name: "Gravity Load Planner",
+    group: "LOADS",
+    pilot: false,
+  },
+  {
+    slug: "load-combinations",
+    name: "Load Combination Planner",
+    group: "LOADS",
+    pilot: false,
+  },
+  {
     slug: "seismic-loads",
     name: "Seismic Loads",
     group: "LOADS",
@@ -74,12 +86,6 @@ export const uiCatalogue = [
   {
     slug: "wind-loads",
     name: "Wind Loads",
-    group: "LOADS",
-    pilot: false,
-  },
-  {
-    slug: "load-combinations",
-    name: "Load Combinations",
     group: "LOADS",
     pilot: false,
   },
@@ -99,7 +105,7 @@ export const uiCatalogue = [
     slug: "base-plate",
     name: "Base Plate",
     group: "Steel",
-    pilot: false,
+    pilot: true,
   },
   {
     slug: "purlins",

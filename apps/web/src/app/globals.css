@@ -2188,6 +2188,79 @@ select {
   text-transform: none;
   line-height: 1.5;
 }
+/* Only the layer name is capitalised ("300 mm", not "300 Mm"). */
+.slabRecommendation span,
+.slabRecommendation button {
+  text-transform: none;
+}
+/* Suggested Design: modes, adopt buttons, undo (slab only). */
+.slabSuggestModes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  margin: 12px 0 4px;
+  border: 1px solid #b9cdd4;
+  border-radius: 6px;
+  overflow: hidden;
+  width: fit-content;
+  max-width: 100%;
+}
+.slabSuggestModes button {
+  border: 0;
+  border-right: 1px solid #b9cdd4;
+  background: #fff;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  color: #263d4d;
+}
+.slabSuggestModes button:last-child {
+  border-right: 0;
+}
+.slabSuggestModes button.isActive {
+  background: #0e6f7a;
+  color: #fff;
+  font-weight: 600;
+}
+.slabMutedInline {
+  color: #7b8d97;
+}
+.slabUpsized {
+  font-style: normal;
+  font-size: 11px;
+  color: #8a3f0b;
+  background: #fde8d4;
+  border-radius: 4px;
+  padding: 0 5px;
+  text-transform: none;
+}
+.slabSuggestLayerButtons {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.slabSuggestLayerButtons button {
+  font-size: 11px;
+  padding: 3px 8px;
+  border: 1px solid #0e6f7a;
+  border-radius: 4px;
+  background: #fff;
+  color: #0e6f7a;
+  cursor: pointer;
+}
+.slabUpsizeConfirm {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  font-size: 12px;
+  margin: 10px 0 6px;
+}
+.slabAdoptButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
 .slabError {
   color: #a02d21;
   padding: 10px 14px;
@@ -4277,4 +4350,219 @@ input.rcDerived {
 .exMenu button:focus-visible {
   background: #eef2f6;
   outline: none;
+}
+
+/* ===== Base Plate module (claude/baseplate-*): scoped .bp* classes only ===== */
+.bpWorkspace .slabInputs h2 {
+  margin-top: 18px;
+}
+.bpWorkspace .bpWide {
+  grid-column: 1 / -1;
+  max-width: none;
+}
+.bpWorkspace .bpWide select,
+.bpWorkspace .bpWide input {
+  max-width: none;
+}
+.bpShapePicker {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  margin: 8px 0;
+}
+.bpShapePicker input {
+  font-size: 14px;
+  padding: 6px 8px;
+}
+.bpChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.bpChips button {
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+.bpChips button[aria-pressed="true"] {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+.bpShapeList {
+  position: absolute;
+  z-index: 30;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgb(16 24 40 / 16%);
+}
+.bpShapeList li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 8px;
+  padding: 5px 8px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--line);
+}
+.bpShapeList li.isActive {
+  background: #eef0fb;
+}
+.bpShapeList .bpMetric {
+  color: var(--muted);
+  justify-self: end;
+}
+.bpShapeList .bpDims {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 11px;
+}
+.bpShapeList .bpShapeNote {
+  display: block;
+  color: var(--muted);
+  cursor: default;
+}
+.bpStrength {
+  font-size: 12px;
+  background: #f1f5f9;
+  border-left: 3px solid var(--teal);
+  padding: 6px 8px;
+  margin: 6px 0;
+}
+.bpCheck {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+}
+.bpChecks {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0;
+}
+.bpProduct {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px;
+  margin: 8px 0;
+}
+.bpProduct legend {
+  font-size: 12px;
+  font-weight: 600;
+}
+.bpComboBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.bpDrawings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 10px;
+}
+.bpDrawing svg {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+.bpLoads input[type="number"] {
+  width: 80px;
+}
+.bpLoads input:not([type]) {
+  width: 70px;
+}
+.bpResults tr {
+  cursor: pointer;
+}
+.bpResults tr.isActive td {
+  background: #eef0fb;
+}
+.bpSteps td {
+  vertical-align: top;
+  font-size: 12px;
+}
+.bpSteps td:nth-child(3) {
+  color: var(--muted);
+  font-size: 11px;
+}
+.bpPaste textarea {
+  width: 100%;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+.bpCodes {
+  display: grid;
+  gap: 8px;
+}
+.bpCodeRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+.bpCodeRow label,
+.bpWideLabel {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+}
+.bpWorkspace .bpCodeRow select,
+.bpWorkspace .bpCodeRow input,
+.bpWorkspace .bpWideLabel input {
+  max-width: none;
+  width: 100%;
+}
+.bpSegment {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 4px 0 8px;
+}
+.bpSegment button {
+  border: 0;
+  padding: 5px 12px;
+  font-size: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+.bpSegment button[aria-checked="true"] {
+  background: var(--primary);
+  color: #fff;
+}
+.bpCustom {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 10px;
+  align-items: start;
+}
+.bpSketch {
+  width: 110px;
+  height: auto;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+@media (max-width: 520px) {
+  .bpCustom {
+    grid-template-columns: 1fr;
+  }
 }

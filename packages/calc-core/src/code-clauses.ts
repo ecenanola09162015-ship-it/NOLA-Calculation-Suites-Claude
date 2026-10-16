@@ -156,3 +156,62 @@ export const retainingWallClauses = {
     "Allowable bearing (service); e > B/6 triangular contact q = 2V/3a (Das Ch. 13)",
   eccentricity: () => "Resultant within B/3 of the centre (contact ≥ B/2)",
 } as const;
+
+/**
+ * Base plate & anchor rods (engine base-plate-0.2.0; LRFD φ / ASD Ω). Steel side per
+ * AISC 360-22 + AISC Design Guide 1, 3rd Ed. (2024); anchors per ACI 318-19
+ * Chapter 17. Clause numbers to be confirmed against the licensed texts.
+ */
+const aisc = (...parts: string[]) => `AISC 360-22 ${parts.join("; ")}`;
+const dg1 = (...parts: string[]) => `AISC DG1 3rd Ed. ${parts.join("; ")}`;
+export const basePlateClauses = {
+  bearing: () =>
+    `${aisc("J8, Eq. J8-2, φc = 0.65 / Ωc = 2.31")}; ${dg1("4.3 uniform bearing")}`,
+  plate: () =>
+    `${dg1("4.3–4.4 cantilever m, n, λn′; tension interface")}; ${aisc("φb = 0.90 / Ωb = 1.67")}`,
+  weld: () => aisc("J2.4, Table J2.5, φ = 0.75 / Ω = 2.00"),
+  steelTension: () =>
+    ref("17.6.1.2, futa ≤ min(1.9fya, 860 MPa)", "φ Table 17.5.3"),
+  steelShear: () =>
+    ref("17.7.1.2(b)", "grout pad ×0.80 17.7.1.2.1", "φ Table 17.5.3"),
+  breakoutTension: () =>
+    ref(
+      "17.6.2.1",
+      "Nb 17.6.2.2",
+      "ψec,N 17.6.2.3",
+      "ψed,N 17.6.2.4",
+      "ψc,N 17.6.2.5",
+      "ψcp,N 17.6.2.6",
+      "h′ef 17.6.2.1.2",
+    ),
+  pullout: () => ref("17.6.3.1, 17.6.3.2.2", "ψc,P 17.6.3.3"),
+  sideFace: () => ref("17.6.4.1, 17.6.4.2"),
+  bond: () =>
+    ref(
+      "17.6.5.1, 17.6.5.2",
+      "cNa 17.6.5.1.2",
+      "τ Table 17.6.5.2.5 or product report",
+    ),
+  sustained: () => ref("17.5.2.2: 0.55φNba ≥ Nua,s"),
+  breakoutShear: () =>
+    ref(
+      "17.7.2.1(b)",
+      "Vb 17.7.2.2.1",
+      "ψed,V 17.7.2.4",
+      "ψc,V 17.7.2.5",
+      "ψh,V 17.7.2.6",
+      "narrow member 17.7.2.1.2",
+    ),
+  pryout: () => ref("17.7.3.1, kcp"),
+  interaction: () => ref("17.8"),
+  geometry: () => `${ref("17.9.1, 17.9.2")}; AISC Manual 16th Ed. Table 14-2`,
+  memberThickness: () => ref("17.9.4"),
+  seismic: () => ref("17.10.5.3(a), 17.10.5.4 (0.75 concrete tension)"),
+  friction: () => dg1("4.5 friction, φ = 0.75 / Ω = 2.00"),
+  lugBearing: () => ref("17.11.2.1, ψbrg,sl, φ = 0.65"),
+  lugBreakout: () => ref("17.11.3 (Vb upper-bound expression; verify)"),
+  lugFlexure: () =>
+    `${aisc("F11 plastic moment of plate, φb = 0.90 / Ωb = 1.67")}; ${dg1("4.5 shear lug")}`,
+  holes: () =>
+    "AISC Manual 16th Ed. Table 14-2; AISC FAQ 7.2.3 (½ in clear to plate edge)",
+} as const;

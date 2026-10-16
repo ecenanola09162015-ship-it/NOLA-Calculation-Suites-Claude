@@ -25,7 +25,9 @@ export default async function LauncherPage({
   return (
     <SuiteWorkspace
       initialModule={
-        requested === "rc-column" || requested === "slab"
+        requested === "rc-column" ||
+        requested === "slab" ||
+        requested === "stairs"
           ? requested
           : workspaceModule
       }

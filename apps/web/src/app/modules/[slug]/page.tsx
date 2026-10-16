@@ -11,7 +11,7 @@ export default async function ModulePage({
   const module = getModule(slug);
   if (!module) notFound();
 
-  if (slug === "rc-column" || slug === "slab")
+  if (slug === "rc-column" || slug === "slab" || slug === "stairs")
     redirect(`/launcher?module=${slug}`);
   if (slug === "retaining-wall") redirect(`/launcher?module=${slug}`);
 

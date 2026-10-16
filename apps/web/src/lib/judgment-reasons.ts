@@ -11,7 +11,8 @@ export type ReasonGroup =
   | "confinement"
   | "grade"
   | "scwb"
-  | "slab";
+  | "slab"
+  | "baseplate";
 
 export const GENERAL_REASONS = [
   "Exceedance is within the project's engineering-judgment band and has been reviewed by the engineer of record.",
@@ -53,6 +54,11 @@ export const GROUP_REASONS: Record<ReasonGroup, readonly string[]> = {
     "Moments come from a conservative coefficient method or envelope.",
     "Deflection is reviewed separately (long-term or cracked section).",
   ],
+  baseplate: [
+    "Biaxial rod tensions are superposed per axis with full Pu (conservative).",
+    "Anchor reinforcement / supplementary ties will be detailed in the pedestal design.",
+    "Verified with the anchor manufacturer's software (product evaluation report values).",
+  ],
 };
 
 export const GROUP_LABEL: Record<ReasonGroup, string> = {
@@ -63,14 +69,16 @@ export const GROUP_LABEL: Record<ReasonGroup, string> = {
   grade: "SMF bar grade",
   scwb: "Strong column–weak beam",
   slab: "Slab",
+  baseplate: "Base plate / anchors",
 };
 
 /** Which reason group a check id belongs to. */
 export function reasonGroup(
   id: string,
-  module: "column" | "slab" = "column",
+  module: "column" | "slab" | "base-plate" = "column",
 ): ReasonGroup {
   if (module === "slab") return "slab";
+  if (module === "base-plate") return "baseplate";
   if (id.startsWith("tie:shear")) return "shear";
   if (id.startsWith("tie:smf:grade")) return "grade";
   if (id.startsWith("tie:smf:scwb")) return "scwb";

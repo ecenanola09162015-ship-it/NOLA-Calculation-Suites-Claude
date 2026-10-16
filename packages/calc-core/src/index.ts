@@ -19,11 +19,22 @@ export * from "./modules/column-transverse";
 
 export * from "./modules/slab-quantity";
 
+export * from "./modules/stair-frame";
+export * from "./modules/stair-design";
+export * from "./modules/stair-review";
+export * from "./modules/stair-quantity";
+export * from "./modules/stair-optimize";
+
 export * from "./design-review";
 export * from "./rebar-catalogue";
 export * from "./concrete-units";
 export * from "./report-settings";
 export * from "./code-clauses";
+export * from "./anchor-rods";
+export * from "./modules/base-plate";
+export * from "./modules/base-plate-anchors";
+export * from "./steel-shapes";
+export * from "./steel-design-method";
 
 export * from "./modules/retaining-wall";
 export * from "./modules/retaining-wall-geometry";

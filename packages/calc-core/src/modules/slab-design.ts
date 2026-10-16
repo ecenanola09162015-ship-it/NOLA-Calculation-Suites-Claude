@@ -8,6 +8,7 @@ import {
   concreteStrengthNotes,
 } from "../concrete-units";
 import { slabQuantitySchema } from "./slab-quantity-schema";
+import { rebarSizes } from "../rebar-catalogue";
 import { solveSlabPlate } from "./slab-plate";
 import {
   solvePatchLoads,
@@ -373,6 +374,41 @@ export interface SlabRegion extends SlabStrength {
     position: number;
   }[];
 }
+/** One suggested bar arrangement (diameter, mm; spacing input value, mm). */
+export interface SlabBarSuggestion {
+  diameter: number;
+  spacing: number;
+  /** Diameter larger than entered (adopt only after separate confirmation). */
+  upsized: boolean;
+}
+export interface SlabExtraSuggestion {
+  /**
+   * required: extras needed and found; not-required: main bars alone carry
+   * the extra zones; not-applicable: no extra zone for this layer (one-way
+   * distribution, or top layer without a Fixed support); none: no
+   * arrangement found up to three sizes larger.
+   */
+  status: "required" | "not-required" | "not-applicable" | "none";
+  suggestion: SlabBarSuggestion | null;
+  reason: string;
+}
+export interface SlabRecommendation {
+  layer: SlabLayer;
+  /** Main only (entered diameter, entered extras credited); null if none. */
+  spacing: number | null;
+  diameter: number;
+  reason: string;
+  /** Main only when the entered diameter fails: next size up that works. */
+  mainUpsize: SlabBarSuggestion | null;
+  /** Extra only: main bars as entered. */
+  extra: SlabExtraSuggestion;
+  /** Main + extra: main sized for the moment outside the extra zones. */
+  combined: {
+    main: SlabBarSuggestion;
+    extra: SlabExtraSuggestion;
+    reason: string;
+  } | null;
+}
 export interface SlabFlexuralZone extends SlabStrength {
   id: string;
   label: string;
@@ -443,12 +479,7 @@ export interface SlabResult {
     governedBy: "thickness" | "calculation";
     ok: boolean;
   };
-  recommendations: {
-    layer: SlabLayer;
-    spacing: number | null;
-    diameter: number;
-    reason: string;
-  }[];
+  recommendations: SlabRecommendation[];
   detailing: {
     ok: boolean;
     messages: string[];
@@ -1159,6 +1190,65 @@ function layerSpacing(
       selected.length > 0 &&
       positions.length >= 2,
   };
+}
+export type SlabSuggestionMode = "main-only" | "extra-only" | "combined";
+/**
+ * Writes suggested spacings into the inputs (pure). target "main" adopts
+ * main-bar suggestions, "extra" extra-bar suggestions. Diameters larger than
+ * entered are adopted only with allowUpsize (separate confirmation); extras
+ * marked not required / not applicable leave the layer as entered.
+ */
+export function slabAdoptSpacing(
+  i: SlabInput,
+  recs: SlabRecommendation[],
+  mode: SlabSuggestionMode,
+  target: "main" | "extra",
+  layers: readonly SlabLayer[] = slabLayers,
+  allowUpsize = false,
+): { input: SlabInput; adopted: SlabLayer[]; skipped: SlabLayer[] } {
+  const main = { ...i.main },
+    extra = { ...i.extra },
+    adopted: SlabLayer[] = [],
+    skipped: SlabLayer[] = [];
+  for (const layer of layers) {
+    const rec = recs.find((r) => r.layer === layer);
+    let pick: SlabBarSuggestion | null = null;
+    if (rec && target === "main") {
+      if (mode === "main-only")
+        pick =
+          rec.spacing !== null
+            ? { diameter: rec.diameter, spacing: rec.spacing, upsized: false }
+            : rec.mainUpsize;
+      else if (mode === "combined") pick = rec.combined?.main ?? null;
+    } else if (rec && target === "extra") {
+      const e =
+        mode === "extra-only"
+          ? rec.extra
+          : mode === "combined"
+            ? rec.combined?.extra
+            : null;
+      pick = e?.status === "required" ? e.suggestion : null;
+    }
+    if (!pick || (pick.upsized && !allowUpsize)) {
+      skipped.push(layer);
+      continue;
+    }
+    if (target === "main")
+      main[layer] = {
+        ...main[layer],
+        diameter: pick.diameter,
+        spacing: pick.spacing,
+      };
+    else
+      extra[layer] = {
+        ...extra[layer],
+        diameter: pick.diameter,
+        spacing: pick.spacing,
+        enabled: true,
+      };
+    adopted.push(layer);
+  }
+  return { input: { ...i, main, extra }, adopted, skipped };
 }
 export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
   const i = slabInputSchema.parse(raw),
@@ -1982,60 +2072,163 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
       }
     : null;
   const minDepth = Math.min(...bars.map((b) => b.d));
-  const recommendations = suggestions
-    ? slabLayers.map((layer) => {
-        const current = bars.find(
-          (b) => b.group === "main" && b.layer === layer,
-        )!;
-        const region = regions.find((r) => r.layer === layer)!;
-        let spacing: number | null = null;
-        for (
-          let s = Math.floor(region.maxSpacing / 25) * 25;
-          s >= Math.max(50, current.diameter + 25);
-          s -= 25
-        ) {
-          const candidate = {
-              ...i,
-              main: { ...i.main, [layer]: { ...i.main[layer], spacing: s } },
+  // Spacing suggestions (25 mm grid). A trial changes one layer's main
+  // and/or extra bars and rechecks minimum steel (main alone), tension
+  // control, bar spacing (main alone and main + extra) and flexure at every
+  // sample (extras credited only inside their zones). Extra spacing is tied
+  // to the main spacing (1×, 2×, 3×) so extras fall between main bars.
+  const standard = i.rebarStandard ?? "PNS49";
+  const largerSizes = (d: number) =>
+    rebarSizes[standard]
+      .map((x) => x.calcDiameter)
+      .filter((x) => x > d + 1e-6)
+      .sort((a, b) => a - b)
+      .slice(0, 3);
+  const trial = (
+    layer: SlabLayer,
+    region: SlabRegion,
+    main: { diameter: number; spacing: number },
+    extra: { diameter: number; spacing: number } | null | "entered",
+    zonesOnMainOnly = false,
+  ) => {
+    const candidate: SlabInput = {
+      ...i,
+      main: { ...i.main, [layer]: { ...i.main[layer], ...main } },
+      extra:
+        extra === "entered"
+          ? i.extra
+          : {
+              ...i.extra,
+              [layer]: extra
+                ? { ...i.extra[layer], ...extra, enabled: true }
+                : { ...i.extra[layer], enabled: false },
             },
-            candidateBars = resolveSlabBars(candidate);
-          const noExtra = candidateBars.filter(
-              (b) => b.layer === layer && b.group === "main",
-            ),
-            withExtra = candidateBars.filter((b) => b.layer === layer);
-          const strengths = [
-            slabFlexuralStrength(i, noExtra),
-            slabFlexuralStrength(i, withExtra),
-          ];
-          if (
-            strengths[0].as < minAs ||
-            !strengths.every((c) => c.tensionControlled) ||
-            !layerSpacing(
-              candidate,
-              candidateBars,
-              layer,
-              false,
-              region.maxSpacing,
-            ).ok ||
-            !layerSpacing(
-              candidate,
-              candidateBars,
-              layer,
-              true,
-              region.maxSpacing,
-            ).ok
-          )
-            continue;
-          if (
-            region.samples.every(
-              (sample) =>
-                sample.mu <=
-                strengths[sample.extra ? 1 : 0].phiMn * i.dcrLimit + 1e-8,
-            )
-          ) {
-            spacing = s;
+    };
+    const cBars = resolveSlabBars(candidate),
+      noExtra = cBars.filter((b) => b.layer === layer && b.group === "main"),
+      withExtra = cBars.filter((b) => b.layer === layer),
+      strengths = [
+        slabFlexuralStrength(candidate, noExtra),
+        slabFlexuralStrength(candidate, withExtra),
+      ];
+    if (
+      noExtra.length === 0 ||
+      strengths[0].as < minAs ||
+      !strengths.every((c) => c.tensionControlled) ||
+      !layerSpacing(candidate, cBars, layer, false, region.maxSpacing).ok ||
+      !layerSpacing(candidate, cBars, layer, true, region.maxSpacing).ok
+    )
+      return false;
+    const hasExtra = withExtra.length > noExtra.length;
+    return region.samples.every(
+      (sample) =>
+        (zonesOnMainOnly && sample.extra) ||
+        sample.mu <=
+          strengths[sample.extra && hasExtra ? 1 : 0].phiMn * i.dcrLimit + 1e-8,
+    );
+  };
+  const spacingsFor = (region: SlabRegion, diameter: number) => {
+    const out: number[] = [];
+    for (
+      let s = Math.floor(region.maxSpacing / 25) * 25;
+      s >= Math.max(50, diameter + 25);
+      s -= 25
+    )
+      out.push(s);
+    return out;
+  };
+  const extraApplies = (layer: SlabLayer, region: SlabRegion) =>
+    region.samples.some((x) => x.extra) &&
+    !(
+      (slabSupportLayout(i).kind === "cantilever" ||
+        Math.max(i.lx, i.ly) / Math.min(i.lx, i.ly) >= 2) &&
+      layer.startsWith("long")
+    );
+  /** Extras for fixed main bars: largest multiple (3×, 2×, 1×), then larger sizes. */
+  const extraFor = (
+    layer: SlabLayer,
+    region: SlabRegion,
+    main: { diameter: number; spacing: number },
+  ): SlabExtraSuggestion => {
+    if (!extraApplies(layer, region))
+      return {
+        status: "not-applicable",
+        suggestion: null,
+        reason: layer.endsWith("top")
+          ? "No extra-bar zone: top extras act at Fixed supports only (or one-way distribution layer)."
+          : "No extra-bar zone for this layer (one-way distribution).",
+      };
+    if (trial(layer, region, main, null))
+      return {
+        status: "not-required",
+        suggestion: null,
+        reason:
+          "Not required: main bars alone meet flexure inside the extra zones.",
+      };
+    const entered = i.extra[layer].diameter;
+    for (const diameter of [entered, ...largerSizes(entered)])
+      for (const k of [3, 2, 1]) {
+        const extra = { diameter, spacing: k * main.spacing };
+        if (trial(layer, region, main, extra))
+          return {
+            status: "required",
+            suggestion: { ...extra, upsized: diameter !== entered },
+            reason: `Extra bars at ${k}× the main spacing (staggered between main bars) meet flexure in the extra zones${diameter !== entered ? `; needs Ø${diameter}, larger than entered Ø${entered}` : ""}.`,
+          };
+      }
+    return {
+      status: "none",
+      suggestion: null,
+      reason:
+        "No extra arrangement found up to three sizes larger at 1×–3× the main spacing. Reduce main spacing, increase diameter or thickness.",
+    };
+  };
+  const recommendations: SlabRecommendation[] = suggestions
+    ? slabLayers.map((layer) => {
+        const current = i.main[layer];
+        const region = regions.find((r) => r.layer === layer)!;
+        // Main only: entered extras credited (as before).
+        const mainOnly = (diameter: number) =>
+          spacingsFor(region, diameter).find((s) =>
+            trial(layer, region, { diameter, spacing: s }, "entered"),
+          ) ?? null;
+        const spacing = mainOnly(current.diameter);
+        let mainUpsize: SlabBarSuggestion | null = null;
+        if (spacing === null)
+          for (const diameter of largerSizes(current.diameter)) {
+            const s = mainOnly(diameter);
+            if (s !== null) {
+              mainUpsize = { diameter, spacing: s, upsized: true };
+              break;
+            }
+          }
+        const extra = extraFor(layer, region, {
+          diameter: current.diameter,
+          spacing: current.spacing,
+        });
+        // Main + extra: largest main spacing carrying the moment outside the
+        // extra zones, then extras where the moment is higher.
+        let combined: SlabRecommendation["combined"] = null;
+        for (const diameter of [
+          current.diameter,
+          ...largerSizes(current.diameter),
+        ]) {
+          for (const s of spacingsFor(region, diameter)) {
+            const main = { diameter, spacing: s };
+            const outside = extraApplies(layer, region)
+              ? trial(layer, region, main, null, true)
+              : trial(layer, region, main, null);
+            if (!outside) continue;
+            const e = extraFor(layer, region, main);
+            if (e.status === "none") continue;
+            combined = {
+              main: { ...main, upsized: diameter !== current.diameter },
+              extra: e,
+              reason: `Main bars at the largest spacing carrying the moment outside the extra zones${e.status === "required" ? "; extras only where the moment is higher" : ""}.${diameter !== current.diameter ? ` Needs main Ø${diameter} (larger than entered Ø${current.diameter}).` : ""}`,
+            };
             break;
           }
+          if (combined) break;
         }
         return {
           layer,
@@ -2043,8 +2236,13 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
           diameter: current.diameter,
           reason:
             spacing === null
-              ? "No arrangement found for this diameter on the 25 mm spacing grid. Increase diameter or thickness and review elevations."
-              : "Largest 25 mm-grid main-bar spacing meeting flexure, minimum steel, tension control and combined spacing. Shear, anchorage and serviceability require recheck; inputs unchanged.",
+              ? mainUpsize
+                ? `No spacing works for Ø${current.diameter}; Ø${mainUpsize.diameter} @ ${mainUpsize.spacing} mm works (adopt diameter only after confirmation).`
+                : "No arrangement found for this diameter or three sizes larger on the 25 mm grid. Increase thickness and review elevations."
+              : "Largest 25 mm-grid main-bar spacing meeting flexure (entered extras credited), minimum steel, tension control and combined spacing.",
+          mainUpsize,
+          extra,
+          combined,
         };
       })
     : [];
