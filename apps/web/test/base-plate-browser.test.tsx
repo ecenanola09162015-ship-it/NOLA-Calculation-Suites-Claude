@@ -54,6 +54,9 @@ describe.skipIf(!CHROME)("base plate workspace in a real browser", () => {
           path: `${shots}/bp-layout.png`,
           fullPage: true,
         });
+      await page.getByRole("button", { name: "Blueprint (screen only)" }).click();
+      if (shots) await page.screenshot({ path: `${shots}/bp-blueprint.png`, fullPage: true });
+      await page.getByRole("button", { name: "Engineering", exact: true }).click();
       // Shape picker: type-ahead and keyboard selection.
       const box = page.getByRole("combobox", { name: "Column shape" });
       await box.fill("hss8x8");

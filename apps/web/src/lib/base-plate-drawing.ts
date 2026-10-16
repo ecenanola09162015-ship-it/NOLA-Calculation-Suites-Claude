@@ -36,6 +36,40 @@ const C = {
   text: "#1b2733",
   white: "#ffffff",
 };
+/** Screen-only alternative (palette B "Blueprint"); the PDF always uses A. */
+const BLUEPRINT: Record<keyof typeof C, string> = {
+  concrete: "#16324f",
+  concreteEdge: "#7fa7cf",
+  aggregate: "#2c5379",
+  grout: "#22476d",
+  plate: "#2f6aa3",
+  plateEdge: "#e6f1ff",
+  steel: "#cfe3f7",
+  web: "#9cc3ea",
+  hssFace: "#3d79b3",
+  nut: "#e6f1ff",
+  washer: "#9cc3ea",
+  weld: "#ffb347",
+  rod: "#ffffff",
+  tension: "#ff6b6b",
+  bearing: "#ffd166",
+  dim: "#a9c7e6",
+  cut: "#7ee0c9",
+  load: "#ffd166",
+  text: "#eaf3ff",
+  white: "#0d2238",
+};
+export const basePlateDrawingStyles = ["engineering", "blueprint"] as const;
+export type BasePlateDrawingStyle = (typeof basePlateDrawingStyles)[number];
+/** Recolour a generated drawing (every colour comes from C, so a map is exact). */
+export function applyDrawingStyle(svg: string, style: BasePlateDrawingStyle) {
+  if (style === "engineering") return svg;
+  const keys = Object.keys(C) as (keyof typeof C)[];
+  let out = svg;
+  keys.forEach((k, n) => (out = out.split(C[k]).join(`@@${n}@@`)));
+  keys.forEach((k, n) => (out = out.split(`@@${n}@@`).join(BLUEPRINT[k])));
+  return out.replaceAll("#9a5b00", BLUEPRINT.bearing);
+}
 /** Line weights: heavy (steel outlines), medium (concrete), light (dimensions). */
 const W = { heavy: 1.6, medium: 1.0, light: 0.6 };
 const esc = (s: string) =>

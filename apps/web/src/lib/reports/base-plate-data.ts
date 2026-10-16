@@ -273,29 +273,37 @@ export function basePlateReportData(
       ...(i.otherCodes.trim()
         ? [["Other Codes (Reference Only)", i.otherCodes.trim()]]
         : []),
-      ["AISC 360-22", "J8 bearing; J2 welds; J9 anchor rods → ACI 318"],
       [
-        "AISC Design Guide 1, 3rd Ed. (2024)",
-        "Ch. 4 exposed base plates: axial, small/large moment, shear transfer",
-      ],
-      ["AISC Manual 16th Ed.", "Table 14-2 anchor-rod holes and washers"],
-      [
-        "ACI 318-19",
-        "Ch. 17: 17.5 φ, 17.6 tension, 17.7 shear, 17.8 interaction, 17.9 edges, 17.10 seismic, 17.11 shear lugs",
+        `Concrete — ${i.concreteCode === "NSCP 2015" ? "NSCP 2015 project (ACI 318-19 basis)" : "ACI 318-19"}`,
+        "Ch. 17: 17.5 φ, 17.6 tension, 17.7 shear, 17.8 interaction, 17.9 edges, 17.10 seismic, 17.11 shear lugs" +
+          (i.designMethod === "ASD"
+            ? `; strength level = ${i.asdAlpha} × ASD demand`
+            : ""),
       ],
       [
-        "ASTM / ISO",
-        "F1554, A36, A193, A449, ISO 898-1 (specified minimum strengths)",
+        `Steel — ${i.steelCode === "NSCP 2015" ? "NSCP 2015 project (AISC 360-22 basis)" : "AISC 360-22"} (${i.designMethod})`,
+        `B3.${i.designMethod === "LRFD" ? "1 LRFD φ" : "2 ASD Ω"}; J8 bearing; J2 welds; J9 anchor rods → ACI 318; AISC DG1 3rd Ed. Ch. 4; AISC Manual 16th Ed. Table 14-2`,
+      ],
+      ...(["C", "D", "E", "F"].includes(i.seismic.sdc)
+        ? [
+            [
+              "Seismic — AISC 341-22 / ACI 318-19 17.10",
+              "D2.6 column-base required strengths not calculated (designer-supplied reactions); ACI 17.10 applied",
+            ],
+          ]
+        : []),
+      [
+        "Materials",
+        "ASTM F1554, A36, A193, A449, ISO 898-1 (specified minimum strengths); AISC Shapes Database v16.0",
       ],
       ...(i.concreteCode === "NSCP 2015" || i.steelCode === "NSCP 2015"
         ? [
             [
               "NSCP 2015",
-              "Project standard recorded; calculated per the editions above (Sec. 510 / 417 basis is AISC 360-10 / ACI 318-14)",
+              "Project standard recorded; NSCP Sec. 417 / 510 are ACI 318-14 / AISC 360-10 based",
             ],
           ]
         : []),
-      ["Shapes", "AISC Shapes Database v16.0"],
     ]),
     criticalNotes: r.notes,
     limitations: [...r.notes, ...basePlateLimitations],

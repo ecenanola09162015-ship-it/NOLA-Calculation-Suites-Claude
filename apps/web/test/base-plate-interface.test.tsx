@@ -328,3 +328,53 @@ describe("base plate draft API", () => {
     expect(saveCalculationDraft).not.toHaveBeenCalled();
   });
 });
+
+describe("drawing style and seismic note", () => {
+  it("recolours drawings to Blueprint for screen only and keeps Engineering for the PDF", async () => {
+    const { applyDrawingStyle } = await import("../src/lib/base-plate-drawing");
+    const i = defaultBasePlateInput();
+    const svg = basePlatePlanSvg(i, analyzeBasePlate(i).combos[0]);
+    const blue = applyDrawingStyle(svg, "blueprint");
+    expect(blue).toContain("#0d2238");
+    expect(blue).not.toContain("#eef0f2");
+    expect(applyDrawingStyle(svg, "engineering")).toBe(svg);
+    const data = basePlateReportData(
+      undefined,
+      "BP",
+      i,
+      analyzeBasePlate(i),
+      defaultDesignCheckPolicy,
+      {},
+    );
+    expect(data.figures[0]!.svg).toContain("#eef0f2");
+    expect(data.references.rows.map((r) => String(r[0]))).toEqual(
+      expect.arrayContaining([
+        "Concrete — ACI 318-19",
+        "Steel — AISC 360-22 (LRFD)",
+      ]),
+    );
+  });
+  it("shows the AISC 341 note for SDC C–F", () => {
+    const input = {
+      ...defaultBasePlateInput(),
+      seismic: { sdc: "D" as const, option: "d" as const, stretchLength: 0 },
+    };
+    const html = renderToStaticMarkup(
+      <BasePlateWorkspace
+        cloudReady={false}
+        onSaved={() => {}}
+        draft={{
+          id: "d",
+          projectId: "p",
+          moduleSlug: "base-plate",
+          title: "BP-S",
+          payload: { kind: "base-plate", version: 1, input },
+          verificationStatus: "verification-required",
+          updatedAt: "2026-10-17T00:00:00Z",
+        }}
+      />,
+    );
+    expect(html).toContain("AISC 341-22 D2.6 column-base required strengths");
+    expect(html).toContain("Blueprint (screen only)");
+  });
+});

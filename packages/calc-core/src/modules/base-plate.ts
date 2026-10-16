@@ -1631,6 +1631,10 @@ export function analyzeBasePlate(
     notes.push(
       "ACI 17.10.5.3(d) / 17.10.6.3(c): E combinations must include the overstrength factor Ω0 (designer-declared).",
     );
+  if (seismicSdc)
+    notes.push(
+      "SDC C–F: AISC 341-22 D2.6 column-base required strengths are not calculated; enter base reactions that already satisfy AISC 341 (e.g. Ω0 or expected-strength demands). ACI 318-19 17.10 is applied to E combinations.",
+    );
   if (i.shear.method === "friction" && combos.some((c) => c.seismicApplies))
     notes.push(
       "Friction is not relied on in earthquake combinations; use anchor rods or a shear lug.",

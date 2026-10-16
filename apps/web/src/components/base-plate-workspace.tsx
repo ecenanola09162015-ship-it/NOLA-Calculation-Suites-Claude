@@ -35,8 +35,10 @@ import {
 } from "@nola/calc-core";
 import type { CalculationDraftRecord, ProjectRecord } from "@/lib/projects";
 import {
+  applyDrawingStyle,
   basePlatePlanSvg,
   basePlateSectionSvg,
+  type BasePlateDrawingStyle,
 } from "@/lib/base-plate-drawing";
 import { basePlateSteps } from "@/lib/base-plate-steps";
 import { DesignReviewPanel } from "./design-review-panel";
@@ -191,6 +193,25 @@ export function BasePlateWorkspace({
     restored.success ? draft?.id : undefined,
   );
   const [tab, setTab] = useState<"layout" | "calculations" | "3d">("layout");
+  // Screen-only drawing style (the PDF always uses Engineering); per viewer.
+  const [drawStyle, setDrawStyle] = useState<BasePlateDrawingStyle>(() => {
+    try {
+      return typeof window !== "undefined" &&
+        window.localStorage.getItem("nola.bp.drawingStyle") === "blueprint"
+        ? "blueprint"
+        : "engineering";
+    } catch {
+      return "engineering";
+    }
+  });
+  function chooseStyle(v: BasePlateDrawingStyle) {
+    setDrawStyle(v);
+    try {
+      window.localStorage.setItem("nola.bp.drawingStyle", v);
+    } catch {
+      /* storage unavailable: keep for this session */
+    }
+  }
   const [snapshot3d, setSnapshot3d] = useState<string | null>(null);
   const [comboId, setComboId] = useState<string>("");
   const [message, setMessage] = useState(""),
@@ -1159,6 +1180,14 @@ export function BasePlateWorkspace({
               </>
             )}
           </div>
+          {["C", "D", "E", "F"].includes(input.seismic.sdc) && (
+            <p className="rcAlert">
+              Seismic (SDC {input.seismic.sdc}): ACI 318-19 17.10 is applied to
+              E combinations. AISC 341-22 D2.6 column-base required strengths
+              are not calculated — enter base reactions that already satisfy
+              AISC 341 (Ω0 or expected-strength demands).
+            </p>
+          )}
         </aside>
 
         <div className="slabCenter">
@@ -1231,17 +1260,48 @@ export function BasePlateWorkspace({
             className={`slabPanel ${tab === "layout" ? "" : "slabScreenHidden"}`}
           >
             {r ? (
+              <div
+                className="slabViewButtons"
+                role="group"
+                aria-label="Drawing style"
+              >
+                {(
+                  [
+                    ["engineering", "Engineering"],
+                    ["blueprint", "Blueprint (screen only)"],
+                  ] as const
+                ).map(([v, t]) => (
+                  <button
+                    key={v}
+                    aria-pressed={drawStyle === v}
+                    onClick={() => chooseStyle(v)}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {r ? (
               <div className="bpDrawings">
                 <Svg
-                  markup={basePlatePlanSvg(analysed, combo)}
+                  markup={applyDrawingStyle(
+                    basePlatePlanSvg(analysed, combo),
+                    drawStyle,
+                  )}
                   label="Base plate plan"
                 />
                 <Svg
-                  markup={basePlateSectionSvg(analysed, "A", combo)}
+                  markup={applyDrawingStyle(
+                    basePlateSectionSvg(analysed, "A", combo),
+                    drawStyle,
+                  )}
                   label="Section A-A along Y"
                 />
                 <Svg
-                  markup={basePlateSectionSvg(analysed, "B", combo)}
+                  markup={applyDrawingStyle(
+                    basePlateSectionSvg(analysed, "B", combo),
+                    drawStyle,
+                  )}
                   label="Section B-B along X"
                 />
               </div>
@@ -1252,9 +1312,9 @@ export function BasePlateWorkspace({
             )}
             <p className="slabMuted">
               Hatched: DG1 uniform bearing zone of the shown combination. Dashed
-              teal: DG1 critical sections (0.95d, 0.80bf, 0.95 HSS, 0.80D).
-              Red rods are in tension. Sign: +Mx moves the resultant to +Y (rods
-              on −Y in tension); +My to +X. Schematic, not fabrication details.
+              teal: DG1 critical sections (0.95d, 0.80bf, 0.95 HSS, 0.80D). Red
+              rods are in tension. Sign: +Mx moves the resultant to +Y (rods on
+              −Y in tension); +My to +X. Schematic, not fabrication details.
             </p>
           </section>
           <section
