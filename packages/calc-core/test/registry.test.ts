@@ -8,6 +8,7 @@ describe("module registry", () => {
       "slab",
       "rc-column",
       "steel-column",
+      "base-plate",
       "seismic-loads",
       "soil-bearing-capacity",
     ]);

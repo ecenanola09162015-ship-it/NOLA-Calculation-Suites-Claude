@@ -1,0 +1,23 @@
+{
+  "files": {
+    "W_shapes.csv": "387b2b4b367de8734747dd57684584ff7d109bf69e7ad0aff9acc696dad722d7",
+    "M_shapes.csv": "beedb3269db3b628b7dadd6fabb8fb2f9a0324995596d0c02b6e14d55f32a683",
+    "S_shapes.csv": "bf028817b70b046eb5d82f311658d3994dbb1c4702759c50af273722eb0a1435",
+    "HP_shapes.csv": "6e948ddae4e99b83aac93d6a156f0569dcb1b356e261f34ea29e8752ddb9f775",
+    "C_shapes.csv": "c88425a59c30862d0bc2fa545c8452294851362a11e6d6587ce8f9a58d243456",
+    "MC_shapes.csv": "342b3c82640a249165566ac15b9bfdfa92e0bdc516ad4bd3ab51124cec57cb51",
+    "L_shapes.csv": "30e1ae600f477154d6355ced132602bbe9097c588c0039cff355d702b7ecd7e8",
+    "WT_shapes.csv": "702f80dca09c9c1ee323b4496b5a699923d738ed9a471705d98cb13071aa8816",
+    "MT_shapes.csv": "8d9c7fbbf2a079ff5d022ff06a5ed4e264674a5c7027d465a9ec3e7b6b12d1b0",
+    "ST_shapes.csv": "a1faec2d595e7e833c33821fd1046b9bfa4e5e42e6f85086df710e1f2bba4116",
+    "HSS_shapes.csv": "9416c37d70a9618ce1173b9553f9259372deb0d05b5175f00e70207e00daf03e",
+    "HSS_R_shapes.csv": "27ce4841285367ef68bb007b5e6fed44b22032dccd637de4f53b9ac408f994e5",
+    "PIPE_shapes.csv": "59cc44e0a0acdf9f49898a2ed8bd70c8e8b4bb98325ebfb96f8c5fff47ed1075"
+  },
+  "database": "AISC Shapes Database v16.0",
+  "via": "steelpy 1.1.1 (PyPI, Apache-2.0)",
+  "metricLabels": "AISC Shapes Database v15.0 via npm aisc 0.1.0",
+  "v15Sha256": "8dbadb11f70c5631e960e29c247bef4653e1ba66ddfea9860942b3ae76b4c8c4",
+  "units": "SI: mm, mm\u00b2, mm\u00b3, mm\u2074, mm\u2076, kg/m (converted from in-based values)",
+  "count": 1660
+}
