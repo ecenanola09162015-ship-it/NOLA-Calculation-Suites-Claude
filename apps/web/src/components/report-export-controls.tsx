@@ -88,7 +88,7 @@ export function ReportExportControls({
   disabledReason?: string;
   /** Non-blocking notice, e.g. remarks still required. */
   hint?: string;
-  moduleName: "RC Column" | "Slab Design";
+  moduleName: "RC Column" | "Slab Design" | "Stairs";
   onData: () => Promise<ReportData>;
 }) {
   const [type, setType] = useState<"simple" | "complete">("simple"),

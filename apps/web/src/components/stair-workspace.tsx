@@ -30,6 +30,7 @@ import {
 } from "@nola/calc-core";
 import type { ProjectRecord, CalculationDraftRecord } from "@/lib/projects";
 import { DesignReviewPanel, DesignStatus } from "./design-review-panel";
+import { ReportExportControls } from "./report-export-controls";
 import {
   DuplicateSavePrompt,
   type DraftDuplicate,
@@ -177,6 +178,8 @@ export function StairWorkspace({
   );
   // V3: bar set being edited, highlighted in the drawings and 3-D view.
   const [activeSet, setActiveSet] = useState<BarKey | null>(null);
+  // 3-D snapshot for the Complete PDF report (session only).
+  const [snapshot3d, setSnapshot3d] = useState<string | null>(null);
   // Optimize spacing target DCR (session setting).
   const [optimizeTarget, setOptimizeTarget] = useState(STAIR_OPTIMIZE_TARGET);
   const [message, setMessage] = useState(""),
@@ -452,10 +455,39 @@ export function StairWorkspace({
               ? "Saved"
               : "Save stairs"}
         </button>
+        <ReportExportControls
+          moduleName="Stairs"
+          disabled={!r || !valid}
+          disabledReason="Complete valid stair inputs to enable export."
+          hint={
+            missing.length
+              ? `Record Engineering Judgment Remarks Before Exporting (${missing.length}).`
+              : undefined
+          }
+          onData={async () => {
+            if (!r || !valid) throw Error("Complete Valid Stair Inputs First.");
+            if (missing.length)
+              throw Error(
+                "Record Engineering Judgment Remarks Before Exporting.",
+              );
+            const { stairsReportData } =
+              await import("../lib/reports/stair-data");
+            return stairsReportData(
+              project,
+              title,
+              valid,
+              r,
+              policy,
+              remarks,
+              estimateOn,
+              snapshot3d,
+            );
+          }}
+        />
       </div>
       <p className="slabPilot">
         Development pilot · {stairCodeBasisLabel(input)} Independent engineering
-        review required. PDF report export follows in the next release.
+        review required.
       </p>
       {!project && <p>Create or select a project to save this calculation.</p>}
       {duplicate ? (
@@ -1249,7 +1281,11 @@ export function StairWorkspace({
           {tab === "3d" && (
             <section className="slabPanel slab3dPanel">
               {valid ? (
-                <Stair3DView input={valid} highlight={activeSet} />
+                <Stair3DView
+                  input={valid}
+                  highlight={activeSet}
+                  onSnapshot={setSnapshot3d}
+                />
               ) : (
                 <p className="slabMuted">
                   Complete valid inputs to view the stair in 3D.
