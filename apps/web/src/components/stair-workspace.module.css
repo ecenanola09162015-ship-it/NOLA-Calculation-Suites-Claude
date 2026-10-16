@@ -1,0 +1,95 @@
+/* Stairs module — scoped styles only (globals.css untouched; the workspace
+   also uses the shared .slabWorkspace look for a consistent concrete suite). */
+.drawing {
+  width: 100%;
+  height: auto;
+  max-height: 520px;
+  display: block;
+}
+.svgLabel {
+  fill: #263d4d;
+  font-family: Arial, sans-serif;
+}
+.svgDim text {
+  fill: #263d4d;
+  font-family: Arial, sans-serif;
+}
+.chartText {
+  font:
+    10px Arial,
+    sans-serif;
+  fill: #475467;
+}
+.forces {
+  display: grid;
+  gap: 8px;
+}
+.view3d {
+  margin: 0;
+}
+.choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 10px;
+}
+.choice button {
+  border: 1px solid #b8c7d1;
+  background: #fff;
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.choice button[aria-pressed="true"] {
+  background: #145da0;
+  border-color: #145da0;
+  color: #fff;
+}
+.question {
+  margin: 10px 0 2px;
+  font-weight: 600;
+  font-size: 0.86rem;
+  color: #263d4d;
+}
+.flightCard {
+  border: 1px solid #d7e2e8;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 8px 0;
+  background: #fbfcfd;
+}
+.flightCard h4 {
+  margin: 0 0 6px;
+  font-size: 0.85rem;
+}
+.inlineCheck {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  margin: 6px 0;
+}
+.qtyTotals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  margin: 8px 0;
+}
+.qtyTotals div {
+  border: 1px solid #d7e2e8;
+  border-radius: 6px;
+  padding: 8px;
+  background: #fbfcfd;
+}
+.qtyTotals b {
+  display: block;
+  font-size: 1.05rem;
+}
+.notes li {
+  font-size: 0.82rem;
+  color: #475467;
+}
+.reaction td,
+.reaction th {
+  white-space: nowrap;
+}

@@ -173,8 +173,9 @@ describe("stairs: analysis (B1, B2, B3, B4a)", () => {
     const g = sliding.strips[0].geometry;
     const wuF = 1.2 * 7.3671 + 1.6 * 5,
       wuL = 1.2 * (3.6 + 1) + 1.6 * 5;
-    const flight = 10 * 275,
+    const flight = 9 * 275,
       landing = g.length - flight;
+    expect(g.regions.map((r) => r.x1 - r.x0)).toEqual([flight, 1200]);
     expect(w).toBeCloseTo((wuF * flight + wuL * landing) / 1000, 2);
   });
   it("B4a point load P at x on a pinned–sliding flight: ΔR = P(L − x)/L", () => {
@@ -429,5 +430,24 @@ describe("stairs: draft, review and clauses", () => {
     }
     expect(rows.some((c) => /ACI 318-19 7\.5\.1\.1/.test(c.clause))).toBe(true);
     expect(r.engineVersion).toBe("stairs-0.1.0");
+  });
+});
+
+describe("stairs: code basis seam (Code Basis K3/K5)", () => {
+  it("records NSCP 2015 as project standard and calculates per ACI 318-19", async () => {
+    const m = await import("../src");
+    const i = {
+      ...defaultStairsInput(),
+      code: "NSCP 2015" as const,
+      otherCodes: "ASCE 7-16",
+    };
+    expect(m.stairCalculationBasis(i)).toBe("ACI 318-19");
+    expect(m.stairCodeBasisLabel(i)).toBe(
+      "Project standard: NSCP 2015. Calculation basis: ACI 318-19.",
+    );
+    expect(Object.keys(m.stairProvisions)).toEqual(["ACI 318-19"]);
+    const a = analyzeStairs(i),
+      b = analyzeStairs({ ...i, code: "ACI 318-19" });
+    expect(a.checks.map((c) => c.dcr)).toEqual(b.checks.map((c) => c.dcr));
   });
 });
