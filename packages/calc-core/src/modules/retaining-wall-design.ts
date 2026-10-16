@@ -157,6 +157,12 @@ export interface RetainingWallResult {
   uplift: { force: number; x: number };
   passive: { force: number; arm: number; depth: number };
   stability: StabilityCase[] | null;
+  /** Virtual back plane through the heel end (walls with a footing). */
+  plane: {
+    height: number;
+    /** Horizontal pressure of a component at height y above the footing underside, kPa. */
+    pressure: (id: string, y: number) => number;
+  };
   stem: {
     components: { id: string; label: string; kind: PressureKind; base: number; force: number; arm: number }[];
     stations: StemStation[];
@@ -647,6 +653,10 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
     uplift: { force: upliftForce, x: upliftX },
     passive,
     stability,
+    plane: {
+      height: plane.height,
+      pressure: (id, y) => planeComps.find((c) => c.id === id)?.p(plane.height - y) ?? 0,
+    },
     stem: {
       components: stemComps.map((c) => {
         const r = componentResultant(c, H);

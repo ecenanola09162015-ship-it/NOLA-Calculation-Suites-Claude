@@ -265,3 +265,11 @@ describe("schema", () => {
     expect(retainingWallInputSchema.safeParse(j).success).toBe(false);
   });
 });
+
+describe("virtual plane pressure", () => {
+  it("plane soil pressure at the base = Ka γ (H + tf)", () => {
+    const r = designRetainingWall(defaultRetainingWallInput());
+    close(r.plane.pressure("soil", 0), (1 / 3) * 18 * 4.1, 1e-9);
+    close(r.plane.pressure("soil", 4.1), 0, 1e-9);
+  });
+});
