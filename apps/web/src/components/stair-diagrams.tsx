@@ -251,7 +251,7 @@ const midOf = (line: Pt[]) => {
   return line[line.length - 1];
 };
 
-function StripSection({
+export function StripSection({
   i,
   g,
   mirror = false,
@@ -440,7 +440,14 @@ function StripSection({
 }
 
 /** Dog-leg elevation (V4): flight 1 in front, flight 2 behind, as in the 3-D view. */
-export function StairDogLegElevation({ input: i }: { input: StairsInput }) {
+export function StairDogLegElevation({
+  input: i,
+  bare = false,
+}: {
+  input: StairsInput;
+  /** Report figures: the SVG only, without the figure caption. */
+  bare?: boolean;
+}) {
   let geos: StairStripGeometry[];
   try {
     geos = stairGeometry(i);
@@ -462,82 +469,106 @@ export function StairDogLegElevation({ input: i }: { input: StairsInput }) {
   const maxY = Math.max(...ys) + 500,
     minY = Math.min(...ys) - 900;
   const mid1 = g1.supports.find((s) => s.role === "mid");
+  const drawing = (
+    <svg
+      viewBox={`${minX} ${-maxY} ${maxX - minX} ${maxY - minY}`}
+      role="img"
+      aria-label="Dog-leg elevation"
+      className={styles.drawing}
+    >
+      <path
+        d={pathOf(g2.outline.map(back)) + " Z"}
+        fill="#f4f1ea"
+        stroke={INK}
+        strokeWidth={3 * scale}
+        strokeDasharray={`${24 * scale} ${14 * scale}`}
+        data-flight="2"
+      />
+      {g2.supports
+        .filter((s) => s.role !== "mid")
+        .map((s) => (
+          <SupportSymbol
+            key={s.id}
+            s={s}
+            g={g2}
+            i={i}
+            scale={scale}
+            mx={(x) => L1 - x}
+            label={false}
+          />
+        ))}
+      {g1.supports.map((s) => (
+        <SupportSymbol
+          key={s.id}
+          s={s}
+          g={g1}
+          i={i}
+          scale={scale}
+          mx={(x) => x}
+          label={false}
+        />
+      ))}
+      <path
+        d={pathOf(g1.outline) + " Z"}
+        fill="#ece7dd"
+        stroke={INK}
+        strokeWidth={4 * scale}
+        data-flight="1"
+      />
+      <g className={styles.svgDim} style={{ fontSize: 66 * scale }}>
+        <text
+          x={g1.flights[0].xa + 300}
+          y={-(g1.baseLevel + 2 * i.riser) + 260 * scale}
+        >
+          Flight 1 (front) · {g1.flights[0].risers}R ↗
+        </text>
+        <text
+          x={L1 - g2.flights[0].xa - 1400}
+          y={-(g2.baseLevel + g2.flights[0].risers * i.riser) - 150 * scale}
+        >
+          ↖ Flight 2 (behind) · {g2.flights[0].risers}R
+        </text>
+        {mid1 && (
+          <text
+            x={mid1.x}
+            y={-(g1.baseLevel + g1.flights[0].risers * i.riser) - 120 * scale}
+            textAnchor="end"
+          >
+            Mid landing
+          </text>
+        )}
+      </g>
+    </svg>
+  );
+  if (bare) return drawing;
   return (
     <figure className="slabFigure">
       <figcaption>
         DOG-LEG ELEVATION · flight 1 in front, flight 2 behind
       </figcaption>
-      <svg
-        viewBox={`${minX} ${-maxY} ${maxX - minX} ${maxY - minY}`}
-        role="img"
-        aria-label="Dog-leg elevation"
-        className={styles.drawing}
-      >
-        <path
-          d={pathOf(g2.outline.map(back)) + " Z"}
-          fill="#f4f1ea"
-          stroke={INK}
-          strokeWidth={3 * scale}
-          strokeDasharray={`${24 * scale} ${14 * scale}`}
-          data-flight="2"
-        />
-        {g2.supports
-          .filter((s) => s.role !== "mid")
-          .map((s) => (
-            <SupportSymbol
-              key={s.id}
-              s={s}
-              g={g2}
-              i={i}
-              scale={scale}
-              mx={(x) => L1 - x}
-              label={false}
-            />
-          ))}
-        {g1.supports.map((s) => (
-          <SupportSymbol
-            key={s.id}
-            s={s}
-            g={g1}
-            i={i}
-            scale={scale}
-            mx={(x) => x}
-            label={false}
-          />
-        ))}
-        <path
-          d={pathOf(g1.outline) + " Z"}
-          fill="#ece7dd"
-          stroke={INK}
-          strokeWidth={4 * scale}
-          data-flight="1"
-        />
-        <g className={styles.svgDim} style={{ fontSize: 66 * scale }}>
-          <text
-            x={g1.flights[0].xa + 300}
-            y={-(g1.baseLevel + 2 * i.riser) + 260 * scale}
-          >
-            Flight 1 (front) · {g1.flights[0].risers}R ↗
-          </text>
-          <text
-            x={L1 - g2.flights[0].xa - 1400}
-            y={-(g2.baseLevel + g2.flights[0].risers * i.riser) - 150 * scale}
-          >
-            ↖ Flight 2 (behind) · {g2.flights[0].risers}R
-          </text>
-          {mid1 && (
-            <text
-              x={mid1.x}
-              y={-(g1.baseLevel + g1.flights[0].risers * i.riser) - 120 * scale}
-              textAnchor="end"
-            >
-              Mid landing
-            </text>
-          )}
-        </g>
-      </svg>
+      {drawing}
     </figure>
   );
+}
+
+/** Dog-leg: common plan range so both strip sections share the flight-1 axis. */
+export function stairSectionRange(
+  i: StairsInput,
+  geos: StairStripGeometry[],
+): [number, number] | undefined {
+  if (i.stairType !== "dog-leg") return undefined;
+  const at = (g: StairStripGeometry, x: number) =>
+    g.index === 1 ? x : geos[0].length - x;
+  return [
+    Math.min(
+      -400,
+      ...geos.flatMap((g) => g.supports.map((s) => at(g, s.x) - s.bearing)),
+    ) - 300,
+    Math.max(
+      geos[0].length,
+      ...geos.flatMap((g) => g.supports.map((s) => at(g, s.x) + s.bearing)),
+    ) + 400,
+  ];
 }
 
 export function StairSection({
@@ -560,26 +591,7 @@ export function StairSection({
   const dog = i.stairType === "dog-leg";
   // Dog-leg: both strip sections on the flight-1 plan axis, flight 2 mirrored
   // (it returns from the mid landing), matching the plan and the 3-D view.
-  const range: [number, number] | undefined = dog
-    ? [
-        Math.min(
-          -400,
-          ...geos.flatMap((g) =>
-            g.supports.map(
-              (s) => (g.index === 1 ? s.x : geos[0].length - s.x) - s.bearing,
-            ),
-          ),
-        ) - 300,
-        Math.max(
-          geos[0].length,
-          ...geos.flatMap((g) =>
-            g.supports.map(
-              (s) => (g.index === 1 ? s.x : geos[0].length - s.x) + s.bearing,
-            ),
-          ),
-        ) + 400,
-      ]
-    : undefined;
+  const range = stairSectionRange(i, geos);
   return (
     <>
       {dog && <StairDogLegElevation input={i} />}
@@ -626,7 +638,7 @@ export function StairSection({
  * Flight-2 strip drawn on the flight-1 axis: plan X = L1 − x, so its mid
  * landing sits over flight 1's mid landing (V4).
  */
-function StripSectionOnAxis({
+export function StripSectionOnAxis({
   i,
   g,
   L1,
@@ -655,9 +667,12 @@ function StripSectionOnAxis({
 export function StairPlan({
   input: i,
   highlight = null,
+  bare = false,
 }: {
   input: StairsInput;
   highlight?: Highlight;
+  /** Report figures: the SVG only, without the figure caption. */
+  bare?: boolean;
 }) {
   let geos: StairStripGeometry[];
   try {
@@ -680,268 +695,271 @@ export function StairPlan({
   const bandY = (k: number) => (k === 0 ? 0 : B + gap);
   const X = (k: number, x: number) => (k === 0 ? x : L1 - x);
   const markSize = 80 * scale;
+  const drawing = (
+    <svg
+      viewBox={`${minX} ${-450} ${w} ${h}`}
+      role="img"
+      aria-label="Stair plan"
+      className={styles.drawing}
+    >
+      {geos.map((g, k) => (
+        <g key={g.index}>
+          {g.regions.map((r) => {
+            const xa = X(k, r.x0),
+              xb = X(k, r.x1);
+            const mid = /Mid landing/.test(r.label);
+            const src = /Bottom/.test(r.label)
+              ? i.bottomLanding
+              : /Top/.test(r.label)
+                ? i.topLanding
+                : null;
+            const wide = !dog && src && src.width > B ? src.width : B;
+            if (mid && k === 1) return null;
+            return (
+              <rect
+                key={r.label}
+                x={Math.min(xa, xb)}
+                y={mid ? 0 : bandY(k)}
+                width={Math.abs(xb - xa)}
+                height={mid ? 2 * B + gap : r.kind === "landing" ? wide : B}
+                fill={r.kind === "landing" ? "#e3ecf2" : "#f4f1ea"}
+                stroke={INK}
+                strokeWidth={4 * scale}
+              />
+            );
+          })}
+          {g.flights.flatMap((f) =>
+            Array.from({ length: f.risers }, (_, r) => {
+              const x = X(k, f.xa + r * i.going);
+              return (
+                <path
+                  key={`${f.label}${r}`}
+                  d={`M${x} ${bandY(k)} v${B}`}
+                  stroke={INK}
+                  strokeWidth={2 * scale}
+                />
+              );
+            }),
+          )}
+          {/* Top-bar zones across the width */}
+          {(() => {
+            const zones: { set: StairBarSetId; x0: number; x1: number }[] = [];
+            const first = g.index === 1,
+              last = i.stairType === "single" || g.index === 2;
+            for (const s of g.supports) {
+              const set: StairBarSetId =
+                s.role === "bottom" && first
+                  ? "topBottom"
+                  : s.role === "top" && last
+                    ? "topTop"
+                    : "topKnee";
+              const e = i.bars[set].extension;
+              zones.push({
+                set,
+                x0: Math.max(0, s.x - e),
+                x1: Math.min(g.length, s.x + e),
+              });
+            }
+            for (const kn of g.knees) {
+              const e = i.bars.topKnee.extension;
+              zones.push({
+                set: "topKnee",
+                x0: Math.max(0, kn.x - e),
+                x1: Math.min(g.length, kn.x + e),
+              });
+            }
+            return zones.map((z, n) => {
+              const a = X(k, z.x0),
+                b = X(k, z.x1);
+              return (
+                <g
+                  key={`z${n}`}
+                  opacity={dimmed(highlight, z.set)}
+                  data-zone={z.set}
+                >
+                  <rect
+                    x={Math.min(a, b)}
+                    y={bandY(k) + 40}
+                    width={Math.abs(b - a)}
+                    height={B - 80}
+                    fill={stairBarColors[z.set]}
+                    fillOpacity={highlight === z.set ? 0.32 : 0.14}
+                    stroke={stairBarColors[z.set]}
+                    strokeWidth={3 * scale}
+                  />
+                  <Mark
+                    x={(a + b) / 2}
+                    y={bandY(k) + 150 * scale}
+                    text={stairBarMarks[z.set]}
+                    color={stairBarColors[z.set]}
+                    size={markSize}
+                    set={z.set}
+                  />
+                </g>
+              );
+            });
+          })()}
+          {/* Bottom layer: B1 along the run, D1 across */}
+          <g opacity={dimmed(highlight, "mainBottom")}>
+            {[0.25, 0.5, 0.75].map((t) => (
+              <path
+                key={t}
+                d={`M${X(k, 0)} ${bandY(k) + t * B} H${X(k, g.length)}`}
+                stroke={stairBarColors.mainBottom}
+                strokeWidth={(highlight === "mainBottom" ? 12 : 6) * scale}
+                data-bar="mainBottom"
+              />
+            ))}
+            <Mark
+              x={X(k, g.length * 0.18)}
+              y={bandY(k) + 0.25 * B - 30 * scale}
+              text="B1"
+              color={stairBarColors.mainBottom}
+              size={markSize}
+              set="mainBottom"
+            />
+          </g>
+          <g opacity={dimmed(highlight, "distribution")}>
+            {(() => {
+              const count = Math.max(
+                2,
+                Math.floor(
+                  g.length / Math.max(i.bars.distribution.spacing, 1) / 3,
+                ),
+              );
+              return Array.from({ length: count }, (_, n) => {
+                const x = X(k, ((n + 0.5) * g.length) / count);
+                return (
+                  <path
+                    key={n}
+                    d={`M${x} ${bandY(k) + 60} v${B - 120}`}
+                    stroke={stairBarColors.distribution}
+                    strokeWidth={
+                      (highlight === "distribution" ? 10 : 4) * scale
+                    }
+                    data-bar="distribution"
+                  />
+                );
+              });
+            })()}
+            <Mark
+              x={X(k, g.length * 0.82)}
+              y={bandY(k) + B - 60 * scale}
+              text="D1"
+              color={stairBarColors.distribution}
+              size={markSize}
+              set="distribution"
+            />
+          </g>
+          {g.flights.map((f) => {
+            const x0 = X(k, f.xa),
+              x1 = X(k, f.xa + (f.risers - 1) * i.going + i.going * 0.6),
+              y = bandY(k) + B / 2;
+            return (
+              <g key={`up${f.label}`}>
+                <path
+                  d={`M${x0} ${y} L${x1} ${y}`}
+                  stroke="#0a7f6f"
+                  strokeWidth={6 * scale}
+                  markerEnd="url(#stairUp)"
+                />
+                <text
+                  x={(x0 + x1) / 2}
+                  y={y - 40 * scale}
+                  className={styles.svgLabel}
+                  style={{ fontSize: 70 * scale }}
+                  textAnchor="middle"
+                >
+                  UP · {f.label} · {f.risers}R
+                </text>
+              </g>
+            );
+          })}
+          {i.widthMode === "strip" && (
+            <rect
+              x={Math.min(X(k, 0), X(k, g.length))}
+              y={bandY(k) + B / 2 - Math.min(1000, B) / 2}
+              width={g.length}
+              height={Math.min(1000, B)}
+              fill="none"
+              stroke="#0a7f6f"
+              strokeWidth={3 * scale}
+              strokeDasharray={`${30 * scale} ${18 * scale}`}
+            />
+          )}
+        </g>
+      ))}
+      {i.localLoads.map((l) => {
+        const k = dog ? (l.strip ?? 1) - 1 : 0;
+        const st = loadStyles[l.kind];
+        const yc = bandY(k) + B / 2;
+        if (l.kind === "area")
+          return (
+            <rect
+              key={l.id}
+              x={Math.min(X(k, l.x0), X(k, l.x1))}
+              y={yc - Math.min(l.width, B) / 2}
+              width={Math.abs(l.x1 - l.x0)}
+              height={Math.min(l.width, B)}
+              fill={st.fill}
+              fillOpacity={0.3}
+              stroke={st.stroke}
+              strokeWidth={3 * scale}
+            />
+          );
+        if (l.kind === "line")
+          return (
+            <path
+              key={l.id}
+              d={`M${X(k, l.x)} ${bandY(k)} v${B}`}
+              stroke={st.stroke}
+              strokeWidth={12 * scale}
+            />
+          );
+        return (
+          <rect
+            key={l.id}
+            x={X(k, l.x) - 60}
+            y={yc - 60}
+            width={120}
+            height={120}
+            fill={st.fill}
+            stroke={st.stroke}
+          />
+        );
+      })}
+      <defs>
+        <marker
+          id="stairUp"
+          viewBox="0 0 10 10"
+          refX="9"
+          refY="5"
+          markerWidth="6"
+          markerHeight="6"
+          orient="auto-start-reverse"
+        >
+          <path d="M0 0 L10 5 L0 10 z" fill="#0a7f6f" />
+        </marker>
+      </defs>
+      <text
+        x={0}
+        y={totalW + 300}
+        className={styles.svgLabel}
+        style={{ fontSize: 70 * scale }}
+      >
+        Flight width {fmt(B)} mm{dog ? ` · gap ${fmt(gap)} mm` : ""} · B1 along
+        the run, D1 across (bottom layer); shaded: top-bar zones T1–T3
+        {i.widthMode === "strip" ? " · dashed: 1 m design strip" : ""}
+      </text>
+    </svg>
+  );
+  if (bare) return drawing;
   return (
     <figure className="slabFigure">
       <figcaption>
         PLAN{dog ? " · DOG-LEG" : ""} · bottom layer and top-bar zones
       </figcaption>
-      <svg
-        viewBox={`${minX} ${-450} ${w} ${h}`}
-        role="img"
-        aria-label="Stair plan"
-        className={styles.drawing}
-      >
-        {geos.map((g, k) => (
-          <g key={g.index}>
-            {g.regions.map((r) => {
-              const xa = X(k, r.x0),
-                xb = X(k, r.x1);
-              const mid = /Mid landing/.test(r.label);
-              const src = /Bottom/.test(r.label)
-                ? i.bottomLanding
-                : /Top/.test(r.label)
-                  ? i.topLanding
-                  : null;
-              const wide = !dog && src && src.width > B ? src.width : B;
-              if (mid && k === 1) return null;
-              return (
-                <rect
-                  key={r.label}
-                  x={Math.min(xa, xb)}
-                  y={mid ? 0 : bandY(k)}
-                  width={Math.abs(xb - xa)}
-                  height={mid ? 2 * B + gap : r.kind === "landing" ? wide : B}
-                  fill={r.kind === "landing" ? "#e3ecf2" : "#f4f1ea"}
-                  stroke={INK}
-                  strokeWidth={4 * scale}
-                />
-              );
-            })}
-            {g.flights.flatMap((f) =>
-              Array.from({ length: f.risers }, (_, r) => {
-                const x = X(k, f.xa + r * i.going);
-                return (
-                  <path
-                    key={`${f.label}${r}`}
-                    d={`M${x} ${bandY(k)} v${B}`}
-                    stroke={INK}
-                    strokeWidth={2 * scale}
-                  />
-                );
-              }),
-            )}
-            {/* Top-bar zones across the width */}
-            {(() => {
-              const zones: { set: StairBarSetId; x0: number; x1: number }[] =
-                [];
-              const first = g.index === 1,
-                last = i.stairType === "single" || g.index === 2;
-              for (const s of g.supports) {
-                const set: StairBarSetId =
-                  s.role === "bottom" && first
-                    ? "topBottom"
-                    : s.role === "top" && last
-                      ? "topTop"
-                      : "topKnee";
-                const e = i.bars[set].extension;
-                zones.push({
-                  set,
-                  x0: Math.max(0, s.x - e),
-                  x1: Math.min(g.length, s.x + e),
-                });
-              }
-              for (const kn of g.knees) {
-                const e = i.bars.topKnee.extension;
-                zones.push({
-                  set: "topKnee",
-                  x0: Math.max(0, kn.x - e),
-                  x1: Math.min(g.length, kn.x + e),
-                });
-              }
-              return zones.map((z, n) => {
-                const a = X(k, z.x0),
-                  b = X(k, z.x1);
-                return (
-                  <g
-                    key={`z${n}`}
-                    opacity={dimmed(highlight, z.set)}
-                    data-zone={z.set}
-                  >
-                    <rect
-                      x={Math.min(a, b)}
-                      y={bandY(k) + 40}
-                      width={Math.abs(b - a)}
-                      height={B - 80}
-                      fill={stairBarColors[z.set]}
-                      fillOpacity={highlight === z.set ? 0.32 : 0.14}
-                      stroke={stairBarColors[z.set]}
-                      strokeWidth={3 * scale}
-                    />
-                    <Mark
-                      x={(a + b) / 2}
-                      y={bandY(k) + 150 * scale}
-                      text={stairBarMarks[z.set]}
-                      color={stairBarColors[z.set]}
-                      size={markSize}
-                      set={z.set}
-                    />
-                  </g>
-                );
-              });
-            })()}
-            {/* Bottom layer: B1 along the run, D1 across */}
-            <g opacity={dimmed(highlight, "mainBottom")}>
-              {[0.25, 0.5, 0.75].map((t) => (
-                <path
-                  key={t}
-                  d={`M${X(k, 0)} ${bandY(k) + t * B} H${X(k, g.length)}`}
-                  stroke={stairBarColors.mainBottom}
-                  strokeWidth={(highlight === "mainBottom" ? 12 : 6) * scale}
-                  data-bar="mainBottom"
-                />
-              ))}
-              <Mark
-                x={X(k, g.length * 0.18)}
-                y={bandY(k) + 0.25 * B - 30 * scale}
-                text="B1"
-                color={stairBarColors.mainBottom}
-                size={markSize}
-                set="mainBottom"
-              />
-            </g>
-            <g opacity={dimmed(highlight, "distribution")}>
-              {(() => {
-                const count = Math.max(
-                  2,
-                  Math.floor(
-                    g.length / Math.max(i.bars.distribution.spacing, 1) / 3,
-                  ),
-                );
-                return Array.from({ length: count }, (_, n) => {
-                  const x = X(k, ((n + 0.5) * g.length) / count);
-                  return (
-                    <path
-                      key={n}
-                      d={`M${x} ${bandY(k) + 60} v${B - 120}`}
-                      stroke={stairBarColors.distribution}
-                      strokeWidth={
-                        (highlight === "distribution" ? 10 : 4) * scale
-                      }
-                      data-bar="distribution"
-                    />
-                  );
-                });
-              })()}
-              <Mark
-                x={X(k, g.length * 0.82)}
-                y={bandY(k) + B - 60 * scale}
-                text="D1"
-                color={stairBarColors.distribution}
-                size={markSize}
-                set="distribution"
-              />
-            </g>
-            {g.flights.map((f) => {
-              const x0 = X(k, f.xa),
-                x1 = X(k, f.xa + (f.risers - 1) * i.going + i.going * 0.6),
-                y = bandY(k) + B / 2;
-              return (
-                <g key={`up${f.label}`}>
-                  <path
-                    d={`M${x0} ${y} L${x1} ${y}`}
-                    stroke="#0a7f6f"
-                    strokeWidth={6 * scale}
-                    markerEnd="url(#stairUp)"
-                  />
-                  <text
-                    x={(x0 + x1) / 2}
-                    y={y - 40 * scale}
-                    className={styles.svgLabel}
-                    style={{ fontSize: 70 * scale }}
-                    textAnchor="middle"
-                  >
-                    UP · {f.label} · {f.risers}R
-                  </text>
-                </g>
-              );
-            })}
-            {i.widthMode === "strip" && (
-              <rect
-                x={Math.min(X(k, 0), X(k, g.length))}
-                y={bandY(k) + B / 2 - Math.min(1000, B) / 2}
-                width={g.length}
-                height={Math.min(1000, B)}
-                fill="none"
-                stroke="#0a7f6f"
-                strokeWidth={3 * scale}
-                strokeDasharray={`${30 * scale} ${18 * scale}`}
-              />
-            )}
-          </g>
-        ))}
-        {i.localLoads.map((l) => {
-          const k = dog ? (l.strip ?? 1) - 1 : 0;
-          const st = loadStyles[l.kind];
-          const yc = bandY(k) + B / 2;
-          if (l.kind === "area")
-            return (
-              <rect
-                key={l.id}
-                x={Math.min(X(k, l.x0), X(k, l.x1))}
-                y={yc - Math.min(l.width, B) / 2}
-                width={Math.abs(l.x1 - l.x0)}
-                height={Math.min(l.width, B)}
-                fill={st.fill}
-                fillOpacity={0.3}
-                stroke={st.stroke}
-                strokeWidth={3 * scale}
-              />
-            );
-          if (l.kind === "line")
-            return (
-              <path
-                key={l.id}
-                d={`M${X(k, l.x)} ${bandY(k)} v${B}`}
-                stroke={st.stroke}
-                strokeWidth={12 * scale}
-              />
-            );
-          return (
-            <rect
-              key={l.id}
-              x={X(k, l.x) - 60}
-              y={yc - 60}
-              width={120}
-              height={120}
-              fill={st.fill}
-              stroke={st.stroke}
-            />
-          );
-        })}
-        <defs>
-          <marker
-            id="stairUp"
-            viewBox="0 0 10 10"
-            refX="9"
-            refY="5"
-            markerWidth="6"
-            markerHeight="6"
-            orient="auto-start-reverse"
-          >
-            <path d="M0 0 L10 5 L0 10 z" fill="#0a7f6f" />
-          </marker>
-        </defs>
-        <text
-          x={0}
-          y={totalW + 300}
-          className={styles.svgLabel}
-          style={{ fontSize: 70 * scale }}
-        >
-          Flight width {fmt(B)} mm{dog ? ` · gap ${fmt(gap)} mm` : ""} · B1
-          along the run, D1 across (bottom layer); shaded: top-bar zones T1–T3
-          {i.widthMode === "strip" ? " · dashed: 1 m design strip" : ""}
-        </text>
-      </svg>
+      {drawing}
     </figure>
   );
 }

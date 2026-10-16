@@ -267,8 +267,11 @@ function frame(
 export default function Stair3DView({
   input,
   highlight = null,
+  onSnapshot,
 }: {
   input: StairsInput;
+  /** PNG of the current view for the Complete PDF report. */
+  onSnapshot?: (png: string) => void;
   /** Bar set being edited: shown at full strength, others dimmed (V3). */
   highlight?: StairBarSetId | null;
 }) {
@@ -283,6 +286,7 @@ export default function Stair3DView({
     } | null>(null);
   const [error, setError] = useState(""),
     [view, setView] = useState<View>("iso"),
+    [snapshotNote, setSnapshotNote] = useState(""),
     [show, setShow] = useState({
       uniform: true,
       local: true,
@@ -440,6 +444,21 @@ export default function Stair3DView({
             {t}
           </label>
         ))}
+        {onSnapshot && (
+          <button
+            className="suiteSecondary"
+            disabled={!!error}
+            onClick={() => {
+              const st = stage.current;
+              if (!st) return;
+              st.render();
+              onSnapshot(st.renderer.domElement.toDataURL("image/png"));
+              setSnapshotNote("3D view added to the Complete PDF report.");
+            }}
+          >
+            Add 3D view to report
+          </button>
+        )}
       </div>
       {error ? (
         <p className="slabError">{error}</p>
@@ -455,6 +474,7 @@ export default function Stair3DView({
         {model.widthMode === "strip"
           ? " Dashed green lines mark the 1 m design strip."
           : " Full flight width is designed; point and area loads spread over their effective width."}
+        {snapshotNote && ` ${snapshotNote}`}
       </figcaption>
     </figure>
   );

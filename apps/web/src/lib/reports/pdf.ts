@@ -165,7 +165,7 @@ class SimpleOverflow extends Error {}
 export class ReportTooLongError extends Error {
   constructor(module: string, limit: 2 | 3 = 2) {
     super(
-      `The ${module === "Slab Design" ? "Slab" : "Column"} Simple Report Exceeds ${limit === 3 ? "Three" : "Two"} Pages. Shorten Project Descriptions / Remarks Or Select Complete Report.`,
+      `The ${module === "Slab Design" ? "Slab" : module === "Stairs" ? "Stairs" : "Column"} Simple Report Exceeds ${limit === 3 ? "Three" : "Two"} Pages. Shorten Project Descriptions / Remarks Or Select Complete Report.`,
     );
     this.name = "ReportTooLongError";
   }
@@ -666,7 +666,9 @@ async function build(
     data.module === "RC Column"
       ? (data.scopeNote ??
         "Section-Strength Screening Only. Shear / Slenderness / Seismic Tie Compliance Not Evaluated.")
-      : "Immediate Elastic Deflection Screen; Long-Term / Cracked Deflection And Full Anchorage Compliance Require Review.",
+      : data.module === "Stairs"
+        ? `${data.scopeNote ?? ""} Cracked And Long-Term Deflection Calculated; Detailing Screens Require Review.`
+        : "Immediate Elastic Deflection Screen; Long-Term / Cracked Deflection And Full Anchorage Compliance Require Review.",
     ...(data.estimate
       ? ["Estimate Excludes Splices, Couplers, Waste And Bend Deductions."]
       : []),
