@@ -1,6 +1,6 @@
 # Steel column base plate & anchor rod design pilot
 
-The Base Plate launcher card (Steel) opens a live workspace inside the project explorer. The engine lives in `packages/calc-core` (`modules/base-plate.ts`, `modules/base-plate-anchors.ts`, `anchor-rods.ts`, shared `steel-shapes/`); the web workspace, PDF report and save endpoint consume the same versioned inputs (`kind: "base-plate"`, `version: 1`). Saved base plates are `verification-required`. Engine `base-plate-0.1.0`.
+The Base Plate launcher card (Steel) opens a live workspace inside the project explorer. The engine lives in `packages/calc-core` (`modules/base-plate.ts`, `modules/base-plate-anchors.ts`, `anchor-rods.ts`, shared `steel-shapes/`); the web workspace, PDF report and save endpoint consume the same versioned inputs (`kind: "base-plate"`, `version: 1`). Saved base plates are `verification-required`. Engine `base-plate-0.2.0`.
 
 ## Basis
 
@@ -9,6 +9,16 @@ The Base Plate launcher card (Steel) opens a live workspace inside the project e
 - ACI 318-19 Ch. 17: steel (17.6.1, 17.7.1 with grout ×0.80), breakout in tension with h′ef for ≥ 3 near edges (17.6.2), pullout (17.6.3), side-face blowout (17.6.4), adhesive bond and sustained tension (17.6.5, 17.5.2.2), breakout in shear with narrow-member ca1 (17.7.2), pryout (17.7.3), interaction (17.8), minimum geometry (17.9), seismic 0.75 and option (a) ductility (17.10), shear lug (17.11). φ per Table 17.5.3 with Condition A/B and post-installed category.
 - AISC Manual 16th Ed. Table 14-2 holes and washers (≥ 2-1/2 in rule; untabulated sizes "derived" and labelled).
 - NSCP 2015 is recorded as the project standard; calculation follows the editions above (NSCP Sec. 510 / 417 are AISC 360-10 / ACI 318-14 based).
+
+## Design codes and method (engine 0.2.0)
+
+Two primary codes: **Concrete** (ACI 318-19, or NSCP 2015 project on the ACI 318-19 basis) and **Steel** (AISC 360-22 + DG1, or NSCP 2015 project on the AISC 360-22 basis); other editions are listed as Future Development. Drafts saved with one `code` open with both codes set from it.
+
+**LRFD / ASD** (shared `steel-design-method.ts`, reused by later steel modules): LRFD applies φ (bearing 0.65, plate 0.90, weld 0.75, friction 0.75) to factored combinations; ASD applies 1/Ω (2.31, 1.67, 2.00, 2.00) to service combinations (AISC 360-22 B3.2). ACI 318-19 has no ASD, so under ASD the anchor checks (Ch. 17, incl. lug bearing/breakout) use α × ASD demand against φRn, α = 1.6 by default (editable 1.4–2.0, printed in the report).
+
+## Custom column sections
+
+Column source is the AISC database or a custom section: built-up I/H (d, bf, tf, tw), rectangular/square box (H, B, t), round tube (OD, t) or solid bar (H, B; checked as a rectangle with t = B/2). Each maps to the engine families I / HSS-RECT / HSS-ROUND; A, weight, Ix and Iy are shown, invalid proportions (tf ≥ d/2, tw ≥ bf, t ≥ B/2, t ≥ OD/2) stop the analysis with a message, and the report marks the section "Custom (user input)".
 
 ## Inputs
 
@@ -31,7 +41,7 @@ Sign convention: Pu positive in compression; +Mx moves the resultant to +Y (rods
 
 ## Drawings, 3D and report
 
-`lib/base-plate-drawing.ts` produces the plan and Sections A-A / B-B as SVG for both the Layout tab and the PDF (true scale, DG1 critical sections, bearing zone, tension rods, loads). The 3D tab (three.js, loaded with the tab) shows pedestal, grout, plate with holes, column stub from the shape profile, rods with nuts and washers, hooks / adhesive / expansion ends, shear lug, load and moment arrows, a breakout prism and a see-through toggle; a snapshot can be added to the Complete PDF. `lib/base-plate-steps.ts` prints the step-by-step calculation in the Calculations tab and the PDF.
+`lib/base-plate-drawing.ts` (palette A "Engineering": concrete stipple, 45° steel hatching on cut steel, heavy / medium / light line weights) produces the plan and Sections A-A / B-B as SVG for both the Layout tab and the PDF (true scale, DG1 critical sections, bearing zone, tension rods, loads). The 3D tab (three.js, loaded with the tab) shows pedestal, grout, plate with holes, column stub from the shape profile, rods with nuts and washers, hooks / adhesive / expansion ends, shear lug, load and moment arrows, a breakout prism and a see-through toggle; a snapshot can be added to the Complete PDF. `lib/base-plate-steps.ts` prints the step-by-step calculation in the Calculations tab and the PDF.
 
 ## Verification
 

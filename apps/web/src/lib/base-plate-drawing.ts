@@ -13,23 +13,31 @@ import {
   type ComboResult,
 } from "@nola/calc-core";
 
+/** Palette A "Engineering" (user decision 17 Oct 2026): one meaning per colour. */
 const C = {
-  concrete: "#e6e2d8",
-  concreteEdge: "#7b746a",
-  grout: "#cfc8b8",
-  plate: "#c7d2dc",
-  plateEdge: "#2f3e4e",
-  steel: "#4b5868",
-  weld: "#d9640f",
-  rod: "#1f2933",
-  tension: "#c62828",
-  bearing: "#e9a23b",
-  dim: "#4a5563",
-  cut: "#6d28d9",
-  load: "#0b6bcb",
-  text: "#1f2933",
+  concrete: "#eef0f2",
+  concreteEdge: "#8a949e",
+  aggregate: "#b9c0c7",
+  grout: "#d9dde1",
+  plate: "#a9c1d9",
+  plateEdge: "#173a5e",
+  steel: "#24476b",
+  web: "#6f8fb0",
+  hssFace: "#c9d7e6",
+  nut: "#2b3440",
+  washer: "#7c8a99",
+  weld: "#e67e00",
+  rod: "#111111",
+  tension: "#d32f2f",
+  bearing: "#f2b400",
+  dim: "#5b6670",
+  cut: "#00897b",
+  load: "#1565c0",
+  text: "#1b2733",
   white: "#ffffff",
 };
+/** Line weights: heavy (steel outlines), medium (concrete), light (dimensions). */
+const W = { heavy: 1.6, medium: 1.0, light: 0.6 };
 const esc = (s: string) =>
   s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 const n1 = (v: number) => (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1));
@@ -77,7 +85,7 @@ const Ci = (
   extra = "",
 ) =>
   `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${Math.max(r, 0.5).toFixed(1)}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"${extra}/>`;
-const defs = `<defs><marker id="bpArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="${C.load}"/></marker><marker id="bpTick" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M2,8 L8,2" stroke="${C.dim}" stroke-width="1.6"/></marker><pattern id="bpHatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="${C.bearing}" stroke-width="2"/></pattern></defs>`;
+const defs = `<defs><marker id="bpArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="${C.load}"/></marker><marker id="bpTick" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M2,8 L8,2" stroke="${C.dim}" stroke-width="1.6"/></marker><pattern id="bpHatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="${C.bearing}" stroke-width="2"/></pattern><pattern id="bpConcrete" width="16" height="16" patternUnits="userSpaceOnUse"><rect width="16" height="16" fill="${C.concrete}"/><circle cx="3" cy="4" r="0.7" fill="${C.aggregate}"/><circle cx="11" cy="2.5" r="0.5" fill="${C.aggregate}"/><circle cx="8" cy="10" r="0.8" fill="${C.aggregate}"/><circle cx="14" cy="13" r="0.5" fill="${C.aggregate}"/><path d="M2,13 l1.6,-1 l0.6,1.6 z" fill="${C.aggregate}"/><path d="M12,7 l1.4,0.4 l-0.8,1.2 z" fill="${C.aggregate}"/></pattern><pattern id="bpSteelCut" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="5" fill="${C.plate}"/><line x1="0" y1="0" x2="0" y2="5" stroke="${C.plateEdge}" stroke-width="0.7"/></pattern></defs>`;
 const wrap = (w: number, h: number, title: string, body: string) =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" font-family="Arial,Helvetica,sans-serif">${defs}<rect width="${w}" height="${h}" fill="${C.white}"/>${T(w / 2, 16, title, { size: 11, bold: true })}${body}</svg>`;
 /** Dimension line with ticks and centred text (horizontal or vertical). */
@@ -91,7 +99,7 @@ function dim(
 ) {
   const v = Math.abs(x1 - x2) < 0.01;
   const mk = ' marker-start="url(#bpTick)" marker-end="url(#bpTick)"';
-  const ln = `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${C.dim}" stroke-width="0.7"${mk}/>`;
+  const ln = `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${C.dim}" stroke-width="${W.light}"${mk}/>`;
   return v
     ? ln +
         T(x1 + side * 4, (y1 + y2) / 2, label, {
@@ -130,9 +138,9 @@ export function basePlatePlanSvg(
     Y(p.py / 2),
     p.px * s,
     p.py * s,
-    C.concrete,
+    "url(#bpConcrete)",
     C.concreteEdge,
-    1,
+    W.medium,
   );
   b += R(
     X(-i.plate.bx / 2),
@@ -141,7 +149,7 @@ export function basePlatePlanSvg(
     i.plate.by * s,
     C.plate,
     C.plateEdge,
-    1.2,
+    W.heavy,
   );
   // Bearing zone of the selected combination (DG1 uniform block).
   if (combo && combo.case !== "uplift" && combo.case !== "no-solution") {
@@ -382,7 +390,15 @@ export function basePlateSectionSvg(
   const zBottom = zConc + below * s;
   let b = "";
   // Concrete with break line, grout, plate.
-  b += R(X(-P / 2), zConc, P * s, below * s, C.concrete, C.concreteEdge, 1);
+  b += R(
+    X(-P / 2),
+    zConc,
+    P * s,
+    below * s,
+    "url(#bpConcrete)",
+    C.concreteEdge,
+    W.medium,
+  );
   b += `<path d="M${X(-P / 2) - 3},${zBottom} l${(P * s) / 4},-6 l8,12 l${(P * s) / 2 - 8},-10 l${(P * s) / 4 + 6},4" fill="none" stroke="${C.concreteEdge}" stroke-width="0.8"/>`;
   b += R(
     X(-N / 2 - 15),
@@ -398,9 +414,9 @@ export function basePlateSectionSvg(
     zPlateTop,
     N * s,
     i.plate.tp * s,
-    C.plate,
+    "url(#bpSteelCut)",
     C.plateEdge,
-    1.1,
+    W.heavy,
   );
   // Bearing block (combination).
   const ax = combo?.axes.find((q) => q.axis === along);
@@ -447,7 +463,7 @@ export function basePlateSectionSvg(
       top,
       (colW - 2 * t) * s,
       stub * s,
-      "#9aa5b1",
+      C.web,
       C.steel,
       0.6,
     );
@@ -455,10 +471,10 @@ export function basePlateSectionSvg(
       R(X(-colW / 2), top, t * s, stub * s, C.steel) +
       R(X(colW / 2 - t), top, t * s, stub * s, C.steel);
   } else if (i.column.family === "I") {
-    b += R(X(-colW / 2), top, colW * s, stub * s, "#9aa5b1", C.steel, 0.6);
+    b += R(X(-colW / 2), top, colW * s, stub * s, C.web, C.steel, 0.6);
     b += R(X(-i.column.tw / 2), top, i.column.tw * s, stub * s, C.steel);
   } else {
-    b += R(X(-colW / 2), top, colW * s, stub * s, "#d7dde3", C.steel, 0.6);
+    b += R(X(-colW / 2), top, colW * s, stub * s, C.hssFace, C.steel, 0.6);
     b +=
       R(X(-colW / 2), top, t * s, stub * s, C.steel) +
       R(X(colW / 2 - t), top, t * s, stub * s, C.steel);
@@ -498,7 +514,7 @@ export function basePlateSectionSvg(
       zPlateTop - a.washer.thickness * s,
       a.washer.size * s,
       a.washer.thickness * s,
-      "#8d99a6",
+      C.washer,
       C.steel,
       0.5,
     );
@@ -507,7 +523,7 @@ export function basePlateSectionSvg(
       zPlateTop - (a.washer.thickness + 0.9 * a.da) * s,
       F * s,
       0.9 * a.da * s,
-      "#59636e",
+      C.nut,
       C.steel,
       0.5,
     );
@@ -520,7 +536,7 @@ export function basePlateSectionSvg(
         zTip,
         F * s,
         0.9 * a.da * s,
-        "#59636e",
+        C.nut,
         C.steel,
         0.5,
       );

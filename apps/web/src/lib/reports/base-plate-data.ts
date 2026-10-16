@@ -100,6 +100,10 @@ export function basePlateReportData(
   const summary = [
     section("Column, Plate And Pedestal", [
       [
+        "Design Codes / Method",
+        `Concrete ${i.concreteCode}; Steel ${i.steelCode}; ${i.designMethod}${i.designMethod === "ASD" ? ` (anchor checks at ${i.asdAlpha} × ASD demand)` : ""}`,
+      ],
+      [
         "Column",
         `${i.column.designation} (${i.column.shapeType}, ${i.column.source}); Fy ${f(i.column.fy, 0)} MPa; orientation ${i.rotation}°`,
       ],
@@ -247,8 +251,8 @@ export function basePlateReportData(
   return {
     module: "Base Plate",
     title,
-    code: i.code,
-    basis: "AISC 360-22 / AISC DG1 3rd Ed. / ACI 318-19",
+    code: `Concrete: ${i.concreteCode} · Steel: ${i.steelCode} (${i.designMethod})`,
+    basis: `ACI 318-19 Ch. 17 / AISC 360-22 + AISC DG1 3rd Ed. — ${i.designMethod}`,
     project,
     policy,
     remarks,
@@ -283,7 +287,7 @@ export function basePlateReportData(
         "ASTM / ISO",
         "F1554, A36, A193, A449, ISO 898-1 (specified minimum strengths)",
       ],
-      ...(i.code === "NSCP 2015"
+      ...(i.concreteCode === "NSCP 2015" || i.steelCode === "NSCP 2015"
         ? [
             [
               "NSCP 2015",

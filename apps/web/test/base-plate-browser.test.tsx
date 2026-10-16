@@ -66,6 +66,31 @@ describe.skipIf(!CHROME)("base plate workspace in a real browser", () => {
       await page.waitForFunction(() =>
         document.querySelector(".bpDrawing")?.textContent?.includes("HSS8X8"),
       );
+      // Custom section: type → dimensions.
+      await page.getByRole("radio", { name: "Custom section" }).click();
+      await page.getByLabel("Section type").selectOption("tube");
+      await page.getByLabel("Outside diameter OD").fill("273");
+      await page.getByLabel("Wall thickness t").fill("9.3");
+      await page.waitForFunction(() =>
+        document
+          .querySelector(".bpDrawing")
+          ?.textContent?.includes("TUBE 273×9.3"),
+      );
+      if (shots)
+        await page.screenshot({
+          path: `${shots}/bp-custom.png`,
+          fullPage: true,
+        });
+      await page.getByRole("radio", { name: "AISC database" }).click();
+      await page.waitForFunction(() =>
+        document.querySelector(".bpDrawing")?.textContent?.includes("HSS8X8"),
+      );
+      // ASD method.
+      await page.getByLabel("Steel Design Method").selectOption("ASD");
+      expect(
+        await page.getByText("Load Combinations (service, ASD)").count(),
+      ).toBe(1);
+      await page.getByLabel("Steel Design Method").selectOption("LRFD");
       // Anchor type and specification dropdowns.
       await page.getByLabel("Anchor type").selectOption("adhesive");
       expect(await page.getByText("Post-installed product").count()).toBe(1);

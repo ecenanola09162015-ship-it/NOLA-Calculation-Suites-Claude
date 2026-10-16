@@ -103,7 +103,7 @@ export const columnClauses = {
 } as const;
 
 /**
- * Base plate & anchor rods (engine base-plate-0.1.0). Steel side per
+ * Base plate & anchor rods (engine base-plate-0.2.0; LRFD φ / ASD Ω). Steel side per
  * AISC 360-22 + AISC Design Guide 1, 3rd Ed. (2024); anchors per ACI 318-19
  * Chapter 17. Clause numbers to be confirmed against the licensed texts.
  */
@@ -111,10 +111,10 @@ const aisc = (...parts: string[]) => `AISC 360-22 ${parts.join("; ")}`;
 const dg1 = (...parts: string[]) => `AISC DG1 3rd Ed. ${parts.join("; ")}`;
 export const basePlateClauses = {
   bearing: () =>
-    `${aisc("J8, Eq. J8-2, φc = 0.65")}; ${dg1("4.3 uniform bearing")}`,
+    `${aisc("J8, Eq. J8-2, φc = 0.65 / Ωc = 2.31")}; ${dg1("4.3 uniform bearing")}`,
   plate: () =>
-    `${dg1("4.3–4.4 cantilever m, n, λn′; tension interface")}; ${aisc("φb = 0.90")}`,
-  weld: () => aisc("J2.4, Table J2.5, φ = 0.75"),
+    `${dg1("4.3–4.4 cantilever m, n, λn′; tension interface")}; ${aisc("φb = 0.90 / Ωb = 1.67")}`,
+  weld: () => aisc("J2.4, Table J2.5, φ = 0.75 / Ω = 2.00"),
   steelTension: () =>
     ref("17.6.1.2, futa ≤ min(1.9fya, 860 MPa)", "φ Table 17.5.3"),
   steelShear: () =>
@@ -152,11 +152,11 @@ export const basePlateClauses = {
   geometry: () => `${ref("17.9.1, 17.9.2")}; AISC Manual 16th Ed. Table 14-2`,
   memberThickness: () => ref("17.9.4"),
   seismic: () => ref("17.10.5.3(a), 17.10.5.4 (0.75 concrete tension)"),
-  friction: () => dg1("4.5 friction, φ = 0.75"),
+  friction: () => dg1("4.5 friction, φ = 0.75 / Ω = 2.00"),
   lugBearing: () => ref("17.11.2.1, ψbrg,sl, φ = 0.65"),
   lugBreakout: () => ref("17.11.3 (Vb upper-bound expression; verify)"),
   lugFlexure: () =>
-    `${aisc("F11 plastic moment of plate, φb = 0.90")}; ${dg1("4.5 shear lug")}`,
+    `${aisc("F11 plastic moment of plate, φb = 0.90 / Ωb = 1.67")}; ${dg1("4.5 shear lug")}`,
   holes: () =>
     "AISC Manual 16th Ed. Table 14-2; AISC FAQ 7.2.3 (½ in clear to plate edge)",
 } as const;

@@ -23,6 +23,10 @@ export function basePlateSteps(
   c: ComboResult,
 ): Step[] {
   const s: Step[] = [];
+  const lrfd = i.designMethod === "LRFD";
+  const fac = (phi: number, omega: number) =>
+    lrfd ? `φ ${phi}` : `1/Ω (Ω = ${omega})`;
+  const alpha = r.method.anchorDemandFactor;
   const b = r.bearing;
   const L = c.load;
   s.push([
@@ -32,7 +36,7 @@ export function basePlateSteps(
   ]);
   s.push([
     "Bearing strength",
-    `A1 = ${f(i.plate.bx, 0)} × ${f(i.plate.by, 0)} = ${f(b.a1, 0)} mm²; A2 = ${f(b.a2, 0)} mm² (geometrically similar); φc fp,max = 0.65 × 0.85 × ${f(i.pedestal.fc, 1)} × min(√(A2/A1), 2) = 0.5525 × ${f(i.pedestal.fc, 1)} × ${f(b.ratio, 3)} = ${f(b.fpMax, 3)} MPa`,
+    `A1 = ${f(i.plate.bx, 0)} × ${f(i.plate.by, 0)} = ${f(b.a1, 0)} mm²; A2 = ${f(b.a2, 0)} mm² (geometrically similar); ${lrfd ? "φc fp,max" : "fp,max/Ωc"} = ${fac(0.65, 2.31)} × 0.85 × ${f(i.pedestal.fc, 1)} × min(√(A2/A1), 2) = ${f(b.fpMax, 3)} MPa (${i.designMethod})`,
     basePlateClauses.bearing(),
   ]);
   s.push(["Method", c.method, basePlateClauses.bearing()]);
@@ -79,14 +83,14 @@ export function basePlateSteps(
       s.push([
         `Plate, bearing interface ${ax}`,
         a.case === "axial"
-          ? `tp,req = ℓ√(2Pu/(0.9 Fy B N)), ℓ = max(m, n, λn′) = ${f(Math.max(a.m, a.nCant, c.lambdaNp), 1)} mm → ${f(a.tpBearing, 2)} mm`
-          : `ℓ = max(m, n) = ${f(Math.max(a.m, a.nCant), 1)} mm; Mpl = ${a.y >= Math.max(a.m, a.nCant) ? "fp ℓ²/2" : "fp Y (ℓ − Y/2)"}; tp,req = √(4Mpl/(0.9Fy)) = ${f(a.tpBearing, 2)} mm`,
+          ? `tp,req = ℓ√(2P/(${lrfd ? "0.90 Fy" : "Fy/1.67"} B N)), ℓ = max(m, n, λn′) = ${f(Math.max(a.m, a.nCant, c.lambdaNp), 1)} mm → ${f(a.tpBearing, 2)} mm`
+          : `ℓ = max(m, n) = ${f(Math.max(a.m, a.nCant), 1)} mm; Mpl = ${a.y >= Math.max(a.m, a.nCant) ? "fp ℓ²/2" : "fp Y (ℓ − Y/2)"}; tp,req = √(4Mpl/(${lrfd ? "0.90 Fy" : "Fy/1.67"})) = ${f(a.tpBearing, 2)} mm`,
         basePlateClauses.plate(),
       ]);
     if (a.tpTension > 0)
       s.push([
         `Plate, tension interface ${ax}`,
-        `x = f − dcol/2 + tf/2 = ${f(a.x, 1)} mm; beff = ${f(a.beff, 0)} mm (45° from each rod); tp,req = √(4 Tu x/(0.9 Fy beff)) = ${f(a.tpTension, 2)} mm`,
+        `x = f − dcol/2 + tf/2 = ${f(a.x, 1)} mm; beff = ${f(a.beff, 0)} mm (45° from each rod); tp,req = √(4 T x/(${lrfd ? "0.90 Fy" : "Fy/1.67"} beff)) = ${f(a.tpTension, 2)} mm`,
         basePlateClauses.plate(),
       ]);
   }
@@ -100,7 +104,7 @@ export function basePlateSteps(
   const futa = futaUsed(a.fy, a.fu);
   s.push([
     "Rod steel tension",
-    `Ase = ${f(a.ase, 1)} mm²; futa = min(${f(a.fu, 1)}, 1.9 × ${f(a.fy, 1)}, 860) = ${f(futa, 1)} MPa; φNsa = ${a.ductile ? "0.75" : "0.65"} × Ase × futa = ${kN(an.phiNsa)} kN; Nua = ${kN(an.nuaMax)} kN → DCR ${f(an.steelTensionDcr, 3)}`,
+    `Ase = ${f(a.ase, 1)} mm²; futa = min(${f(a.fu, 1)}, 1.9 × ${f(a.fy, 1)}, 860) = ${f(futa, 1)} MPa; φNsa = ${a.ductile ? "0.75" : "0.65"} × Ase × futa = ${kN(an.phiNsa)} kN; Nua = ${alpha !== 1 ? `${alpha} × Ta = ` : ""}${kN(an.nuaMax)} kN → DCR ${f(an.steelTensionDcr, 3)}`,
     basePlateClauses.steelTension(),
   ]);
   if (i.shear.method === "anchors")
@@ -155,7 +159,7 @@ export function basePlateSteps(
   if (c.friction)
     s.push([
       "Friction",
-      `φμPu = 0.75 × ${i.shear.mu} × ${f(Math.max(L.pu, 0), 1)} = ${kN(c.friction.capacity)} kN vs V = ${kN(c.vResultant)} kN → DCR ${f(c.friction.dcr, 3)}`,
+      `${lrfd ? "φμPu" : "μPa/Ω"} = ${fac(0.75, 2.0)} × ${i.shear.mu} × ${f(Math.max(L.pu, 0), 1)} = ${kN(c.friction.capacity)} kN vs V = ${kN(c.vResultant)} kN → DCR ${f(c.friction.dcr, 3)}`,
       basePlateClauses.friction(),
     ]);
   if (c.lug)
@@ -166,7 +170,7 @@ export function basePlateSteps(
     ]);
   s.push([
     "Column weld",
-    `fN = −Pu/Lw + Mx·ymax/Ix + My·xmax/Iy = ${f(c.weld.fN, 0)} N/mm; fV = V/Lw = ${f(c.weld.fV, 0)} N/mm; f = ${f(c.weld.f, 0)} N/mm vs φRn = 0.75 × 0.6 × ${i.weld.fexx} × 0.707 × ${i.weld.size} = ${f(c.weld.capacity, 0)} N/mm → DCR ${f(c.weld.dcr, 3)}`,
+    `fN = −Pu/Lw + Mx·ymax/Ix + My·xmax/Iy = ${f(c.weld.fN, 0)} N/mm; fV = V/Lw = ${f(c.weld.fV, 0)} N/mm; f = ${f(c.weld.f, 0)} N/mm vs ${lrfd ? "φRn" : "Rn/Ω"} = ${fac(0.75, 2.0)} × 0.6 × ${i.weld.fexx} × 0.707 × ${i.weld.size} = ${f(c.weld.capacity, 0)} N/mm → DCR ${f(c.weld.dcr, 3)}`,
     basePlateClauses.weld(),
   ]);
   if (an.ductility)

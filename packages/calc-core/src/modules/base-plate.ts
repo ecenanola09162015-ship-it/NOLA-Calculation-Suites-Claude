@@ -25,6 +25,13 @@ import {
 } from "../anchor-rods";
 import { basePlateClauses } from "../code-clauses";
 import {
+  ASD_TO_STRENGTH_DEFAULT,
+  aiscFactors,
+  designFactor,
+  steelDesignMethods,
+  type SteelDesignMethod,
+} from "../steel-design-method";
+import {
   designCheckPolicySchema,
   designRemarksSchema,
   type DesignCheck,
@@ -55,9 +62,66 @@ import {
   type ShearBreakout,
 } from "./base-plate-anchors";
 
-export const BASE_PLATE_ENGINE = "base-plate-0.1.0";
+export const BASE_PLATE_ENGINE = "base-plate-0.2.0";
 
 export const columnFamilies = ["I", "HSS-RECT", "HSS-ROUND"] as const;
+/** User-defined column sections and the engine family each maps to. */
+export const customColumnTypes = [
+  "built-up-I",
+  "box",
+  "tube",
+  "solid",
+] as const;
+export type CustomColumnType = (typeof customColumnTypes)[number];
+export const customColumnTypeInfo: Record<
+  CustomColumnType,
+  {
+    label: string;
+    family: ColumnFamily;
+    shapeType: string;
+    dims: { key: "d" | "bf" | "tf" | "tw"; label: string }[];
+  }
+> = {
+  "built-up-I": {
+    label: "Built-up I / H section (equal flanges)",
+    family: "I",
+    shapeType: "BU-I",
+    dims: [
+      { key: "d", label: "Depth d" },
+      { key: "bf", label: "Flange width bf" },
+      { key: "tf", label: "Flange thickness tf" },
+      { key: "tw", label: "Web thickness tw" },
+    ],
+  },
+  box: {
+    label: "Rectangular / square box (built-up or tube)",
+    family: "HSS-RECT",
+    shapeType: "BOX",
+    dims: [
+      { key: "d", label: "Depth H" },
+      { key: "bf", label: "Width B" },
+      { key: "tf", label: "Wall thickness t" },
+    ],
+  },
+  tube: {
+    label: "Round tube / pipe",
+    family: "HSS-ROUND",
+    shapeType: "TUBE",
+    dims: [
+      { key: "d", label: "Outside diameter OD" },
+      { key: "tf", label: "Wall thickness t" },
+    ],
+  },
+  solid: {
+    label: "Solid rectangular / square bar",
+    family: "HSS-RECT",
+    shapeType: "BAR",
+    dims: [
+      { key: "d", label: "Depth H" },
+      { key: "bf", label: "Width B" },
+    ],
+  },
+};
 export type ColumnFamily = (typeof columnFamilies)[number];
 
 const pos = z.number().finite().positive();
@@ -78,6 +142,9 @@ export const basePlateColumnSchema = z.object({
   tw: pos,
   fy: pos,
   source: z.string().max(120).default("AISC Shapes Database v16.0"),
+  /** AISC database shape or a user-defined (custom) section. */
+  sectionSource: z.enum(["database", "custom"]).default("database"),
+  customType: z.enum(customColumnTypes).nullable().default(null),
 });
 
 export const basePlateProductSchema = z.object({
@@ -108,9 +175,35 @@ export const basePlateLoadSchema = z.object({
 });
 export type BasePlateLoad = z.infer<typeof basePlateLoadSchema>;
 
-export const basePlateInputSchema = z
+export const concreteDesignCodes = ["ACI 318-19", "NSCP 2015"] as const;
+export const steelDesignCodes = ["AISC 360-22", "NSCP 2015"] as const;
+/** Drafts saved before engine 0.2.0 carry one `code`: map it to both codes. */
+function migrateBasePlateInput(raw: unknown) {
+  if (!raw || typeof raw !== "object") return raw;
+  const r = raw as Record<string, unknown>;
+  if (!("code" in r) || "concreteCode" in r) return raw;
+  const { code, ...rest } = r;
+  return {
+    ...rest,
+    concreteCode: code,
+    steelCode: code === "NSCP 2015" ? "NSCP 2015" : "AISC 360-22",
+  };
+}
+const basePlateInputObject = z
   .object({
-    code: z.enum(["ACI 318-19", "NSCP 2015"]).default("ACI 318-19"),
+    /** Concrete bearing and anchorage (ACI 318-19 Ch. 17). */
+    concreteCode: z.enum(concreteDesignCodes).default("ACI 318-19"),
+    /** Plate, weld and steel checks (AISC 360-22 + DG1). */
+    steelCode: z.enum(steelDesignCodes).default("AISC 360-22"),
+    /** AISC 360-22 B3: LRFD (φ) or ASD (Ω). Loads must match the method. */
+    designMethod: z.enum(steelDesignMethods).default("LRFD"),
+    /** ASD only: ASD demand × α for the ACI 318 anchor checks. */
+    asdAlpha: z
+      .number()
+      .finite()
+      .min(1.4)
+      .max(2)
+      .default(ASD_TO_STRENGTH_DEFAULT),
     /** Documentation only (as Slab / Column). */
     otherCodes: z.string().max(300).default(""),
     column: basePlateColumnSchema,
@@ -179,6 +272,24 @@ export const basePlateInputSchema = z
     }),
     loads: z.array(basePlateLoadSchema).min(1).max(100),
   })
+  .superRefine((i, ctx) => {
+    const c = i.column;
+    const solid = c.sectionSource === "custom" && c.customType === "solid";
+    const bad = (message: string) =>
+      ctx.addIssue({ code: "custom", path: ["column"], message });
+    if (c.family === "I") {
+      if (!(2 * c.tf < c.d))
+        bad("Column: flange thickness tf must be less than d/2.");
+      if (!(c.tw < c.bf)) bad("Column: web thickness tw must be less than bf.");
+    } else if (c.family === "HSS-RECT") {
+      const lim = Math.min(c.d, c.bf) / 2;
+      if (solid ? c.tf > lim + 1e-9 : !(c.tf < lim))
+        bad(
+          "Column: wall thickness t must be less than half the smaller side.",
+        );
+    } else if (!(2 * c.tf < c.d))
+      bad("Column: wall thickness t must be less than OD/2.");
+  })
   .refine(
     (i) => new Set(i.loads.map((l) => l.id)).size === i.loads.length,
     "Load combination labels must be unique.",
@@ -197,7 +308,75 @@ export const basePlateInputSchema = z
     (i) => isCastIn(i.anchors.kind) || i.anchors.product !== null,
     "Post-installed anchors need a product record (ICC-ES ESR / ETA values).",
   );
-export type BasePlateInput = z.infer<typeof basePlateInputSchema>;
+export const basePlateInputSchema = z.preprocess(
+  migrateBasePlateInput,
+  basePlateInputObject,
+);
+export type BasePlateInput = z.infer<typeof basePlateInputObject>;
+
+/** Column built from user-entered dimensions (custom section). */
+export function basePlateCustomColumn(
+  type: CustomColumnType,
+  dims: { d: number; bf: number; tf: number; tw: number },
+  fy: number,
+  designation?: string,
+): BasePlateInput["column"] {
+  const t = customColumnTypeInfo[type];
+  const r = (v: number) => (Number.isFinite(v) ? Math.round(v * 10) / 10 : v);
+  const d = dims.d;
+  let { bf, tf, tw } = dims;
+  if (type === "box") tw = tf;
+  if (type === "tube") {
+    bf = d;
+    tw = tf;
+  }
+  if (type === "solid") {
+    tf = Math.min(d, bf) / 2;
+    tw = tf;
+  }
+  const auto =
+    type === "built-up-I"
+      ? `BU-I ${r(d)}×${r(bf)}×${r(tf)}×${r(tw)}`
+      : type === "box"
+        ? `BOX ${r(d)}×${r(bf)}×${r(tf)}`
+        : type === "tube"
+          ? `TUBE ${r(d)}×${r(tf)}`
+          : `BAR ${r(d)}×${r(bf)}`;
+  return {
+    designation: (designation?.trim() || auto).slice(0, 40),
+    shapeType: t.shapeType,
+    family: t.family,
+    d,
+    bf,
+    tf,
+    tw,
+    fy,
+    source: "Custom (user input)",
+    sectionSource: "custom",
+    customType: type,
+  };
+}
+/** Gross section properties of the column (mm², mm⁴, kg/m; steel 7850 kg/m³). */
+export function basePlateColumnProperties(c: BasePlateInput["column"]) {
+  let a: number, ix: number, iy: number;
+  if (c.family === "I") {
+    const h = c.d - 2 * c.tf;
+    a = 2 * c.bf * c.tf + h * c.tw;
+    ix = (c.bf * c.d ** 3 - (c.bf - c.tw) * h ** 3) / 12;
+    iy = (2 * c.tf * c.bf ** 3 + h * c.tw ** 3) / 12;
+  } else if (c.family === "HSS-RECT") {
+    const hi = Math.max(0, c.d - 2 * c.tf),
+      bi = Math.max(0, c.bf - 2 * c.tf);
+    a = c.d * c.bf - hi * bi;
+    ix = (c.bf * c.d ** 3 - bi * hi ** 3) / 12;
+    iy = (c.d * c.bf ** 3 - hi * bi ** 3) / 12;
+  } else {
+    const di = Math.max(0, c.d - 2 * c.tf);
+    a = (Math.PI / 4) * (c.d ** 2 - di ** 2);
+    ix = iy = (Math.PI / 64) * (c.d ** 4 - di ** 4);
+  }
+  return { a, ix, iy, weight: (a * 7850) / 1e6 };
+}
 
 export const basePlateDraftSchema = z.object({
   kind: z.literal("base-plate"),
@@ -220,6 +399,8 @@ export function basePlateColumnFromShape(
     shapeType: rec.type,
     fy,
     source: "AISC Shapes Database v16.0",
+    sectionSource: "database" as const,
+    customType: null,
   };
   if (rec.group === "I")
     return {
@@ -257,7 +438,10 @@ export const basePlateShapeGroups = ["I", "HSS-RECT", "HSS-ROUND"] as const;
 export function defaultBasePlateInput(): BasePlateInput {
   const da = 25.4;
   return {
-    code: "ACI 318-19",
+    concreteCode: "ACI 318-19",
+    steelCode: "AISC 360-22",
+    designMethod: "LRFD",
+    asdAlpha: ASD_TO_STRENGTH_DEFAULT,
     otherCodes: "",
     column: {
       designation: "W12X40",
@@ -269,6 +453,8 @@ export function defaultBasePlateInput(): BasePlateInput {
       tw: 7.493,
       fy: 345,
       source: "AISC Shapes Database v16.0",
+      sectionSource: "database",
+      customType: null,
     },
     rotation: 0,
     plate: { bx: 450, by: 500, tp: 40, fy: 248 },
@@ -457,7 +643,7 @@ export interface BearingCapacity {
   a1: number;
   a2: number;
   ratio: number;
-  /** φc fp,max, MPa. */
+  /** Available bearing stress: φc fp,max (LRFD) or fp,max/Ωc (ASD), MPa. */
   fpMax: number;
   phiPp: number;
 }
@@ -467,7 +653,12 @@ export function basePlateBearing(i: BasePlateInput): BearingCapacity {
   const s = Math.min(i.pedestal.px / i.plate.bx, i.pedestal.py / i.plate.by);
   const a2 = a1 * s * s;
   const ratio = Math.min(Math.sqrt(a2 / a1), 2);
-  const fpMax = 0.65 * 0.85 * i.pedestal.fc * ratio; // J8-2, ≤ 1.7 f′c via √ ≤ 2
+  // J8-2 (≤ 1.7 f′c via √ ≤ 2) × φc (LRFD) or ÷ Ωc (ASD).
+  const fpMax =
+    designFactor(aiscFactors.bearing, i.designMethod) *
+    0.85 *
+    i.pedestal.fc *
+    ratio;
   return { a1, a2, ratio, fpMax, phiPp: fpMax * a1 };
 }
 
@@ -502,8 +693,12 @@ export interface AxisAnalysis {
 /** Plastic moment per unit width at the bearing interface (DG1 Eq. 4.3-x). */
 export const bearingMpl = (fp: number, y: number, l: number) =>
   y >= l ? (fp * l * l) / 2 : fp * y * (l - y / 2);
-const tpFromMpl = (mpl: number, fy: number) =>
-  Math.sqrt((4 * Math.max(mpl, 0)) / (0.9 * fy));
+/** Plate flexure factor: φb = 0.90 (LRFD) or 1/Ωb = 1/1.67 (ASD). */
+const plateFactor = (i: Pick<BasePlateInput, "designMethod">) =>
+  designFactor(aiscFactors.plateFlexure, i.designMethod);
+/** tp,req = √(4 Mpl / (φb Fy)) or √(4 Mpl Ωb / Fy). */
+const tpFromMpl = (mpl: number, fy: number, fb: number) =>
+  Math.sqrt((4 * Math.max(mpl, 0)) / (fb * fy));
 
 /** Union length of [p−x, p+x] intervals clipped to [−B/2, B/2] (45° spread). */
 function effectiveWidth(positions: number[], x: number, b: number) {
@@ -590,13 +785,13 @@ export function dg1Axis(
       fp,
       tu: 0,
       bearingDcr: fp / cap.fpMax,
-      tpBearing: tpFromMpl((fp * l * l) / 2, fy),
+      tpBearing: tpFromMpl((fp * l * l) / 2, fy, plateFactor(i)),
       tpTension: 0,
     };
   }
   // DG1 4.3: bearing interface with l = max(m, n); Y < l uses fp Y (l − Y/2).
   const bendBearing = (fp: number, y: number) =>
-    tpFromMpl(bearingMpl(fp, y, Math.max(m, nCant)), fy);
+    tpFromMpl(bearingMpl(fp, y, Math.max(m, nCant)), fy, plateFactor(i));
   if (e <= ecrit) {
     const y = n - 2 * e;
     const fp = P / (y * b);
@@ -627,7 +822,7 @@ export function dg1Axis(
     };
   const y = k - Math.sqrt(disc);
   const tu = qmax * y - P;
-  const tpT = x > 0 ? tpFromMpl((tu * x) / beff, fy) : 0;
+  const tpT = x > 0 ? tpFromMpl((tu * x) / beff, fy, plateFactor(i)) : 0;
   return {
     ...base,
     case: "large",
@@ -991,6 +1186,8 @@ function lugCheck(
   v: number,
   pu: number,
   nTension: number,
+  /** ASD: ACI bearing / breakout use α × demand (1 for LRFD). */
+  alpha = 1,
 ): LugCheck {
   const l = i.shear.lug,
     p = i.pedestal;
@@ -1019,16 +1216,16 @@ function lugCheck(
   const phiVcb = 0.7 * (avc / avco) * psiEd * (p.cracked ? 1 : 1.4) * vb;
   // Lug cantilever: load at mid-embedment below the grout.
   const mu = v * (i.grout.thickness + l.depth / 2);
-  const phiMn = 0.9 * l.fy * ((l.width * l.thickness ** 2) / 4);
+  const phiMn = plateFactor(i) * l.fy * ((l.width * l.thickness ** 2) / 4);
   return {
     direction: dir,
     vu: v,
     psiBrg,
     phiVbrg,
-    bearingDcr: v / phiVbrg,
+    bearingDcr: (alpha * v) / phiVbrg,
     ca1,
     phiVcb,
-    breakoutDcr: v / phiVcb,
+    breakoutDcr: (alpha * v) / phiVcb,
     phiMn,
     mu,
     flexureDcr: mu / phiMn,
@@ -1037,6 +1234,16 @@ function lugCheck(
 
 export interface BasePlateResult {
   engine: string;
+  /** Design method and the strength factors applied. */
+  method: {
+    name: SteelDesignMethod;
+    /** Anchor-demand multiplier (ASD α; 1 for LRFD). */
+    anchorDemandFactor: number;
+    bearing: number;
+    plate: number;
+    weld: number;
+    friction: number;
+  };
   rods: Rod[];
   bearing: BearingCapacity;
   combos: ComboResult[];
@@ -1148,7 +1355,15 @@ export function analyzeBasePlate(
       ? rods.map((r) => r.id)
       : rods.filter((_, k) => k % 2 === 0).map((r) => r.id);
   const wg = weldGroup(i);
-  const phiRw = 0.75 * 0.6 * i.weld.fexx * 0.7071 * i.weld.size; // J2.4, N/mm
+  // J2.4: φRn (LRFD) or Rn/Ω (ASD) per unit length, N/mm.
+  const phiRw =
+    designFactor(aiscFactors.weld, i.designMethod) *
+    0.6 *
+    i.weld.fexx *
+    0.7071 *
+    i.weld.size;
+  // ACI 318 has no ASD: anchor checks use α × ASD demand vs φRn.
+  const alpha = i.designMethod === "ASD" ? i.asdAlpha : 1;
   const seismicSdc = ["C", "D", "E", "F"].includes(i.seismic.sdc);
   const combos: ComboResult[] = [];
   for (const load of i.loads.filter((l) => l.included)) {
@@ -1202,7 +1417,10 @@ export function analyzeBasePlate(
             a.b,
           );
           if (a.x > 0 && t > 0)
-            tp = Math.max(tp, tpFromMpl((t * a.x) / beff, i.plate.fy));
+            tp = Math.max(
+              tp,
+              tpFromMpl((t * a.x) / beff, i.plate.fy, plateFactor(i)),
+            );
         }
         axes.push({
           ...a,
@@ -1231,7 +1449,11 @@ export function analyzeBasePlate(
           const ax = dg1Axis(i, rods, cap, "x", P, load.my, 0),
             ay = dg1Axis(i, rods, cap, "y", P, load.mx, 0);
           const bend = (a: AxisAnalysis, y: number) =>
-            tpFromMpl(bearingMpl(fpe, y, Math.max(a.m, a.nCant)), i.plate.fy);
+            tpFromMpl(
+              bearingMpl(fpe, y, Math.max(a.m, a.nCant)),
+              i.plate.fy,
+              plateFactor(i),
+            );
           axes = [
             {
               ...ax,
@@ -1311,7 +1533,13 @@ export function analyzeBasePlate(
     // Friction (DG1): φ = 0.75, μ Pu, compression only; not relied on for E combinations.
     let friction: ComboResult["friction"] = null;
     if (i.shear.method === "friction") {
-      const capF = P > 0 && !seismicApplies ? 0.75 * i.shear.mu * P * 1e3 : 0;
+      const capF =
+        P > 0 && !seismicApplies
+          ? designFactor(aiscFactors.friction, i.designMethod) *
+            i.shear.mu *
+            P *
+            1e3
+          : 0;
       friction = {
         capacity: capF,
         dcr: vRes === 0 ? 0 : capF > 0 ? vRes / capF : Infinity,
@@ -1322,9 +1550,13 @@ export function analyzeBasePlate(
       const nT = tension.filter((t) => t > 0).length;
       const o = i.shear.lug.orientation;
       const cx =
-        o !== "y" ? lugCheck(i, "x", Math.abs(load.vx) * 1e3, P, nT) : null;
+        o !== "y"
+          ? lugCheck(i, "x", Math.abs(load.vx) * 1e3, P * alpha, nT, alpha)
+          : null;
       const cy =
-        o !== "x" ? lugCheck(i, "y", Math.abs(load.vy) * 1e3, P, nT) : null;
+        o !== "x"
+          ? lugCheck(i, "y", Math.abs(load.vy) * 1e3, P * alpha, nT, alpha)
+          : null;
       const dcr = (c: LugCheck | null) =>
         c ? Math.max(c.bearingDcr, c.breakoutDcr, c.flexureDcr) : -1;
       lug = dcr(cx) >= dcr(cy) ? cx : cy;
@@ -1334,14 +1566,15 @@ export function analyzeBasePlate(
       if (o === "y" && Math.abs(load.vx) > 0)
         lug = { ...(lug as LugCheck), bearingDcr: Infinity };
     }
+    // ACI 318 anchor checks: strength-level demand (ASD × α).
     const anchor = anchorChecks(
       i,
       rods,
-      tension,
-      vRes,
-      load.vx,
-      load.vy,
-      P,
+      tension.map((t) => t * alpha),
+      vRes * alpha,
+      load.vx * alpha,
+      load.vy * alpha,
+      P * alpha,
       shearRodIds,
       seismicApplies,
     );
@@ -1386,7 +1619,7 @@ export function analyzeBasePlate(
       c.tpRequired > g.value ? { value: c.tpRequired, combo: c.load.id } : g,
     { value: 0, combo: combos[0]?.load.id ?? "" },
   );
-  if (i.code === "NSCP 2015")
+  if (i.concreteCode === "NSCP 2015" || i.steelCode === "NSCP 2015")
     notes.push(
       "NSCP 2015 recorded as project standard; calculated per AISC 360-22 / DG1 3rd Ed. / ACI 318-19.",
     );
@@ -1406,8 +1639,24 @@ export function analyzeBasePlate(
     notes.push(
       "No welded plate washers: half of the rods assumed to resist shear and breakout checked from the front row (DG1; ACI R17.7.2.1).",
     );
+  if (i.designMethod === "ASD")
+    notes.push(
+      `ASD (AISC 360-22 B3.2): loads are ASD combinations; steel checks use Rn/Ω (Ωc ${aiscFactors.bearing.omega}, Ωb ${aiscFactors.plateFlexure.omega}, Ωw ${aiscFactors.weld.omega}). ACI 318-19 anchor checks have no ASD: demand = ${alpha} × ASD demand vs φRn.`,
+    );
+  if (i.concreteCode !== i.steelCode.replace("AISC 360-22", "ACI 318-19"))
+    notes.push(
+      "Concrete and steel primary design codes differ (one is NSCP 2015); confirm the project's code basis.",
+    );
   return {
     engine: BASE_PLATE_ENGINE,
+    method: {
+      name: i.designMethod,
+      anchorDemandFactor: alpha,
+      bearing: designFactor(aiscFactors.bearing, i.designMethod),
+      plate: plateFactor(i),
+      weld: designFactor(aiscFactors.weld, i.designMethod),
+      friction: designFactor(aiscFactors.friction, i.designMethod),
+    },
     rods,
     bearing: cap,
     combos,
@@ -1470,7 +1719,7 @@ export function basePlateDesignChecks(
       label: "Concrete Bearing",
       dcr: b.dcr,
       clause: basePlateClauses.bearing(),
-      detail: `${b.c.load.id}: ${b.c.method}. fp ${b.c.fp.toFixed(2)} MPa vs φc fp,max ${r.bearing.fpMax.toFixed(2)} MPa (√(A2/A1) = ${r.bearing.ratio.toFixed(3)}).${b.c.case === "large" ? " Large moment: DCR = Y/(f + N/2) (bearing solution margin)." : ""}${b.c.case === "no-solution" ? " No real solution for Y: increase plate size or rod lever arm." : ""}`,
+      detail: `${b.c.load.id}: ${b.c.method}. fp ${b.c.fp.toFixed(2)} MPa vs ${i.designMethod === "LRFD" ? "φc fp,max" : "fp,max/Ωc"} ${r.bearing.fpMax.toFixed(2)} MPa (${i.designMethod}) (√(A2/A1) = ${r.bearing.ratio.toFixed(3)}).${b.c.case === "large" ? " Large moment: DCR = Y/(f + N/2) (bearing solution margin)." : ""}${b.c.case === "no-solution" ? " No real solution for Y: increase plate size or rod lever arm." : ""}`,
     });
   const t = governing(
     cs,
@@ -1483,7 +1732,7 @@ export function basePlateDesignChecks(
       label: "Base Plate Thickness",
       dcr: t.dcr / i.plate.tp,
       clause: basePlateClauses.plate(),
-      detail: `${t.c.load.id}: tp,req ${Number.isFinite(t.dcr) ? t.dcr.toFixed(1) : "—"} mm vs tp ${i.plate.tp.toFixed(1)} mm (Fy ${i.plate.fy} MPa). Suggested ${suggestPlateThickness(t.dcr) ?? "—"} mm.`,
+      detail: `${t.c.load.id}: tp,req ${Number.isFinite(t.dcr) ? t.dcr.toFixed(1) : "—"} mm vs tp ${i.plate.tp.toFixed(1)} mm (Fy ${i.plate.fy} MPa, ${i.designMethod === "LRFD" ? "φb 0.90" : "Ωb 1.67"}). Suggested ${suggestPlateThickness(t.dcr) ?? "—"} mm.`,
     });
   const w = governing(
     cs,
@@ -1496,7 +1745,7 @@ export function basePlateDesignChecks(
       label: "Column-to-Plate Fillet Weld",
       dcr: w.dcr,
       clause: basePlateClauses.weld(),
-      detail: `${w.c.load.id}: f = √(fN² + fV²) = ${w.t.f.toFixed(0)} N/mm vs φRn ${w.t.capacity.toFixed(0)} N/mm (${i.weld.size} mm E${(i.weld.fexx / 6.895).toFixed(0)}, all-around length ${w.t.length.toFixed(0)} mm, compression by bearing).`,
+      detail: `${w.c.load.id}: f = √(fN² + fV²) = ${w.t.f.toFixed(0)} N/mm vs ${i.designMethod === "LRFD" ? "φRn" : "Rn/Ω"} ${w.t.capacity.toFixed(0)} N/mm (${i.weld.size} mm E${(i.weld.fexx / 6.895).toFixed(0)}, all-around length ${w.t.length.toFixed(0)} mm, compression by bearing).`,
     });
   const st = governing(
     cs,
@@ -1663,7 +1912,7 @@ export function basePlateDesignChecks(
         label: "Shear Transfer – Friction",
         dcr: f.dcr,
         clause: basePlateClauses.friction(),
-        detail: `${f.c.load.id}: Vu ${kN(f.c.vResultant)} kN vs φμPu ${kN(f.t.capacity)} kN (μ ${i.shear.mu}; none for uplift or E combinations).`,
+        detail: `${f.c.load.id}: Vu ${kN(f.c.vResultant)} kN vs ${i.designMethod === "LRFD" ? "φμPu" : "μPa/Ω"} ${kN(f.t.capacity)} kN (μ ${i.shear.mu}; none for uplift or E combinations).`,
       });
   }
   if (i.shear.method === "lug") {

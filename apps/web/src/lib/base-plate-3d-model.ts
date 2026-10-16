@@ -104,7 +104,11 @@ export function columnOutline(i: BasePlateInput) {
     ];
     return {
       outer: rect(dims.x, dims.y),
-      inner: rect(dims.x - 2 * c.tf, dims.y - 2 * c.tf),
+      // Solid bar (t = B/2): no inner loop.
+      inner:
+        Math.min(dims.x, dims.y) - 2 * c.tf > 0.5
+          ? rect(dims.x - 2 * c.tf, dims.y - 2 * c.tf)
+          : null,
     };
   }
   // I-shape with flanges facing ±Y at 0° (12-point outline).

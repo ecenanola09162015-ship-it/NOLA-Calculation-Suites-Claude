@@ -105,3 +105,17 @@ da, hef, tcr, tun = 16.0, 150.0, 1.4, 4.5
 cna = 10 * da * sqrt(tun / 7.6)
 Nba = 1.0 * tcr * pi * da * hef
 print("cNa", cna, "Nba_kN", Nba / 1e3)
+
+# --- ASD (AISC 360-22 B3.2): same bench case, Pa = 600 kN axial
+fpa = 0.85 * fc * min(sqrt(A2 / A1), 2) / 2.31
+Ppa = fpa * A1
+Pa = 600e3
+X = 4 * d * bf / (d + bf) ** 2 * Pa / Ppa
+lam = min(1, 2 * sqrt(X) / (1 + sqrt(1 - X)))
+l = max(m, n, lam * sqrt(d * bf) / 4)
+tp_asd = l * sqrt(2 * Pa * 1.67 / (Fy * Bx * By))
+print("ASD fp_avail", fpa, "tp_asd", tp_asd, "weld_avail_8mm", 0.6 * 482 * 0.7071 * 8 / 2.0)
+# --- Built-up I 400 x 200 x 12 x 8
+bd, bb, bt, bw = 400, 200, 12, 8
+hw = bd - 2 * bt
+print("BU-I A", 2 * bb * bt + hw * bw, "Ix", (bb * bd**3 - (bb - bw) * hw**3) / 12, "Iy", (2 * bt * bb**3 + hw * bw**3) / 12)

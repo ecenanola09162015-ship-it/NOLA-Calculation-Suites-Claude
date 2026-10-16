@@ -10,10 +10,8 @@ import dynamic from "next/dynamic";
 import {
   analyzeBasePlate,
   anchorKinds,
-  basePlateColumnFromShape,
   basePlateDesignChecks,
   basePlateDraftSchema,
-  basePlateShapeGroups,
   defaultBasePlateInput,
   defaultDesignCheckPolicy,
   futaUsed,
@@ -48,8 +46,8 @@ import {
   type DraftDuplicate,
 } from "./duplicate-save-prompt";
 import { ConcreteStrengthFields } from "./concrete-strength-fields";
-import { DesignCodeFields } from "./column-materials-fields";
-import { ShapePicker } from "./shape-picker";
+import { BasePlateCodeFields } from "./base-plate-code-fields";
+import { BasePlateColumnFields } from "./base-plate-column-fields";
 
 // three.js is only downloaded when the 3D tab is opened (client-only).
 const BasePlate3DView = dynamic(() => import("./base-plate-3d-view"), {
@@ -503,10 +501,12 @@ export function BasePlateWorkspace({
       </div>
       <p className="slabPilot">
         Development pilot ·{" "}
-        {input.code === "NSCP 2015"
-          ? "Project standard: NSCP 2015. Calculation basis: AISC 360-22, AISC DG1 3rd Ed., ACI 318-19."
-          : "Calculation basis: AISC 360-22, AISC Design Guide 1 3rd Ed., ACI 318-19 Ch. 17."}{" "}
-        Independent engineering review required.
+        {input.concreteCode === "NSCP 2015" || input.steelCode === "NSCP 2015"
+          ? "Project standard: NSCP 2015. "
+          : ""}
+        Calculation basis: concrete ACI 318-19 Ch. 17; steel AISC 360-22 + AISC
+        Design Guide 1 3rd Ed. ({input.designMethod}). Independent engineering
+        review required.
       </p>
       {!project && <p>Create or select a project to save this calculation.</p>}
       {duplicate && (
@@ -529,28 +529,15 @@ export function BasePlateWorkspace({
       <div className="slabGrid">
         <aside className="slabInputs slabPanel">
           <h2>01 · Code & Column</h2>
-          <DesignCodeFields
+          <BasePlateCodeFields
             input={input}
             onChange={(next) => update(next)}
-            engine="section-strength"
           />
-          <ShapePicker
-            value={input.column.designation}
-            groups={basePlateShapeGroups}
-            onSelect={(rec) => {
-              const col = basePlateColumnFromShape(rec, input.column.fy);
-              if (col) update({ ...input, column: col });
-            }}
+          <h3 className="rcSubhead">Column Section</h3>
+          <BasePlateColumnFields
+            column={input.column}
+            onChange={(column) => update({ ...input, column })}
           />
-          <p className="slabMuted">
-            {input.column.shapeType} ·{" "}
-            {input.column.family === "HSS-ROUND"
-              ? `OD ${fmt(input.column.d, 1)} × t ${fmt(input.column.tf, 2)}`
-              : input.column.family === "HSS-RECT"
-                ? `${fmt(input.column.d, 1)} × ${fmt(input.column.bf, 1)} × t ${fmt(input.column.tf, 2)}`
-                : `d ${fmt(input.column.d, 1)} · bf ${fmt(input.column.bf, 1)} · tf ${fmt(input.column.tf, 2)} · tw ${fmt(input.column.tw, 2)}`}{" "}
-            mm · {input.column.source}
-          </p>
           <div className="slabFieldGrid">
             <label className="slabNumeric">
               <span>Orientation</span>
@@ -1265,7 +1252,7 @@ export function BasePlateWorkspace({
             )}
             <p className="slabMuted">
               Hatched: DG1 uniform bearing zone of the shown combination. Dashed
-              violet: DG1 critical sections (0.95d, 0.80bf, 0.95 HSS, 0.80D).
+              teal: DG1 critical sections (0.95d, 0.80bf, 0.95 HSS, 0.80D).
               Red rods are in tension. Sign: +Mx moves the resultant to +Y (rods
               on −Y in tension); +My to +X. Schematic, not fabrication details.
             </p>
@@ -1273,14 +1260,22 @@ export function BasePlateWorkspace({
           <section
             className={`slabPanel ${tab === "calculations" ? "" : "slabScreenHidden"}`}
           >
-            <h2>Load Combinations (factored, LRFD)</h2>
+            <h2>
+              Load Combinations (
+              {input.designMethod === "LRFD"
+                ? "factored, LRFD"
+                : "service, ASD"}
+              )
+            </h2>
             <div className="slabTableWrap">
               <table className="bpLoads">
                 <thead>
                   <tr>
                     <th>Use</th>
                     <th>ID</th>
-                    <th>Pu kN (+C)</th>
+                    <th>
+                      {input.designMethod === "LRFD" ? "Pu" : "Pa"} kN (+C)
+                    </th>
                     <th>Mx kN·m</th>
                     <th>My kN·m</th>
                     <th>Vx kN</th>

@@ -4435,3 +4435,61 @@ input.rcDerived {
   font-family: ui-monospace, monospace;
   font-size: 12px;
 }
+.bpCodes {
+  display: grid;
+  gap: 8px;
+}
+.bpCodeRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+.bpCodeRow label,
+.bpWideLabel {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+}
+.bpWorkspace .bpCodeRow select,
+.bpWorkspace .bpCodeRow input,
+.bpWorkspace .bpWideLabel input {
+  max-width: none;
+  width: 100%;
+}
+.bpSegment {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 4px 0 8px;
+}
+.bpSegment button {
+  border: 0;
+  padding: 5px 12px;
+  font-size: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+.bpSegment button[aria-checked="true"] {
+  background: var(--primary);
+  color: #fff;
+}
+.bpCustom {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 10px;
+  align-items: start;
+}
+.bpSketch {
+  width: 110px;
+  height: auto;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+@media (max-width: 520px) {
+  .bpCustom {
+    grid-template-columns: 1fr;
+  }
+}

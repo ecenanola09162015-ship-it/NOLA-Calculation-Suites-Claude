@@ -59,7 +59,15 @@ describe("base plate workspace", () => {
       "SECTION B-B",
       "DCR-Based Design Checks",
       "Concrete Breakout – Tension",
-      "Calculation basis: AISC 360-22",
+      "Calculation basis: concrete ACI 318-19",
+      "Concrete Primary Design Code",
+      "Steel Primary Design Code",
+      "AISC 360-22 + AISC Design Guide 1, 3rd Ed.",
+      "EN 1993-1-8 — Future Development",
+      "Steel Design Method",
+      "ASD — service loads",
+      "AISC database",
+      "Custom section",
     ])
       expect(html).toContain(s);
     expect(html).not.toContain("NaN");
@@ -89,6 +97,81 @@ describe("base plate workspace", () => {
   });
 });
 
+describe("custom section and ASD in the workspace", () => {
+  it("restores a custom section draft with its type, dimension inputs and properties", async () => {
+    const { basePlateCustomColumn } = await import("@nola/calc-core");
+    const input = {
+      ...defaultBasePlateInput(),
+      designMethod: "ASD" as const,
+      column: basePlateCustomColumn(
+        "box",
+        { d: 250, bf: 200, tf: 10, tw: 0 },
+        345,
+      ),
+    };
+    const html = renderToStaticMarkup(
+      <BasePlateWorkspace
+        cloudReady={false}
+        onSaved={() => {}}
+        draft={{
+          id: "d",
+          projectId: "p",
+          moduleSlug: "base-plate",
+          title: "BP-C",
+          payload: { kind: "base-plate", version: 1, input },
+          verificationStatus: "verification-required",
+          updatedAt: "2026-10-17T00:00:00Z",
+        }}
+      />,
+    );
+    for (const s of [
+      "Section type",
+      "Rectangular / square box",
+      "Depth H",
+      "Width B",
+      "Wall thickness t",
+      'value="BOX 250×200×10"',
+      "Custom (user input)",
+      "Load Combinations (service, ASD)",
+      "Anchor check factor α",
+      "ASD: enter service-level",
+    ])
+      expect(html).toContain(s);
+    expect(html).not.toContain("NaN");
+  });
+  it("opens an old single-code draft with both codes", () => {
+    const { concreteCode: _a, steelCode: _b, ...old } = defaultBasePlateInput();
+    void _a;
+    void _b;
+    const html = renderToStaticMarkup(
+      <BasePlateWorkspace
+        cloudReady={false}
+        onSaved={() => {}}
+        draft={{
+          id: "d",
+          projectId: "p",
+          moduleSlug: "base-plate",
+          title: "BP-OLD",
+          payload: {
+            kind: "base-plate",
+            version: 1,
+            input: { ...old, code: "NSCP 2015" },
+          },
+          verificationStatus: "verification-required",
+          updatedAt: "2026-10-16T00:00:00Z",
+        }}
+      />,
+    );
+    expect(html).toContain(
+      '<option value="NSCP 2015" selected="">NSCP 2015 project — ACI 318-19',
+    );
+    expect(html).toContain(
+      '<option value="NSCP 2015" selected="">NSCP 2015 project — AISC 360-22',
+    );
+    expect(html).toContain("Project standard: NSCP 2015.");
+  });
+});
+
 describe("drawings, 3D model and steps", () => {
   const i = defaultBasePlateInput();
   const r = analyzeBasePlate(i);
@@ -97,6 +180,7 @@ describe("drawings, 3D model and steps", () => {
     const plan = basePlatePlanSvg(i, large);
     expect(plan).toContain("<svg");
     expect(plan).toContain("url(#bpHatch)");
+    expect(plan).toContain("url(#bpConcrete)");
     expect(plan).toContain("kN</text>");
     const a = basePlateSectionSvg(i, "A", large);
     expect(a).toContain("Pu 150.0 kN");
@@ -151,6 +235,7 @@ describe("base plate report", () => {
       png,
     );
     expect(data.module).toBe("Base Plate");
+    expect(data.code).toBe("Concrete: ACI 318-19 · Steel: AISC 360-22 (LRFD)");
     for (const row of data.checks.rows)
       expect(String(row[1])).toMatch(/AISC|ACI|Geometry/);
     for (const fig of data.figures) fig.png ??= png;

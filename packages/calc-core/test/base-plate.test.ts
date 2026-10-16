@@ -438,3 +438,131 @@ describe("load paste", () => {
     );
   });
 });
+
+describe("LRFD / ASD (AISC 360-22 B3)", () => {
+  const asd = (...loads: ReturnType<typeof load>[]): BasePlateInput => ({
+    ...withLoads(...loads),
+    designMethod: "ASD",
+  });
+  it("ASD bearing uses fp,max/Ωc and plate thickness uses Ωb (hand calc 16.249 MPa, tp 27.22 mm)", () => {
+    const r = analyzeBasePlate(asd(load("A", 600)));
+    close(r.bearing.fpMax, 16.24935);
+    close(r.combos[0]!.tpRequired, 27.2171);
+    expect(r.method).toMatchObject({ name: "ASD", anchorDemandFactor: 1.6 });
+  });
+  it("ASD weld strength Rn/Ω (817.97 N/mm for 8 mm E70)", () => {
+    close(
+      analyzeBasePlate(asd(load("A", 600, 0, 0, 10))).combos[0]!.weld.capacity,
+      817.973,
+    );
+  });
+  it("ACI anchor checks take α × ASD demand", () => {
+    const l = analyzeBasePlate(withLoads(load("U", -200))).combos[0]!.anchor;
+    const a = analyzeBasePlate(asd(load("U", -200))).combos[0]!.anchor;
+    close(l.nuaMax, 50000);
+    close(a.nuaMax, 80000);
+    close(a.steelTensionDcr, 1.6 * l.steelTensionDcr);
+  });
+  it("LRFD results are unchanged by the method field", () => {
+    close(
+      analyzeBasePlate(withLoads(load("A", 900))).combos[0]!.tpRequired,
+      27.1899,
+    );
+  });
+});
+
+describe("design codes and custom sections", () => {
+  it("migrates a saved single `code` to both concrete and steel codes", () => {
+    const { concreteCode: _c, steelCode: _s, ...old } = bench();
+    void _c;
+    void _s;
+    const parsed = basePlateDraftSchema.parse({
+      kind: "base-plate",
+      version: 1,
+      input: { ...old, code: "NSCP 2015" },
+    });
+    expect(parsed.input).toMatchObject({
+      concreteCode: "NSCP 2015",
+      steelCode: "NSCP 2015",
+      designMethod: "LRFD",
+    });
+    const aci = basePlateDraftSchema.parse({
+      kind: "base-plate",
+      version: 1,
+      input: { ...old, code: "ACI 318-19" },
+    });
+    expect(aci.input).toMatchObject({
+      concreteCode: "ACI 318-19",
+      steelCode: "AISC 360-22",
+    });
+  });
+  it("builds custom columns with properties (BU-I 400×200×12×8: A 7808 mm²)", async () => {
+    const { basePlateCustomColumn, basePlateColumnProperties } =
+      await import("../src");
+    const c = basePlateCustomColumn(
+      "built-up-I",
+      { d: 400, bf: 200, tf: 12, tw: 8 },
+      345,
+    );
+    expect(c).toMatchObject({
+      family: "I",
+      designation: "BU-I 400×200×12×8",
+      source: "Custom (user input)",
+    });
+    const p = basePlateColumnProperties(c);
+    close(p.a, 7808);
+    close(p.ix, 216148650.67);
+    close(p.iy, 16016042.67);
+    const bar = basePlateCustomColumn(
+      "solid",
+      { d: 300, bf: 200, tf: 0, tw: 0 },
+      250,
+    );
+    expect(bar).toMatchObject({
+      family: "HSS-RECT",
+      tf: 100,
+      designation: "BAR 300×200",
+    });
+    close(basePlateColumnProperties(bar).a, 60000);
+    const tube = basePlateCustomColumn(
+      "tube",
+      { d: 273, bf: 0, tf: 9.3, tw: 0 },
+      245,
+    );
+    expect(tube).toMatchObject({ family: "HSS-ROUND", bf: 273 });
+    expect(analyzeBasePlate({ ...bench(), column: bar }).combos.length).toBe(4);
+  });
+  it("a custom I with W12X40 dimensions matches the database shape", async () => {
+    const { basePlateCustomColumn } = await import("../src");
+    const i = bench();
+    const c = basePlateCustomColumn(
+      "built-up-I",
+      { d: i.column.d, bf: i.column.bf, tf: i.column.tf, tw: i.column.tw },
+      i.column.fy,
+    );
+    close(
+      analyzeBasePlate({ ...i, column: c }).governing.tp.value,
+      analyzeBasePlate(i).governing.tp.value,
+      1e-9,
+    );
+  });
+  it("rejects impossible custom dimensions with a readable message", async () => {
+    const { basePlateCustomColumn } = await import("../src");
+    const bad = basePlateCustomColumn(
+      "built-up-I",
+      { d: 300, bf: 200, tf: 160, tw: 8 },
+      345,
+    );
+    const r = basePlateInputSchema.safeParse({ ...bench(), column: bad });
+    expect(r.success).toBe(false);
+    expect(JSON.stringify(r.error?.issues)).toContain("less than d/2");
+    const box = basePlateCustomColumn(
+      "box",
+      { d: 200, bf: 200, tf: 100, tw: 0 },
+      345,
+    );
+    expect(
+      basePlateInputSchema.safeParse({ ...bench(), column: box }).success,
+    ).toBe(false);
+  });
+});
