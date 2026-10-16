@@ -238,8 +238,62 @@ def purlins():            # I-15 rev 3: C purlins highlighted (blue) on a muted 
 
 
 # ------------------------------------------------------------------ LOADS
-def seismic_loads():      # I-16: 3 storeys + seismic badge
-    s = Scene((-6, -1, -2), (14, 14, 13), margin=0.06)
+def gravity_loads():      # I-25: Gravity Load Planner - tributary area of the interior column + area load
+    L, t, H = 12.0, 0.9, 5.0                # 2x2-bay floor on 9 columns
+    s = Scene((0, 0, -H), (L, L, t + 6.0), margin=0.07)
+    s.contact_shadow([(0, 0), (L, 0), (L, L), (0, L)], -H, 0.08, 110)
+    cs = 1.1; pos = [0.5, L / 2 - cs / 2, L - 0.5 - cs]
+    for i, x in enumerate(pos):
+        for j, y in enumerate(pos):
+            s.box(x, y, -H, cs, cs, H, 'concrete', i * 3 + j)
+    s.box(0, 0, 0, L, L, t, 'concrete', 20, lines=[('e1', 3.0, .04)])
+    a, b = L / 4, 3 * L / 4                 # tributary area = half a bay each way
+    s.face([(a, a, t + 0.01), (b, a, t + 0.01), (b, b, t + 0.01), (a, b, t + 0.01)], (0, 0, 1), 'orange', 7, alpha=0.55)
+    s.polyline([(a, a, t + 0.02), (b, a, t + 0.02), (b, b, t + 0.02), (a, b, t + 0.02)], (0.80, 0.33, 0.06),
+               width=s.W / 200, dash=(14, 9), closed=True)
+    g = [a + 1.2, b - 1.2]
+    for x, y in sorted([(x, y) for x in g for y in g], key=lambda p: p[0] + p[1]):   # back to front
+        s.arrow((x, y, t + 4.6), (x, y, t + 0.1), LOAD, scale=0.85)
+    return s
+
+
+def seismogram(n, burst, seed):
+    """Seismogram trace on u in 0..1: quiet baseline, small P arrivals, sharp S burst at `burst`, decay."""
+    rng = np.random.default_rng(seed); u = np.linspace(0, 1, n); y = np.zeros(n)
+    for i, v in enumerate(u):
+        if v < burst - 0.22: amp = 0.04 + 0.05 * rng.random()
+        elif v < burst - 0.06: amp = 0.18 + 0.12 * rng.random()
+        elif v < burst + 0.06: amp = 0.75 + 0.25 * rng.random()
+        else: amp = max(0.04, 0.95 * math.exp(-(v - burst - 0.06) * 7.5)) * (0.7 + 0.3 * rng.random())
+        y[i] = amp if i % 2 else -amp
+    y[0] = y[-1] = 0
+    return u, y
+
+
+def seismic_sign_below(s, left3, right3, bottom3):
+    """Seismic sign on a white plate tucked under a block: two seismogram bursts running into epicentre rings."""
+    W = s.W; l, r, bot = s.P(left3), s.P(right3), s.P(bottom3)
+    cx = (l[0] + r[0]) / 2; w = (r[0] - l[0]) * 0.86; h = w * 0.30; cy = bot[1] + h * 0.22
+    red = (206, 44, 40, 255)
+    def draw(d):
+        d.rounded_rectangle([cx - w / 2 + 3, cy - h / 2 + 6, cx + w / 2 + 3, cy + h / 2 + 6], radius=h * 0.3, fill=(0, 0, 0, 40))
+        d.rounded_rectangle([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], radius=h * 0.3, fill=(255, 255, 255, 252),
+                            outline=(226, 229, 234, 255), width=2)
+        R = h * 0.40
+        for k in range(4):
+            rk = R * (1 - k * 0.22)
+            d.ellipse([cx - rk, cy - rk, cx + rk, cy + rk], outline=red, width=max(3, int(W / 260 * (1 + k * 0.4))))
+        d.ellipse([cx - R * 0.17, cy - R * 0.17, cx + R * 0.17, cy + R * 0.17], fill=red)
+        x0, x1 = cx - w * 0.44, cx + w * 0.44
+        for xa, xb, flip in ((x0, cx - R * 1.08, False), (cx + R * 1.08, x1, True)):
+            u, y = seismogram(22, 0.75, 5)
+            if flip: u = 1 - u
+            d.line([(xa + (xb - xa) * a, cy - b * h * 0.36) for a, b in zip(u, y)], fill=red, width=int(W / 120), joint='curve')
+    s._layer(draw)
+
+
+def seismic_loads():      # I-16 rev 4: 3 storeys + storey forces; seismic sign below the soil block
+    s = Scene((-6, -1, -2), (14, 14, 13), margin=0.06, extra=[(15, 15, -9.5)])
     s.layered(-1, -1, 15, 15, [(-2, -1, 'clay'), (-1, 0, 'topsoil')], 0)
     for st in range(3):
         z0 = st * 4.2
@@ -248,7 +302,7 @@ def seismic_loads():      # I-16: 3 storeys + seismic badge
         s.box(1, 1, z0 + 3.4, 11, 11, 0.8, 'concrete', st * 10 + 5)
     for z, L in [(4.0, 3.0), (8.2, 5.5), (12.4, 8.0)]:
         s.arrow((3.6 - L, 13, z), (3.6, 13, z), EQ)
-    s.badge_seismic()
+    seismic_sign_below(s, (-1, 15, -2), (15, -1, -2), (15, 15, -2))
     return s
 
 
@@ -442,7 +496,7 @@ ICONS = {
     'rc-column': rc_column, 'slab': slab, 'rc-beam': rc_beam, 'stairs': stairs, 'shear-wall': shear_wall,
     'steel-deck': steel_deck, 'retaining-wall': retaining_wall, 'shallow-foundation': shallow_foundation,
     'pile-cap': pile_cap, 'driven-pile': driven_pile, 'bored-pile': bored_pile, 'steel-column': steel_column,
-    'steel-beam': steel_beam, 'base-plate': base_plate, 'purlins': purlins, 'seismic-loads': seismic_loads,
+    'steel-beam': steel_beam, 'base-plate': base_plate, 'purlins': purlins, 'gravity-loads': gravity_loads, 'seismic-loads': seismic_loads,
     'wind-loads': wind_loads, 'load-combinations': load_combinations, 'soil-bearing-capacity': soil_bearing,
     'pile-bearing-capacity': pile_bearing, 'settlement': settlement, 'slope-stability': slope_stability,
     'liquefaction': liquefaction, 'riprap': riprap,
