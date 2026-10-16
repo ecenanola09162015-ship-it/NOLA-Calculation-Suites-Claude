@@ -21,6 +21,11 @@ const StairWorkspace = dynamic(
   () => import("./stair-workspace").then((m) => m.StairWorkspace),
   { loading: () => <p>Opening stairs workspace…</p> },
 );
+const RetainingWallWorkspace = dynamic(
+  () =>
+    import("./retaining-wall-workspace").then((m) => m.RetainingWallWorkspace),
+  { loading: () => <p>Opening retaining wall workspace…</p> },
+);
 import { ProjectContext, ProjectEditor } from "./project-context";
 import { ProjectExplorer, type RenameResult } from "./project-explorer";
 import { ThemeSwitcher, useLauncherTheme } from "./launcher-theme";
@@ -500,6 +505,19 @@ export function SuiteWorkspace({
             />
           ) : module.slug === "stairs" ? (
             <StairWorkspace
+              key={`${projectId}:${workspaceSession}`}
+              project={project}
+              draft={selectedDraft}
+              cloudReady={cloudReady}
+              onSaved={(item) =>
+                setDrafts((previous) => [
+                  item,
+                  ...previous.filter((d) => d.id !== item.id),
+                ])
+              }
+            />
+          ) : module.slug === "retaining-wall" ? (
+            <RetainingWallWorkspace
               key={`${projectId}:${workspaceSession}`}
               project={project}
               draft={selectedDraft}

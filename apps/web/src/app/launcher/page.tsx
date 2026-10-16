@@ -21,6 +21,7 @@ export default async function LauncherPage({
     ? await Promise.all([listProjects(userId), listCalculationDrafts(userId)])
     : [[], []];
   const requested = (await searchParams).module;
+  const workspaceModule = requested === "retaining-wall" ? requested : undefined;
   return (
     <SuiteWorkspace
       initialModule={
@@ -28,7 +29,7 @@ export default async function LauncherPage({
         requested === "slab" ||
         requested === "stairs"
           ? requested
-          : undefined
+          : workspaceModule
       }
       initialProjects={projects}
       initialDrafts={drafts}

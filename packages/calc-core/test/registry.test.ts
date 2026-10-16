@@ -6,6 +6,7 @@ describe("module registry", () => {
   it("contains the approved pilot modules including slab and stairs", () => {
     expect(getPilotModules().map((module) => module.slug)).toEqual([
       "slab",
+      "retaining-wall",
       "rc-column",
       "stairs",
       "steel-column",

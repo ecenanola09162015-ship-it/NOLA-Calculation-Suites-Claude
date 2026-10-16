@@ -39,7 +39,7 @@ export const uiCatalogue = [
     slug: "retaining-wall",
     name: "Concrete Retaining Wall",
     group: "Concrete",
-    pilot: false,
+    pilot: true,
   },
   {
     slug: "shallow-foundation",

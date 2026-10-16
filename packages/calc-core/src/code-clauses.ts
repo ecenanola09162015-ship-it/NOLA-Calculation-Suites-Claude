@@ -103,6 +103,61 @@ export const columnClauses = {
 } as const;
 
 /**
+ * Retaining wall (engine rwall-0.1.0). † = clause number to be confirmed
+ * against the licensed ACI 318-19 / NSCP 2015 text before release.
+ */
+export const retainingWallClauses = {
+  stemFlexure: () =>
+    ref("13.3.7.1† stem as one-way slab", "7.5.1.1", "22.2, 22.3", "φ Table 21.2.2"),
+  stemShear: () =>
+    ref(
+      "13.3.7.3† critical section at the stem–footing interface",
+      "Table 22.5.5.1(c)",
+      "λs 22.5.5.1.3",
+      "√f′c ≤ 8.3 MPa 22.5.3.1",
+      "φ Table 21.2.1",
+    ),
+  plateFlexure: () =>
+    ref("13.3.7.2† stem as two-way slab (Ch. 8)", "8.5.1.1", "22.2, 22.3", "φ Table 21.2.2", "Wood–Armer design moments"),
+  plateShear: () =>
+    ref("13.3.7.2†", "8.5.3.1.1", "Table 22.5.5.1(c)", "λs 22.5.5.1.3", "√f′c ≤ 8.3 MPa 22.5.3.1", "φ Table 21.2.1"),
+  counterfortFlexure: () =>
+    ref("13.3.7.2† counterfort as tapered T-beam", "flange 6.3.2.1", "22.2, 22.3", "φ Table 21.2.2"),
+  counterfortShear: () =>
+    ref("22.5.1.1", "Vc 22.5.5.1(a)", "Vs 22.5.8.5.3", "Vs ≤ 0.66√f′c bw d 22.5.1.2", "tapered member R9.4.3†", "φ Table 21.2.1"),
+  counterfortTies: () => ref("13.3.7.2†", "direct tension φ = 0.90 Table 21.2.1", "anchorage Ch. 25"),
+  counterfortMin: () => ref("9.6.1.2 / 9.6.1.3 (4/3 As,req)", "Av,min 9.6.3.4"),
+  counterfortHeel: () => ref("13.3.7.2† heel as continuous slab", "7.5.1.1", "22.2, 22.3"),
+  barSpacing: () => ref("25.2.1 (≥ 25 mm, db)"),
+  footingFlexure: () =>
+    ref("13.2.7.1† critical section at the stem face", "7.5.1.1", "22.2, 22.3", "φ Table 21.2.2"),
+  footingShear: () =>
+    ref(
+      "13.2.7.2† critical section",
+      "Table 22.5.5.1(c), λs = 1 (13.2.6.2†)",
+      "√f′c ≤ 8.3 MPa 22.5.3.1",
+      "φ Table 21.2.1",
+    ),
+  minFlexural: () => ref("Table 7.6.1.1", "24.4.3.2"),
+  wallVertical: () => ref("Table 11.6.1 ρℓ"),
+  wallHorizontal: () => ref("11.1.6† / Table 11.6.1 ρt (both faces)"),
+  spacingVertical: () => ref("7.7.2.3 (≤ 3h, 450 mm)"),
+  spacingHorizontal: () => ref("11.7.3.1 (≤ 3h, 450 mm)"),
+  spacingFooting: () => ref("7.7.2.3", "24.4.3.3 (≤ 5h, 450 mm)"),
+  crackControl: () => ref("24.3.2 Table 24.3.2", "fs = 2/3 fy 24.3.2.1"),
+  hook: () => ref("25.4.3.1", "Table 25.4.3.2", "√f′c ≤ 8.3 MPa 25.4.1.4"),
+  lap: () => ref("25.4.2.4", "Class B lap 25.5.2.1"),
+  cutoff: () => ref("7.7.3.3 / 9.7.3.3 extension max(d, 12db)", "9.7.3.4"),
+  overturning: () =>
+    "NSCP 2015 Sec. 307† (IBC 1807.2.3): FS ≥ project value, service loads",
+  sliding: () =>
+    "NSCP 2015 Sec. 307† (IBC 1807.2.3): FS ≥ project value, service loads",
+  bearing: () =>
+    "Allowable bearing (service); e > B/6 triangular contact q = 2V/3a (Das Ch. 13)",
+  eccentricity: () => "Resultant within B/3 of the centre (contact ≥ B/2)",
+} as const;
+
+/**
  * Base plate & anchor rods (engine base-plate-0.2.0; LRFD φ / ASD Ω). Steel side per
  * AISC 360-22 + AISC Design Guide 1, 3rd Ed. (2024); anchors per ACI 318-19
  * Chapter 17. Clause numbers to be confirmed against the licensed texts.

@@ -26,6 +26,12 @@ const clean = (value: string) =>
     .replaceAll("ε", "epsilon")
     .replaceAll("δ", "delta")
     .replaceAll("β", "beta")
+    .replaceAll("γ", "gamma")
+    .replaceAll("μ", "mu")
+    .replaceAll("α", "alpha")
+    .replaceAll("π", "pi")
+    .replaceAll("σ", "sigma")
+    .replaceAll("−", "-")
     .replaceAll("λ", "lambda")
     .replaceAll("Σ", "Sum")
     .replaceAll("∥", "parallel ")
@@ -668,7 +674,9 @@ async function build(
         "Section-Strength Screening Only. Shear / Slenderness / Seismic Tie Compliance Not Evaluated.")
       : data.module === "Stairs"
         ? `${data.scopeNote ?? ""} Cracked And Long-Term Deflection Calculated; Detailing Screens Require Review.`
-        : "Immediate Elastic Deflection Screen; Long-Term / Cracked Deflection And Full Anchorage Compliance Require Review.",
+        : data.module === "Concrete Retaining Wall"
+          ? (data.scopeNote ?? "")
+          : "Immediate Elastic Deflection Screen; Long-Term / Cracked Deflection And Full Anchorage Compliance Require Review.",
     ...(data.estimate
       ? ["Estimate Excludes Splices, Couplers, Waste And Bend Deductions."]
       : []),

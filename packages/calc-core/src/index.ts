@@ -35,3 +35,14 @@ export * from "./modules/base-plate";
 export * from "./modules/base-plate-anchors";
 export * from "./steel-shapes";
 export * from "./steel-design-method";
+
+export * from "./modules/retaining-wall";
+export * from "./modules/retaining-wall-geometry";
+export * from "./modules/retaining-wall-pressure";
+export * from "./modules/retaining-wall-stem";
+export * from "./modules/retaining-wall-design";
+export * from "./modules/retaining-wall-review";
+export * from "./modules/retaining-wall-quantity";
+export * from "./modules/retaining-wall-plate-fe";
+export * from "./modules/retaining-wall-plate";
+export * from "./modules/retaining-wall-counterfort";
