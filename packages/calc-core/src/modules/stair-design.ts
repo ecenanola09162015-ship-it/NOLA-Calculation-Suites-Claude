@@ -124,6 +124,30 @@ export const stairClauses = {
     "Point-load effective width be = b + 2.4x(1 − x/L) (span) or b + 1.2a (overhang), ≤ flight width — design practice (BS 8110 3.5.2 / EN 1992 style), not an ACI rule",
 } as const;
 
+/* ------------------------------------------------------------ code basis */
+/**
+ * Calculation editions implemented by this module (Code Basis decision
+ * K1/K5, 16 Oct 2026: ACI 318-19 now; ACI 318-14 / NSCP 2015 after all
+ * concrete modules, through the shared provisions layer). The project
+ * standard field `code` is recorded and printed; it does not change the
+ * calculation edition until another edition is implemented here.
+ */
+export const stairCodeEditions = ["ACI 318-19"] as const;
+export type StairCodeEdition = (typeof stairCodeEditions)[number];
+export function stairCalculationBasis(
+  i: Pick<StairsInput, "code">,
+): StairCodeEdition {
+  void i.code;
+  return "ACI 318-19";
+}
+/** Label printed in the workspace and report. */
+export function stairCodeBasisLabel(i: Pick<StairsInput, "code">) {
+  const basis = stairCalculationBasis(i);
+  return i.code === "NSCP 2015"
+    ? `Project standard: NSCP 2015. Calculation basis: ${basis}.`
+    : `Calculation basis: ${basis}.`;
+}
+
 /* ------------------------------------------------------------------ schema */
 export const stairTypes = ["single", "dog-leg"] as const;
 export const stairWidthModes = ["strip", "full"] as const;
@@ -220,6 +244,8 @@ export type StairLocalLoad = z.infer<typeof stairLocalLoadSchema>;
 export const stairsInputSchema = z
   .object({
     code: z.enum(["ACI 318-19", "NSCP 2015"]),
+    /** Documentation only — does not change the calculation basis. */
+    otherCodes: z.string().max(300).optional(),
     stairType: z.enum(stairTypes),
     widthMode: z.enum(stairWidthModes),
     fc: z.number().min(FC_ENGINE_MIN).max(FC_ENGINE_MAX),
@@ -246,12 +272,16 @@ export const stairsInputSchema = z
       condition: z.enum(stairBottomSupports),
       /** Bearing (seat) width along the run, mm. */
       bearing: z.number().min(100).max(1500),
+      /** Support beam depth, mm; beam top flush with the finished level (drawings only). */
+      beamDepth: z.number().min(150).max(2000).optional(),
       onGround: z.boolean(),
       footing: footingSchema,
     }),
     topSupport: z.object({
       condition: z.enum(stairEndSupports),
       bearing: z.number().min(100).max(1500),
+      /** Also used for landing-edge supports (drawings only). */
+      beamDepth: z.number().min(150).max(2000).optional(),
     }),
     bars: z.object({
       mainBottom: barSet,
@@ -332,6 +362,8 @@ export const stairsDraftSchema = z.object({
   designPolicy: designCheckPolicySchema.optional(),
   remarks: designRemarksSchema.optional(),
   reviewCompleted: z.boolean().optional(),
+  /** Quantity estimate switched on (decision V2). */
+  estimate: z.object({ enabled: z.boolean() }).optional(),
 });
 export type StairsDraft = z.infer<typeof stairsDraftSchema>;
 
@@ -359,6 +391,7 @@ export function defaultStairsInput(): StairsInput {
     bottomSupport: {
       condition: "Pinned",
       bearing: 250,
+      beamDepth: STAIR_BEAM_DEPTH,
       onGround: false,
       footing: {
         design: false,
@@ -372,7 +405,11 @@ export function defaultStairsInput(): StairsInput {
         bars: { diameter: 12, spacing: 200 },
       },
     },
-    topSupport: { condition: "Pinned", bearing: 250 },
+    topSupport: {
+      condition: "Pinned",
+      bearing: 250,
+      beamDepth: STAIR_BEAM_DEPTH,
+    },
     bars: {
       mainBottom: { diameter: 12, spacing: 150 },
       topBottom: { diameter: 12, spacing: 300, extension: 700 },
@@ -522,6 +559,31 @@ export function stairMinimumThickness(
   const factor = fy === 420 ? 1 : 0.4 + fy / 700;
   return { hmin: (lengthMm / divisor) * factor, divisor, factor };
 }
+/**
+ * Edition-dependent provisions used by this module. Only ACI 318-19 is
+ * implemented; ACI 318-14 (NSCP 2015 basis) is added here — or replaced by
+ * the shared provisions layer — after all concrete modules (Code Basis K1).
+ */
+export interface StairProvisions {
+  oneWayShear: typeof stairOneWayShear;
+  developmentLength: typeof stairDevelopmentLength;
+  hookLength: typeof stairHookLength;
+  minimumThickness: typeof stairMinimumThickness;
+  /** Tension-controlled strain limit used by this suite. */
+  tensionStrain: (fy: number, es: number) => number;
+}
+export const stairProvisions: Record<StairCodeEdition, StairProvisions> = {
+  "ACI 318-19": {
+    oneWayShear: stairOneWayShear,
+    developmentLength: stairDevelopmentLength,
+    hookLength: stairHookLength,
+    minimumThickness: stairMinimumThickness,
+    tensionStrain: (fy, es) => fy / es + 0.003,
+  },
+};
+const prov = (i: Pick<StairsInput, "code">) =>
+  stairProvisions[stairCalculationBasis(i)];
+
 /** Point-load effective width across the stair, mm (L5a, practice). */
 export function stairEffectiveWidth(
   loadWidth: number,
@@ -581,6 +643,15 @@ export interface StairStripGeometry {
   flights: { label: string; xa: number; risers: number; base: number }[];
   /** Concrete outline (steps on top, soffit below), mm, closed polygon. */
   outline: { x: number; y: number }[];
+  /** Stepped top surface, left to right, mm. */
+  top: { x: number; y: number }[];
+  /** Soffit, left to right, mm. */
+  soffit: { x: number; y: number }[];
+  /**
+   * Top reference line, left to right, mm: landing tops and the pitch line
+   * through the inner step corners (top-bar cover is measured from it).
+   */
+  topRef: { x: number; y: number }[];
   /** Strip length on plan, mm. */
   length: number;
 }
@@ -752,16 +823,19 @@ function buildStrip(i: StairsInput, spec: StripSpec): StairStripGeometry {
       if (r < n - 1) top.push({ x: xr + T, y: base + (r + 1) * R });
     }
     const xe = xa + (n - 1) * T;
+    const isLast = k === spec.flights.length - 1;
+    const next = isLast ? spec.end : f.after;
+    const landingLength = next ? next.length : 0;
+    // n risers, n − 1 treads: the stepped length ends at the last riser line
+    // xe when a landing follows (its top is the last tread); without a
+    // landing the waist bears one going beyond xe.
     regions.push({
       x0: xa,
-      x1: xa + n * T,
+      x1: next && landingLength > 0 ? xe : xe + T,
       dead: flightDead,
       kind: "flight",
       label: f.label,
     });
-    const isLast = k === spec.flights.length - 1;
-    const next = isLast ? spec.end : f.after;
-    const landingLength = next ? next.length : 0;
     if (!next || landingLength === 0) {
       // no landing: waist bears one going beyond the last riser line
       const end = { x: xe + T, y: base + n * R - t / (2 * cos) };
@@ -802,7 +876,7 @@ function buildStrip(i: StairsInput, spec: StripSpec): StairStripGeometry {
         h: tl,
       });
       regions.push({
-        x0: xa + n * T,
+        x0: xe,
         x1: xEnd,
         dead: landingDead(tl),
         kind: "landing",
@@ -828,7 +902,7 @@ function buildStrip(i: StairsInput, spec: StripSpec): StairStripGeometry {
         h: tl,
       });
       regions.push({
-        x0: xa + n * T,
+        x0: xe,
         x1: xa2,
         dead: landingDead(tl),
         kind: "landing",
@@ -877,7 +951,22 @@ function buildStrip(i: StairsInput, spec: StripSpec): StairStripGeometry {
   add(spec.start, startX, "start");
   add(spec.end, endX, "end");
   supports.sort((a, b) => a.x - b.x);
+  const soffitLR = soffit.map((p) => ({ ...p }));
   const outline = [...top, ...soffit.reverse()];
+  const ref: { x: number; y: number }[] = [{ x: 0, y: spec.base }];
+  for (const f of flights)
+    ref.push(
+      { x: f.xa, y: f.base },
+      { x: f.xa + f.risers * T, y: f.base + f.risers * R },
+    );
+  const lastLevel = ref[ref.length - 1].y;
+  ref.push({ x: endX, y: lastLevel });
+  const topRef = ref.filter(
+    (p, k) =>
+      k === 0 ||
+      Math.abs(p.x - ref[k - 1].x) > 1e-6 ||
+      Math.abs(p.y - ref[k - 1].y) > 1e-6,
+  );
   return {
     index: spec.index,
     label: spec.label,
@@ -889,6 +978,9 @@ function buildStrip(i: StairsInput, spec: StripSpec): StairStripGeometry {
     regions,
     flights,
     outline,
+    top: top.map((p) => ({ ...p })),
+    soffit: soffitLR,
+    topRef,
     length: endX,
   };
 }
@@ -923,6 +1015,24 @@ export interface StairStation {
   topSet: StairTopSetId | null;
 }
 export type StairTopSetId = "topBottom" | "topTop" | "topKnee";
+export type StairBarSetId = keyof StairsInput["bars"];
+/** Bar marks shared by checks, drawings, 3-D view and the bar schedule. */
+export const stairBarMarks: Record<StairBarSetId, string> = {
+  mainBottom: "B1",
+  topBottom: "T1",
+  topTop: "T2",
+  topKnee: "T3",
+  distribution: "D1",
+};
+export const stairBarLabels: Record<StairBarSetId, string> = {
+  mainBottom: "main bottom bars",
+  topBottom: "top bars · bottom support",
+  topTop: "top bars · top support",
+  topKnee: "top bars · knees / landing supports",
+  distribution: "distribution bars",
+};
+/** Default support-beam depth (decision V1: beam top flush with the landing / floor). */
+export const STAIR_BEAM_DEPTH = 500;
 export interface StairReaction {
   support: StairSupportDef;
   /** Per metre width. Vertical up +, horizontal (+x) +, moment CCW +. */
@@ -989,6 +1099,8 @@ export interface StairFootingResult {
   dowelAvailable: number;
 }
 export interface StairCheck extends DesignCheck {
+  /** Review heading: "Flight 1", "Flight 2", "Reinforcement (all flights)", "Detailing", "Foundation". */
+  section: string;
   group:
     | "Flexure"
     | "Shear"
@@ -1442,14 +1554,24 @@ export function analyzeStairs(raw: StairsInput): StairsResult {
   }
 
   // global reinforcement checks
-  checks.push(...reinforcementChecks(i, geos));
+  checks.push(
+    ...reinforcementChecks(i, geos).map((c) => ({
+      ...c,
+      section: "Reinforcement (all flights)",
+    })),
+  );
   // footing
   let footing: StairFootingResult | null = null;
   if (i.bottomSupport.onGround) {
     const bottom = strips[0].reactions.find((r) => r.support.role === "bottom");
     if (bottom && i.bottomSupport.footing.design) {
       footing = footingDesign(i, bottom);
-      checks.push(...footingChecks(i, footing));
+      checks.push(
+        ...footingChecks(i, footing).map((c) => ({
+          ...c,
+          section: "Foundation",
+        })),
+      );
     } else if (bottom) {
       notes.push(
         `Bottom support on ground, footing by others: service reaction ${bottom.service.v.toFixed(2)} kN/m (D ${bottom.dead.v.toFixed(2)}, L ${bottom.live.v.toFixed(2)}), factored max ${bottom.factored.vMax.toFixed(2)} kN/m (${bottom.factored.combination})${widthM ? `; × ${widthM.toFixed(2)} m flight width = ${(bottom.service.v * widthM).toFixed(1)} kN service` : ""}.`,
@@ -1460,7 +1582,9 @@ export function analyzeStairs(raw: StairsInput): StairsResult {
         "Bottom end bears on ground while the top end is suspended: differential settlement can crack the top support region — confirm the founding level and detail accordingly.",
       );
   }
-  checks.push(...detailingChecks(i, geos));
+  checks.push(
+    ...detailingChecks(i, geos).map((c) => ({ ...c, section: "Detailing" })),
+  );
   // advisories and seismic
   const lim = i.geometryLimits,
     blondel = 2 * i.riser + i.going;
@@ -1503,7 +1627,7 @@ export function analyzeStairs(raw: StairsInput): StairsResult {
     );
   notes.push(
     `Concentrated tread load (${stairClauses.treadLoad()}) is not checked in v1; it rarely governs a waist-type RC stair.`,
-    `Analysis: ${stairClauses.analysis()}; 1 m strip on the true centreline geometry with gross EcIg for strength. Loads are applied per plan length; the steps' self-weight γR/2 is applied over the stepped length only.`,
+    `Analysis: ${stairClauses.analysis()}; 1 m strip on the true centreline geometry with gross EcIg for strength. Loads are applied per plan length; the steps' self-weight γR/2 is applied over the stepped length only (n − 1 treads; the landing top is the last tread).`,
     `Load combinations: ${stairClauses.combinations()}.`,
     i.widthMode === "full"
       ? `Full-width mode: results per metre; reactions and quantities × flight width ${i.flightWidth} mm. Point and area loads use an effective width be (${stairClauses.effectiveWidth()}).`
@@ -1688,7 +1812,7 @@ function blankSpan(
 ): StairSpanResult {
   const inside = stations.filter((s) => s.x >= x0 - 1e-6 && s.x <= x1 + 1e-6);
   const hProvided = Math.min(...inside.map((s) => s.h));
-  const { hmin } = stairMinimumThickness(developed, ends, i.fy);
+  const { hmin } = prov(i).minimumThickness(developed, ends, i.fy);
   void g;
   return {
     label,
@@ -1814,6 +1938,30 @@ function maxBy<T>(xs: T[], f: (x: T) => number) {
 }
 const fmt = (v: number, d = 2) => (Number.isFinite(v) ? v.toFixed(d) : "∞");
 
+const slug = (t: string) =>
+  t.toLowerCase().replace(/\W+/g, "-").replace(/^-|-$/g, "");
+/**
+ * Review heading of each strip piece (decision: one heading per flight).
+ * Dog-leg: one heading per strip ("Flight 1" with its mid landing, "Flight 2"
+ * with the mid and top landings). Single span: each flight with the landing
+ * after it; a bottom landing goes with Flight 1.
+ */
+function pieceSections(i: StairsInput, g: StairStripGeometry) {
+  let n = 0;
+  return g.pieces.map((p) => {
+    if (i.stairType === "dog-leg")
+      return {
+        section: `Flight ${g.index}`,
+        name: p.kind === "flight" ? "Waist" : p.label,
+      };
+    if (p.kind === "flight") n++;
+    return {
+      section: `Flight ${Math.max(1, n)}`,
+      name: p.kind === "flight" ? "Waist" : p.label,
+    };
+  });
+}
+
 function stripChecks(
   i: StairsInput,
   g: StairStripGeometry,
@@ -1822,7 +1970,7 @@ function stripChecks(
   pointXs: number[],
 ): StairCheck[] {
   const out: StairCheck[] = [];
-  const tag = i.stairType === "single" ? "" : `${g.label} · `;
+  const meta = pieceSections(i, g);
   const fcCache = new Map<string, ReturnType<typeof strength>>();
   const cap = (as: number, h: number, face: "bottom" | "top", db: number) => {
     const k = `${as}|${h}|${face}|${db}`;
@@ -1831,11 +1979,12 @@ function stripChecks(
   };
   const bottom = i.bars.mainBottom,
     asB = stairBarArea(bottom);
-  for (const kind of ["flight", "landing"] as const) {
-    const st = stations.filter((s) => s.kind === kind);
-    if (!st.length) continue;
-    const name = kind === "flight" ? "Waist" : "Landings";
-    // +M
+  // Flexure per piece (waist, each landing).
+  g.pieces.forEach((piece, pi) => {
+    const st = stations.filter((s) => s.piece === pi);
+    if (!st.length) return;
+    const { section, name } = meta[pi];
+    const key = `s${g.index}:${slug(piece.label)}`;
     const pos = maxBy(st, (s) =>
       s.mPos > 0
         ? s.mPos /
@@ -1845,62 +1994,80 @@ function stripChecks(
     if (pos.item && pos.item.mPos > 1e-3) {
       const c = cap(asB, pos.item.h, "bottom", bottom.diameter);
       out.push({
-        id: `s${g.index}:${kind}:flexure-pos`,
+        id: `${key}:flexure-pos`,
+        section,
         group: "Flexure",
-        label: `${tag}${name} · Flexure +M (bottom bars)`,
+        label: `${name} · Flexure +M (B1 bottom bars)`,
         dcr: c.phiMn > 0 ? pos.item.mPos / c.phiMn : Infinity,
         clause: stairClauses.flexure(),
         detail: `Mu = ${fmt(pos.item.mPos)} kN·m/m at x = ${fmt(pos.item.x / 1000)} m vs φMn = ${fmt(c.phiMn)} kN·m/m (As ${fmt(asB, 0)} mm²/m, d ${fmt(c.d, 1)} mm, h ${pos.item.h} mm, φ ${fmt(c.phi, 3)}).`,
       });
       out.push({
-        id: `s${g.index}:${kind}:strain-pos`,
+        id: `${key}:strain-pos`,
+        section,
         group: "Flexure",
-        label: `${tag}${name} · Tension-Controlled Strain (bottom)`,
-        dcr: c.strain > 0 ? (i.fy / i.es + 0.003) / c.strain : Infinity,
+        label: `${name} · Tension-Controlled Strain (B1)`,
+        dcr:
+          c.strain > 0
+            ? prov(i).tensionStrain(i.fy, i.es) / c.strain
+            : Infinity,
         clause: stairClauses.strain(),
         detail: `εt = ${fmt(c.strain, 4)} vs εty + 0.003 = ${fmt(i.fy / i.es + 0.003, 4)}.`,
       });
     }
-    // −M
+    // −M, one check per top-bar zone (T1 bottom support, T2 top support,
+    // T3 knees / landing supports) so each set is judged on its own zone.
     const negSt = st.filter((s) => s.mNeg < -1e-3);
-    if (negSt.length) {
-      const capNeg = (s: StairStation) => {
-        if (!s.topSet)
-          return { phiMn: 0, d: 0, phi: 0, strain: 0 } as ReturnType<
-            typeof strength
-          >;
-        const set = i.bars[s.topSet];
-        return cap(stairBarArea(set), s.h, "top", set.diameter);
-      };
-      const neg = maxBy(negSt, (s) => {
-        const c = capNeg(s);
-        return c.phiMn > 0 ? -s.mNeg / c.phiMn : Infinity;
-      });
-      const s = neg.item!;
-      const c = capNeg(s);
+    const groups = new Map<StairTopSetId | "none", StairStation[]>();
+    for (const s of negSt) {
+      const k = s.topSet ?? "none";
+      groups.set(k, [...(groups.get(k) ?? []), s]);
+    }
+    for (const [set, list] of groups) {
+      if (set === "none") {
+        const s = list.reduce((a, b) => (b.mNeg < a.mNeg ? b : a));
+        out.push({
+          id: `${key}:flexure-neg:none`,
+          section,
+          group: "Flexure",
+          label: `${name} · Hogging Beyond Top-Bar Zones`,
+          dcr: Infinity,
+          clause: stairClauses.flexure(),
+          invalidLabel: "Hogging Beyond Top-Bar Cut-Off",
+          detail: `Hogging Mu = ${fmt(s.mNeg)} kN·m/m at x = ${fmt(s.x / 1000)} m where no top bars are provided — extend the nearest top-bar zone.`,
+        });
+        continue;
+      }
+      const bar = i.bars[set];
+      const capOf = (s: StairStation) =>
+        cap(stairBarArea(bar), s.h, "top", bar.diameter);
+      const s = maxBy(list, (x) => {
+        const c = capOf(x);
+        return c.phiMn > 0 ? -x.mNeg / c.phiMn : Infinity;
+      }).item!;
+      const c = capOf(s);
       out.push({
-        id: `s${g.index}:${kind}:flexure-neg`,
+        id: `${key}:flexure-neg:${set}`,
+        section,
         group: "Flexure",
-        label: `${tag}${name} · Flexure −M (top bars)`,
+        label: `${name} · Flexure −M (${stairBarMarks[set]} ${stairBarLabels[set]})`,
         dcr: c.phiMn > 0 ? -s.mNeg / c.phiMn : Infinity,
         clause: stairClauses.flexure(),
-        invalidLabel: "Hogging Beyond Top-Bar Cut-Off",
-        detail: s.topSet
-          ? `Mu = ${fmt(s.mNeg)} kN·m/m at x = ${fmt(s.x / 1000)} m vs φMn = ${fmt(c.phiMn)} kN·m/m (${s.topSet}, d ${fmt(c.d, 1)} mm, h ${s.h} mm).`
-          : `Hogging Mu = ${fmt(s.mNeg)} kN·m/m at x = ${fmt(s.x / 1000)} m where no top bars are provided — extend the top bars.`,
+        detail: `Mu = ${fmt(s.mNeg)} kN·m/m at x = ${fmt(s.x / 1000)} m vs φMn = ${fmt(c.phiMn)} kN·m/m (${stairBarMarks[set]} Ø${bar.diameter} @ ${bar.spacing}, d ${fmt(c.d, 1)} mm, h ${s.h} mm).`,
       });
-      if (s.topSet && c.strain > 0)
+      if (c.strain > 0)
         out.push({
-          id: `s${g.index}:${kind}:strain-neg`,
+          id: `${key}:strain-neg:${set}`,
+          section,
           group: "Flexure",
-          label: `${tag}${name} · Tension-Controlled Strain (top)`,
-          dcr: (i.fy / i.es + 0.003) / c.strain,
+          label: `${name} · Tension-Controlled Strain (${stairBarMarks[set]})`,
+          dcr: prov(i).tensionStrain(i.fy, i.es) / c.strain,
           clause: stairClauses.strain(),
           detail: `εt = ${fmt(c.strain, 4)} vs εty + 0.003 = ${fmt(i.fy / i.es + 0.003, 4)}.`,
         });
     }
-  }
-  // shear at d from support faces (7.4.3.2), knees and point loads included
+  });
+  // Shear at d from support faces (7.4.3.2) and axial screen, per heading.
   const zones = g.supports.map((s) => {
     const dd = i.waist - i.bottomCover - bottom.diameter / 2;
     const pointInside = pointXs.some(
@@ -1912,9 +2079,6 @@ function stripChecks(
       pointInside,
     };
   });
-  const shearSt = stations.filter(
-    (s) => !zones.some((z) => Math.abs(s.x - z.x) < z.half - 1e-6),
-  );
   const shearCap = (s: StairStation) => {
     const face = s.vuMomentSign >= 0 ? "bottom" : "top";
     const set = face === "bottom" ? bottom : s.topSet ? i.bars[s.topSet] : null;
@@ -1923,50 +2087,64 @@ function stripChecks(
       s.h -
       (face === "bottom" ? i.bottomCover : i.topCover) -
       (set?.diameter ?? 12) / 2;
-    return { ...stairOneWayShear(i.fc, as, d, s.h, -s.nuTension), d, face };
+    return { ...prov(i).oneWayShear(i.fc, as, d, s.h, -s.nuTension), d, face };
   };
-  const sh = maxBy(shearSt, (s) =>
-    s.vu > 0 ? s.vu / Math.max(1e-9, shearCap(s).phiVc) : 0,
-  );
-  if (sh.item) {
-    const c = shearCap(sh.item);
-    out.push({
-      id: `s${g.index}:shear`,
-      group: "Shear",
-      label: `${tag}One-Way Shear`,
-      dcr: c.phiVc > 0 ? sh.item.vu / c.phiVc : Infinity,
-      clause: stairClauses.shear(),
-      detail: `Vu = ${fmt(sh.item.vu)} kN/m (${sh.item.vuCombination}) at x = ${fmt(sh.item.x / 1000)} m (${sh.item.kind}) vs φVc = ${fmt(c.phiVc)} kN/m; d ${fmt(c.d, 1)} mm, ρw ${fmt(c.rho, 4)} (${c.face} bars), λs ${fmt(c.lambdaS, 3)}.${zones.some((z) => z.pointInside) ? " Point load within d of a support: critical section at the support face." : ""}`,
-    });
+  const sections = [...new Set(meta.map((m) => m.section))];
+  for (const section of sections) {
+    const inSection = stations.filter((s) => meta[s.piece].section === section);
+    const key = `s${g.index}:${slug(section)}`;
+    const shearSt = inSection.filter(
+      (s) => !zones.some((z) => Math.abs(s.x - z.x) < z.half - 1e-6),
+    );
+    const sh = maxBy(shearSt, (s) =>
+      s.vu > 0 ? s.vu / Math.max(1e-9, shearCap(s).phiVc) : 0,
+    );
+    if (sh.item) {
+      const c = shearCap(sh.item);
+      out.push({
+        id: `${key}:shear`,
+        section,
+        group: "Shear",
+        label: "One-Way Shear",
+        dcr: c.phiVc > 0 ? sh.item.vu / c.phiVc : Infinity,
+        clause: stairClauses.shear(),
+        detail: `Vu = ${fmt(sh.item.vu)} kN/m (${sh.item.vuCombination}) at x = ${fmt(sh.item.x / 1000)} m (${meta[sh.item.piece].name}) vs φVc = ${fmt(c.phiVc)} kN/m; d ${fmt(c.d, 1)} mm, ρw ${fmt(c.rho, 4)} (${c.face} bars), λs ${fmt(c.lambdaS, 3)}.${zones.some((z) => z.pointInside) ? " Point load within d of a support: critical section at the support face." : ""}`,
+      });
+    }
+    const ax = maxBy(
+      inSection,
+      (s) => Math.max(s.nuCompression, s.nuTension) / (0.1 * i.fc * s.h),
+    );
+    if (ax.item) {
+      const s = ax.item,
+        nu = Math.max(s.nuCompression, s.nuTension);
+      out.push({
+        id: `${key}:axial`,
+        section,
+        group: "Axial",
+        label: "Axial Force Screen",
+        dcr: nu / (0.1 * i.fc * s.h),
+        clause: stairClauses.axial(),
+        detail: `${s.nuTension >= s.nuCompression ? "Tension" : "Compression"} Pu = ${fmt(nu)} kN/m at x = ${fmt(s.x / 1000)} m vs 0.10 f′c Ag = ${fmt(0.1 * i.fc * s.h)} kN/m.`,
+      });
+    }
   }
-  // axial screen
-  const ax = maxBy(
-    stations,
-    (s) => Math.max(s.nuCompression, s.nuTension) / (0.1 * i.fc * s.h),
-  );
-  if (ax.item) {
-    const s = ax.item,
-      nu = Math.max(s.nuCompression, s.nuTension);
-    out.push({
-      id: `s${g.index}:axial`,
-      group: "Axial",
-      label: `${tag}Axial Force Screen`,
-      dcr: nu / (0.1 * i.fc * s.h),
-      clause: stairClauses.axial(),
-      detail: `${s.nuTension >= s.nuCompression ? "Tension" : "Compression"} Pu = ${fmt(nu)} kN/m at x = ${fmt(s.x / 1000)} m vs 0.10 f′c Ag = ${fmt(0.1 * i.fc * s.h)} kN/m.`,
-    });
-  }
-  // thickness and deflection per span
+  // Thickness and deflection per span: under the flight heading when the
+  // strip has one heading, otherwise a whole-stair heading.
+  const spanSection =
+    sections.length === 1 ? sections[0] : "Spans (whole stair)";
   for (const sp of spans) {
     const thicknessOk = sp.hProvided >= sp.hmin;
     const calcDcr = Math.max(
       sp.limitImmediate > 0 ? sp.immediateLive / sp.limitImmediate : 0,
       sp.limitTotal > 0 ? sp.total / sp.limitTotal : 0,
     );
+    const key = `s${g.index}:${slug(sp.label)}`;
     out.push({
-      id: `s${g.index}:${sp.label.toLowerCase().replace(/\W+/g, "-")}:thickness`,
+      id: `${key}:thickness`,
+      section: spanSection,
       group: "Serviceability",
-      label: `${tag}${sp.label} · Minimum Thickness`,
+      label: `${sp.label} · Minimum Thickness`,
       dcr: thicknessOk ? sp.hmin / sp.hProvided : calcDcr,
       clause: thicknessOk
         ? stairClauses.minimumThickness()
@@ -1974,9 +2152,10 @@ function stripChecks(
       detail: `ℓ = ${fmt(sp.developed, 0)} mm developed, ${sp.continuousEnds === "cantilever" ? "cantilever ℓ/10" : `${sp.continuousEnds} continuous end(s) ℓ/${[20, 24, 28][sp.continuousEnds as 0 | 1 | 2]}`} → hmin ${fmt(sp.hmin, 0)} mm vs h ${sp.hProvided} mm.${thicknessOk ? "" : " h < hmin: status follows the calculated deflection (7.3.2)."}`,
     });
     out.push({
-      id: `s${g.index}:${sp.label.toLowerCase().replace(/\W+/g, "-")}:deflection`,
+      id: `${key}:deflection`,
+      section: spanSection,
       group: "Serviceability",
-      label: `${tag}${sp.label} · Calculated Deflection`,
+      label: `${sp.label} · Calculated Deflection`,
       dcr: calcDcr,
       clause: stairClauses.deflection(),
       detail: `Immediate live ${fmt(sp.immediateLive)} mm vs ℓ/${i.deflection.immediateDivisor} = ${fmt(sp.limitImmediate)} mm; long-term λΔ·Δsus + ΔL = ${fmt(sp.total)} mm vs ℓ/${i.deflection.totalDivisor} = ${fmt(sp.limitTotal)} mm (ℓ = ${fmt(sp.horizontal, 0)} mm on plan; Ma ${fmt(sp.ma)} kN·m/m, Mcr ${fmt(sp.mcr)} kN·m/m, Ie/Ig ${fmt(sp.ieRatio, 3)}, λΔ = 2.0).`,
@@ -1989,8 +2168,8 @@ function stripChecks(
 function reinforcementChecks(
   i: StairsInput,
   geos: StairStripGeometry[],
-): StairCheck[] {
-  const out: StairCheck[] = [];
+): Omit<StairCheck, "section">[] {
+  const out: Omit<StairCheck, "section">[] = [];
   const rhoMin = slabMinimumSteelRatio(i.fy);
   const pieces = geos.flatMap((g) => g.pieces);
   const hMax = Math.max(...pieces.map((p) => p.h)),
@@ -2095,11 +2274,11 @@ function reinforcementChecks(
 function detailingChecks(
   i: StairsInput,
   geos: StairStripGeometry[],
-): StairCheck[] {
-  const out: StairCheck[] = [];
+): Omit<StairCheck, "section">[] {
+  const out: Omit<StairCheck, "section">[] = [];
   const hasKnee = geos.some((g) => g.knees.length > 0);
   if (hasKnee) {
-    const ldB = stairDevelopmentLength(i, i.bars.mainBottom, i.bottomCover);
+    const ldB = prov(i).developmentLength(i, i.bars.mainBottom, i.bottomCover);
     out.push({
       id: "detail:knee-bottom",
       group: "Detailing",
@@ -2109,7 +2288,7 @@ function detailingChecks(
       detail: `ld = ${fmt(ldB, 0)} mm vs extension past the knee ${i.kneeExtension} mm. Bars must cross at the inside (re-entrant) corner, not bend round it.`,
     });
     const k = i.bars.topKnee;
-    const ldT = stairDevelopmentLength(
+    const ldT = prov(i).developmentLength(
       i,
       k,
       i.topCover,
@@ -2154,8 +2333,8 @@ function detailingChecks(
     const name = e.role === "bottom" ? "Bottom" : "Top";
     if (e.cond === "Fixed") {
       const b = i.bars[e.set];
-      const ld = stairDevelopmentLength(i, b, i.topCover, true);
-      const ldh = stairHookLength(i, b.diameter);
+      const ld = prov(i).developmentLength(i, b, i.topCover, true);
+      const ldh = prov(i).hookLength(i, b.diameter);
       const straight = ld <= available;
       out.push({
         id: `detail:${e.role}-anchorage`,
@@ -2223,7 +2402,7 @@ export function footingDesign(
   const vu = c > d ? qu * ((c - d) / 1000) : 0;
   const as = stairBarArea(f.bars);
   const st = slabFlexuralStrength(i, [{ as, d }]);
-  const sv = stairOneWayShear(i.fc, as, d, f.thickness);
+  const sv = prov(i).oneWayShear(i.fc, as, d, f.thickness);
   const dowelAvailable = f.thickness - f.cover - f.bars.diameter;
   return {
     widthMm: f.width,
@@ -2243,13 +2422,16 @@ export function footingDesign(
     phiVc: sv.phiVc,
     as,
     asMin: slabMinimumSteelRatio(i.fy) * 1000 * f.thickness,
-    dowelRequired: stairHookLength(i, i.bars.mainBottom.diameter),
+    dowelRequired: prov(i).hookLength(i, i.bars.mainBottom.diameter),
     dowelAvailable,
   };
 }
-function footingChecks(i: StairsInput, f: StairFootingResult): StairCheck[] {
+function footingChecks(
+  i: StairsInput,
+  f: StairFootingResult,
+): Omit<StairCheck, "section">[] {
   const fb = i.bottomSupport.footing.bars;
-  const out: StairCheck[] = [
+  const out: Omit<StairCheck, "section">[] = [
     {
       id: "footing:bearing",
       group: "Foundation",

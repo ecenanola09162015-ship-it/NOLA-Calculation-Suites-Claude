@@ -15,7 +15,7 @@ export const uiCatalogue = [
     slug: "stairs",
     name: "Stairs",
     group: "Concrete",
-    pilot: false,
+    pilot: true,
   },
   {
     slug: "steel-deck",
