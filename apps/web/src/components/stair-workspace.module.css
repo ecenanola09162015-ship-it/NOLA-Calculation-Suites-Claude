@@ -105,3 +105,8 @@
 .activeRow td {
   background: #eef6fb;
 }
+.reviewHeading {
+  margin: 18px 0 4px;
+  font-size: 1.15rem;
+  color: #1f3a5f;
+}

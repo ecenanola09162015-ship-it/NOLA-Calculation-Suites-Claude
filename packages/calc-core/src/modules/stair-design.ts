@@ -1099,6 +1099,8 @@ export interface StairFootingResult {
   dowelAvailable: number;
 }
 export interface StairCheck extends DesignCheck {
+  /** Review heading: "Flight 1", "Flight 2", "Reinforcement (all flights)", "Detailing", "Foundation". */
+  section: string;
   group:
     | "Flexure"
     | "Shear"
@@ -1552,14 +1554,24 @@ export function analyzeStairs(raw: StairsInput): StairsResult {
   }
 
   // global reinforcement checks
-  checks.push(...reinforcementChecks(i, geos));
+  checks.push(
+    ...reinforcementChecks(i, geos).map((c) => ({
+      ...c,
+      section: "Reinforcement (all flights)",
+    })),
+  );
   // footing
   let footing: StairFootingResult | null = null;
   if (i.bottomSupport.onGround) {
     const bottom = strips[0].reactions.find((r) => r.support.role === "bottom");
     if (bottom && i.bottomSupport.footing.design) {
       footing = footingDesign(i, bottom);
-      checks.push(...footingChecks(i, footing));
+      checks.push(
+        ...footingChecks(i, footing).map((c) => ({
+          ...c,
+          section: "Foundation",
+        })),
+      );
     } else if (bottom) {
       notes.push(
         `Bottom support on ground, footing by others: service reaction ${bottom.service.v.toFixed(2)} kN/m (D ${bottom.dead.v.toFixed(2)}, L ${bottom.live.v.toFixed(2)}), factored max ${bottom.factored.vMax.toFixed(2)} kN/m (${bottom.factored.combination})${widthM ? `; × ${widthM.toFixed(2)} m flight width = ${(bottom.service.v * widthM).toFixed(1)} kN service` : ""}.`,
@@ -1570,7 +1582,9 @@ export function analyzeStairs(raw: StairsInput): StairsResult {
         "Bottom end bears on ground while the top end is suspended: differential settlement can crack the top support region — confirm the founding level and detail accordingly.",
       );
   }
-  checks.push(...detailingChecks(i, geos));
+  checks.push(
+    ...detailingChecks(i, geos).map((c) => ({ ...c, section: "Detailing" })),
+  );
   // advisories and seismic
   const lim = i.geometryLimits,
     blondel = 2 * i.riser + i.going;
@@ -1924,6 +1938,30 @@ function maxBy<T>(xs: T[], f: (x: T) => number) {
 }
 const fmt = (v: number, d = 2) => (Number.isFinite(v) ? v.toFixed(d) : "∞");
 
+const slug = (t: string) =>
+  t.toLowerCase().replace(/\W+/g, "-").replace(/^-|-$/g, "");
+/**
+ * Review heading of each strip piece (decision: one heading per flight).
+ * Dog-leg: one heading per strip ("Flight 1" with its mid landing, "Flight 2"
+ * with the mid and top landings). Single span: each flight with the landing
+ * after it; a bottom landing goes with Flight 1.
+ */
+function pieceSections(i: StairsInput, g: StairStripGeometry) {
+  let n = 0;
+  return g.pieces.map((p) => {
+    if (i.stairType === "dog-leg")
+      return {
+        section: `Flight ${g.index}`,
+        name: p.kind === "flight" ? "Waist" : p.label,
+      };
+    if (p.kind === "flight") n++;
+    return {
+      section: `Flight ${Math.max(1, n)}`,
+      name: p.kind === "flight" ? "Waist" : p.label,
+    };
+  });
+}
+
 function stripChecks(
   i: StairsInput,
   g: StairStripGeometry,
@@ -1932,7 +1970,7 @@ function stripChecks(
   pointXs: number[],
 ): StairCheck[] {
   const out: StairCheck[] = [];
-  const tag = i.stairType === "single" ? "" : `${g.label} · `;
+  const meta = pieceSections(i, g);
   const fcCache = new Map<string, ReturnType<typeof strength>>();
   const cap = (as: number, h: number, face: "bottom" | "top", db: number) => {
     const k = `${as}|${h}|${face}|${db}`;
@@ -1941,11 +1979,12 @@ function stripChecks(
   };
   const bottom = i.bars.mainBottom,
     asB = stairBarArea(bottom);
-  for (const kind of ["flight", "landing"] as const) {
-    const st = stations.filter((s) => s.kind === kind);
-    if (!st.length) continue;
-    const name = kind === "flight" ? "Waist" : "Landings";
-    // +M
+  // Flexure per piece (waist, each landing).
+  g.pieces.forEach((piece, pi) => {
+    const st = stations.filter((s) => s.piece === pi);
+    if (!st.length) return;
+    const { section, name } = meta[pi];
+    const key = `s${g.index}:${slug(piece.label)}`;
     const pos = maxBy(st, (s) =>
       s.mPos > 0
         ? s.mPos /
@@ -1955,17 +1994,19 @@ function stripChecks(
     if (pos.item && pos.item.mPos > 1e-3) {
       const c = cap(asB, pos.item.h, "bottom", bottom.diameter);
       out.push({
-        id: `s${g.index}:${kind}:flexure-pos`,
+        id: `${key}:flexure-pos`,
+        section,
         group: "Flexure",
-        label: `${tag}${name} · Flexure +M (bottom bars)`,
+        label: `${name} · Flexure +M (B1 bottom bars)`,
         dcr: c.phiMn > 0 ? pos.item.mPos / c.phiMn : Infinity,
         clause: stairClauses.flexure(),
         detail: `Mu = ${fmt(pos.item.mPos)} kN·m/m at x = ${fmt(pos.item.x / 1000)} m vs φMn = ${fmt(c.phiMn)} kN·m/m (As ${fmt(asB, 0)} mm²/m, d ${fmt(c.d, 1)} mm, h ${pos.item.h} mm, φ ${fmt(c.phi, 3)}).`,
       });
       out.push({
-        id: `s${g.index}:${kind}:strain-pos`,
+        id: `${key}:strain-pos`,
+        section,
         group: "Flexure",
-        label: `${tag}${name} · Tension-Controlled Strain (bottom)`,
+        label: `${name} · Tension-Controlled Strain (B1)`,
         dcr:
           c.strain > 0
             ? prov(i).tensionStrain(i.fy, i.es) / c.strain
@@ -1979,16 +2020,17 @@ function stripChecks(
     const negSt = st.filter((s) => s.mNeg < -1e-3);
     const groups = new Map<StairTopSetId | "none", StairStation[]>();
     for (const s of negSt) {
-      const key = s.topSet ?? "none";
-      groups.set(key, [...(groups.get(key) ?? []), s]);
+      const k = s.topSet ?? "none";
+      groups.set(k, [...(groups.get(k) ?? []), s]);
     }
     for (const [set, list] of groups) {
       if (set === "none") {
         const s = list.reduce((a, b) => (b.mNeg < a.mNeg ? b : a));
         out.push({
-          id: `s${g.index}:${kind}:flexure-neg:none`,
+          id: `${key}:flexure-neg:none`,
+          section,
           group: "Flexure",
-          label: `${tag}${name} · Hogging Beyond Top-Bar Zones`,
+          label: `${name} · Hogging Beyond Top-Bar Zones`,
           dcr: Infinity,
           clause: stairClauses.flexure(),
           invalidLabel: "Hogging Beyond Top-Bar Cut-Off",
@@ -2004,27 +2046,28 @@ function stripChecks(
         return c.phiMn > 0 ? -x.mNeg / c.phiMn : Infinity;
       }).item!;
       const c = capOf(s);
-      const mark = `${stairBarMarks[set]} ${stairBarLabels[set]}`;
       out.push({
-        id: `s${g.index}:${kind}:flexure-neg:${set}`,
+        id: `${key}:flexure-neg:${set}`,
+        section,
         group: "Flexure",
-        label: `${tag}${name} · Flexure −M (${mark})`,
+        label: `${name} · Flexure −M (${stairBarMarks[set]} ${stairBarLabels[set]})`,
         dcr: c.phiMn > 0 ? -s.mNeg / c.phiMn : Infinity,
         clause: stairClauses.flexure(),
         detail: `Mu = ${fmt(s.mNeg)} kN·m/m at x = ${fmt(s.x / 1000)} m vs φMn = ${fmt(c.phiMn)} kN·m/m (${stairBarMarks[set]} Ø${bar.diameter} @ ${bar.spacing}, d ${fmt(c.d, 1)} mm, h ${s.h} mm).`,
       });
       if (c.strain > 0)
         out.push({
-          id: `s${g.index}:${kind}:strain-neg:${set}`,
+          id: `${key}:strain-neg:${set}`,
+          section,
           group: "Flexure",
-          label: `${tag}${name} · Tension-Controlled Strain (${stairBarMarks[set]})`,
+          label: `${name} · Tension-Controlled Strain (${stairBarMarks[set]})`,
           dcr: prov(i).tensionStrain(i.fy, i.es) / c.strain,
           clause: stairClauses.strain(),
           detail: `εt = ${fmt(c.strain, 4)} vs εty + 0.003 = ${fmt(i.fy / i.es + 0.003, 4)}.`,
         });
     }
-  }
-  // shear at d from support faces (7.4.3.2), knees and point loads included
+  });
+  // Shear at d from support faces (7.4.3.2) and axial screen, per heading.
   const zones = g.supports.map((s) => {
     const dd = i.waist - i.bottomCover - bottom.diameter / 2;
     const pointInside = pointXs.some(
@@ -2036,9 +2079,6 @@ function stripChecks(
       pointInside,
     };
   });
-  const shearSt = stations.filter(
-    (s) => !zones.some((z) => Math.abs(s.x - z.x) < z.half - 1e-6),
-  );
   const shearCap = (s: StairStation) => {
     const face = s.vuMomentSign >= 0 ? "bottom" : "top";
     const set = face === "bottom" ? bottom : s.topSet ? i.bars[s.topSet] : null;
@@ -2049,48 +2089,62 @@ function stripChecks(
       (set?.diameter ?? 12) / 2;
     return { ...prov(i).oneWayShear(i.fc, as, d, s.h, -s.nuTension), d, face };
   };
-  const sh = maxBy(shearSt, (s) =>
-    s.vu > 0 ? s.vu / Math.max(1e-9, shearCap(s).phiVc) : 0,
-  );
-  if (sh.item) {
-    const c = shearCap(sh.item);
-    out.push({
-      id: `s${g.index}:shear`,
-      group: "Shear",
-      label: `${tag}One-Way Shear`,
-      dcr: c.phiVc > 0 ? sh.item.vu / c.phiVc : Infinity,
-      clause: stairClauses.shear(),
-      detail: `Vu = ${fmt(sh.item.vu)} kN/m (${sh.item.vuCombination}) at x = ${fmt(sh.item.x / 1000)} m (${sh.item.kind}) vs φVc = ${fmt(c.phiVc)} kN/m; d ${fmt(c.d, 1)} mm, ρw ${fmt(c.rho, 4)} (${c.face} bars), λs ${fmt(c.lambdaS, 3)}.${zones.some((z) => z.pointInside) ? " Point load within d of a support: critical section at the support face." : ""}`,
-    });
+  const sections = [...new Set(meta.map((m) => m.section))];
+  for (const section of sections) {
+    const inSection = stations.filter((s) => meta[s.piece].section === section);
+    const key = `s${g.index}:${slug(section)}`;
+    const shearSt = inSection.filter(
+      (s) => !zones.some((z) => Math.abs(s.x - z.x) < z.half - 1e-6),
+    );
+    const sh = maxBy(shearSt, (s) =>
+      s.vu > 0 ? s.vu / Math.max(1e-9, shearCap(s).phiVc) : 0,
+    );
+    if (sh.item) {
+      const c = shearCap(sh.item);
+      out.push({
+        id: `${key}:shear`,
+        section,
+        group: "Shear",
+        label: "One-Way Shear",
+        dcr: c.phiVc > 0 ? sh.item.vu / c.phiVc : Infinity,
+        clause: stairClauses.shear(),
+        detail: `Vu = ${fmt(sh.item.vu)} kN/m (${sh.item.vuCombination}) at x = ${fmt(sh.item.x / 1000)} m (${meta[sh.item.piece].name}) vs φVc = ${fmt(c.phiVc)} kN/m; d ${fmt(c.d, 1)} mm, ρw ${fmt(c.rho, 4)} (${c.face} bars), λs ${fmt(c.lambdaS, 3)}.${zones.some((z) => z.pointInside) ? " Point load within d of a support: critical section at the support face." : ""}`,
+      });
+    }
+    const ax = maxBy(
+      inSection,
+      (s) => Math.max(s.nuCompression, s.nuTension) / (0.1 * i.fc * s.h),
+    );
+    if (ax.item) {
+      const s = ax.item,
+        nu = Math.max(s.nuCompression, s.nuTension);
+      out.push({
+        id: `${key}:axial`,
+        section,
+        group: "Axial",
+        label: "Axial Force Screen",
+        dcr: nu / (0.1 * i.fc * s.h),
+        clause: stairClauses.axial(),
+        detail: `${s.nuTension >= s.nuCompression ? "Tension" : "Compression"} Pu = ${fmt(nu)} kN/m at x = ${fmt(s.x / 1000)} m vs 0.10 f′c Ag = ${fmt(0.1 * i.fc * s.h)} kN/m.`,
+      });
+    }
   }
-  // axial screen
-  const ax = maxBy(
-    stations,
-    (s) => Math.max(s.nuCompression, s.nuTension) / (0.1 * i.fc * s.h),
-  );
-  if (ax.item) {
-    const s = ax.item,
-      nu = Math.max(s.nuCompression, s.nuTension);
-    out.push({
-      id: `s${g.index}:axial`,
-      group: "Axial",
-      label: `${tag}Axial Force Screen`,
-      dcr: nu / (0.1 * i.fc * s.h),
-      clause: stairClauses.axial(),
-      detail: `${s.nuTension >= s.nuCompression ? "Tension" : "Compression"} Pu = ${fmt(nu)} kN/m at x = ${fmt(s.x / 1000)} m vs 0.10 f′c Ag = ${fmt(0.1 * i.fc * s.h)} kN/m.`,
-    });
-  }
-  // thickness and deflection per span
+  // Thickness and deflection per span: under the flight heading when the
+  // strip has one heading, otherwise a whole-stair heading.
+  const spanSection =
+    sections.length === 1 ? sections[0] : "Spans (whole stair)";
   for (const sp of spans) {
     const thicknessOk = sp.hProvided >= sp.hmin;
     const calcDcr = Math.max(
       sp.limitImmediate > 0 ? sp.immediateLive / sp.limitImmediate : 0,
       sp.limitTotal > 0 ? sp.total / sp.limitTotal : 0,
     );
+    const key = `s${g.index}:${slug(sp.label)}`;
     out.push({
-      id: `s${g.index}:${sp.label.toLowerCase().replace(/\W+/g, "-")}:thickness`,
+      id: `${key}:thickness`,
+      section: spanSection,
       group: "Serviceability",
-      label: `${tag}${sp.label} · Minimum Thickness`,
+      label: `${sp.label} · Minimum Thickness`,
       dcr: thicknessOk ? sp.hmin / sp.hProvided : calcDcr,
       clause: thicknessOk
         ? stairClauses.minimumThickness()
@@ -2098,9 +2152,10 @@ function stripChecks(
       detail: `ℓ = ${fmt(sp.developed, 0)} mm developed, ${sp.continuousEnds === "cantilever" ? "cantilever ℓ/10" : `${sp.continuousEnds} continuous end(s) ℓ/${[20, 24, 28][sp.continuousEnds as 0 | 1 | 2]}`} → hmin ${fmt(sp.hmin, 0)} mm vs h ${sp.hProvided} mm.${thicknessOk ? "" : " h < hmin: status follows the calculated deflection (7.3.2)."}`,
     });
     out.push({
-      id: `s${g.index}:${sp.label.toLowerCase().replace(/\W+/g, "-")}:deflection`,
+      id: `${key}:deflection`,
+      section: spanSection,
       group: "Serviceability",
-      label: `${tag}${sp.label} · Calculated Deflection`,
+      label: `${sp.label} · Calculated Deflection`,
       dcr: calcDcr,
       clause: stairClauses.deflection(),
       detail: `Immediate live ${fmt(sp.immediateLive)} mm vs ℓ/${i.deflection.immediateDivisor} = ${fmt(sp.limitImmediate)} mm; long-term λΔ·Δsus + ΔL = ${fmt(sp.total)} mm vs ℓ/${i.deflection.totalDivisor} = ${fmt(sp.limitTotal)} mm (ℓ = ${fmt(sp.horizontal, 0)} mm on plan; Ma ${fmt(sp.ma)} kN·m/m, Mcr ${fmt(sp.mcr)} kN·m/m, Ie/Ig ${fmt(sp.ieRatio, 3)}, λΔ = 2.0).`,
@@ -2113,8 +2168,8 @@ function stripChecks(
 function reinforcementChecks(
   i: StairsInput,
   geos: StairStripGeometry[],
-): StairCheck[] {
-  const out: StairCheck[] = [];
+): Omit<StairCheck, "section">[] {
+  const out: Omit<StairCheck, "section">[] = [];
   const rhoMin = slabMinimumSteelRatio(i.fy);
   const pieces = geos.flatMap((g) => g.pieces);
   const hMax = Math.max(...pieces.map((p) => p.h)),
@@ -2219,8 +2274,8 @@ function reinforcementChecks(
 function detailingChecks(
   i: StairsInput,
   geos: StairStripGeometry[],
-): StairCheck[] {
-  const out: StairCheck[] = [];
+): Omit<StairCheck, "section">[] {
+  const out: Omit<StairCheck, "section">[] = [];
   const hasKnee = geos.some((g) => g.knees.length > 0);
   if (hasKnee) {
     const ldB = prov(i).developmentLength(i, i.bars.mainBottom, i.bottomCover);
@@ -2371,9 +2426,12 @@ export function footingDesign(
     dowelAvailable,
   };
 }
-function footingChecks(i: StairsInput, f: StairFootingResult): StairCheck[] {
+function footingChecks(
+  i: StairsInput,
+  f: StairFootingResult,
+): Omit<StairCheck, "section">[] {
   const fb = i.bottomSupport.footing.bars;
-  const out: StairCheck[] = [
+  const out: Omit<StairCheck, "section">[] = [
     {
       id: "footing:bearing",
       group: "Foundation",

@@ -137,7 +137,7 @@ describe("stairs: analysis (B1, B2, B3, B4a)", () => {
     expect(phiMn).toBeCloseTo(25.439, 3);
     const L = 2.75,
       wu = 1.2 * 7.3671 + 1.6 * 5;
-    expect(check(r, "s1:flight:flexure-pos").dcr!).toBeCloseTo(
+    expect(check(r, "s1:flight-1:flexure-pos").dcr!).toBeCloseTo(
       (wu * L * L) / 8 / phiMn,
       2,
     );
@@ -464,10 +464,12 @@ describe("stairs: per-zone top-bar checks and marks (Suggest fix, V3)", () => {
       topSupport: { condition: "Fixed", bearing: 250 },
     });
     const ids = r.checks.map((c) => c.id);
-    expect(ids).toContain("s1:flight:flexure-neg:topBottom");
-    expect(ids).toContain("s1:landing:flexure-neg:topTop");
+    expect(ids).toContain("s1:flight-1:flexure-neg:topBottom");
+    expect(ids).toContain("s1:top-landing:flexure-neg:topTop");
     expect(ids.some((x) => /flexure-neg$/.test(x))).toBe(false);
-    const t2 = r.checks.find((c) => c.id === "s1:landing:flexure-neg:topTop")!;
+    const t2 = r.checks.find(
+      (c) => c.id === "s1:top-landing:flexure-neg:topTop",
+    )!;
     expect(t2.label).toContain("T2");
     expect(m.stairBarMarks.topKnee).toBe("T3");
     const q = m.stairQuantities(defaultStairsInput());
@@ -497,5 +499,135 @@ describe("stairs: per-zone top-bar checks and marks (Suggest fix, V3)", () => {
       },
     });
     expect(old.success).toBe(true);
+  });
+});
+
+describe("stairs: review headings per flight", () => {
+  it("dog-leg: one heading per flight, then reinforcement, detailing", async () => {
+    const m = await import("../src");
+    const r = analyzeStairs({
+      ...defaultStairsInput(),
+      stairType: "dog-leg",
+      topLanding: { length: 1200, thickness: 200, width: 0 },
+      flights: [
+        {
+          risers: 9,
+          landingAfter: {
+            length: 1300,
+            thickness: 200,
+            width: 0,
+            startSupport: "None",
+            endSupport: "Pinned",
+          },
+        },
+        { risers: 9, landingAfter: null },
+      ],
+    });
+    const sections = m.stairsDesignCheckSections(r);
+    expect(sections.map((s) => s.title)).toEqual([
+      "Flight 1",
+      "Flight 2",
+      "Reinforcement (all flights)",
+      "Detailing",
+    ]);
+    const f2 = sections[1];
+    expect(f2.checks.some((c) => c.label.startsWith("Mid landing ·"))).toBe(
+      true,
+    );
+    expect(f2.checks.some((c) => c.label.startsWith("Top landing ·"))).toBe(
+      true,
+    );
+    expect(f2.checks.every((c) => !c.label.includes("strip"))).toBe(true);
+    expect(f2.governing).toBe(Math.max(...f2.checks.map((c) => c.dcr ?? 0)));
+    // every check sits under exactly one heading
+    expect(sections.reduce((n, s) => n + s.checks.length, 0)).toBe(
+      r.checks.length,
+    );
+  });
+  it("single span with an intermediate landing: a heading per flight and a whole-stair span heading", async () => {
+    const m = await import("../src");
+    const r = analyzeStairs({
+      ...defaultStairsInput(),
+      flights: [
+        {
+          risers: 6,
+          landingAfter: {
+            length: 1200,
+            thickness: 200,
+            width: 0,
+            startSupport: "None",
+            endSupport: "None",
+          },
+        },
+        { risers: 6, landingAfter: null },
+      ],
+    });
+    const titles = m.stairsDesignCheckSections(r).map((s) => s.title);
+    expect(titles.slice(0, 3)).toEqual([
+      "Flight 1",
+      "Flight 2",
+      "Spans (whole stair)",
+    ]);
+    expect(
+      r.checks.find((c) => c.id === "s1:landing-1:flexure-pos")?.section,
+    ).toBe("Flight 1");
+    expect(
+      r.checks.find((c) => c.id === "s1:flight-2:flexure-pos")?.section,
+    ).toBe("Flight 2");
+  });
+});
+
+describe("stairs: Optimize spacing (target DCR)", () => {
+  it("returns the largest spacing with every governed check < 1.0 and ≤ target", async () => {
+    const m = await import("../src");
+    const i = defaultStairsInput();
+    for (const set of [
+      "mainBottom",
+      "topTop",
+      "topKnee",
+      "distribution",
+    ] as const) {
+      const res = m.stairOptimizeSpacing(i, set, 0.95);
+      if (res.spacing === null) continue;
+      const r = analyzeStairs({
+        ...i,
+        bars: { ...i.bars, [set]: { ...i.bars[set], spacing: res.spacing } },
+      });
+      const own = m
+        .stairsDesignChecks(r)
+        .filter((c) => m.stairOptimizeGoverns[set](c.id));
+      expect(own.every((c) => (c.dcr ?? 9) <= 0.95)).toBe(true);
+      // one step wider fails (or is the 300 mm upper bound)
+      const k = m.STAIR_OPTIMIZE_SPACINGS.indexOf(res.spacing as never);
+      if (k > 0) {
+        const wider = m.STAIR_OPTIMIZE_SPACINGS[k - 1];
+        const r2 = analyzeStairs({
+          ...i,
+          bars: { ...i.bars, [set]: { ...i.bars[set], spacing: wider } },
+        });
+        const own2 = m
+          .stairsDesignChecks(r2)
+          .filter((c) => m.stairOptimizeGoverns[set](c.id));
+        expect(own2.some((c) => (c.dcr ?? 9) > 0.95)).toBe(true);
+      }
+      expect(res.message).toContain(m.stairBarMarks[set]);
+    }
+  });
+  it("a 1.00 target still requires DCR strictly below 1.0", async () => {
+    const m = await import("../src");
+    const res = m.stairOptimizeSpacing(defaultStairsInput(), "mainBottom", 1);
+    expect(res.governing === null || (res.governing.dcr ?? 1) < 1).toBe(true);
+  });
+  it("main bottom bars fall back to strength when deflection cannot be met", async () => {
+    const m = await import("../src");
+    // 150 mm waist with a 1.2 m top landing: deflection governs (earlier smoke run DCR ≈ 2.1)
+    const i = {
+      ...defaultStairsInput(),
+      waist: 150,
+      topLanding: { length: 1200, thickness: 150, width: 0 },
+    };
+    const res = m.stairOptimizeSpacing(i, "mainBottom", 0.95);
+    expect(res.mode).toBe("strength");
+    expect(res.message).toContain("increase the waist or landing thickness");
   });
 });

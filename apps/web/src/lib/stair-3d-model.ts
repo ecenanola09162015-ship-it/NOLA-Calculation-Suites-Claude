@@ -240,7 +240,10 @@ export function buildStair3DModel(i: StairsInput): Stair3DModel {
     loads.push({
       id: `U${p.g.index}`,
       kind: "uniform",
-      label: `Live ${i.live} kPa + finishes ${i.finishes} kPa (plan)`,
+      label:
+        i.widthMode === "full"
+          ? `Live ${i.live} kPa × ${B.toFixed(2)} m = ${(i.live * B).toFixed(2)} kN/m · finishes ${(i.finishes * B).toFixed(2)} kN/m`
+          : `Live ${i.live} kPa + finishes ${i.finishes} kPa (plan)`,
       arrows,
       footprint: {
         x0: X(p, 0),

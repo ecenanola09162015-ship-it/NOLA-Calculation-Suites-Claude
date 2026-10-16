@@ -57,7 +57,9 @@ describe("stairs workspace", () => {
       "ACI 318-14 — Future Development",
       "DCR-Based Design Checks",
       "Enable Quantity Estimate",
-      "Suggest spacing",
+      "Optimize spacing",
+      "Optimize target DCR",
+      "No. per 1 m",
       "Bottom beam depth",
       "Top / landing beam depth",
       "LONGITUDINAL SECTION",
@@ -184,5 +186,43 @@ describe("stairs drawing aids (V1, V3)", () => {
     );
     expect(plan).toContain('data-zone="topTop"');
     expect(plan).toMatch(/opacity="0.18" data-zone="topTop"/);
+  });
+});
+
+describe("stairs review headings and full-width totals", () => {
+  it("renders one review panel per flight heading with its governing DCR", () => {
+    const i: StairsInput = {
+      ...dogLeg(),
+      widthMode: "full",
+      flightWidth: 1500,
+    };
+    const html = renderToStaticMarkup(
+      <StairWorkspace
+        cloudReady={false}
+        onSaved={() => {}}
+        draft={
+          {
+            id: "00000000-0000-4000-8000-000000000009",
+            projectId: "00000000-0000-4000-8000-000000000002",
+            moduleSlug: "stairs",
+            title: "ST-09",
+            payload: { kind: "stairs", version: 1, input: i },
+            createdAt: "2026-10-16T00:00:00Z",
+            updatedAt: "2026-10-16T00:00:00Z",
+          } as never
+        }
+      />,
+    );
+    expect(html).toContain('data-section="Flight 1"');
+    expect(html).toContain('data-section="Flight 2"');
+    expect(html).toContain('data-section="Reinforcement (all flights)"');
+    expect(html).toMatch(/Flight 2 · governing DCR \d\.\d{3}/);
+    // totals over the 1.5 m width
+    expect(html).toContain("Flight line load (× B 1.50 m)");
+    expect(html).toContain("Total load · Flight 1");
+    expect(html).toContain("Vu max × B (kN)");
+    expect(html).toContain("No. across 1.50 m");
+    expect(html).toContain(`${Math.floor((1500 - 40) / 150) + 1} × Ø12`);
+    expect(html).not.toContain("NaN");
   });
 });

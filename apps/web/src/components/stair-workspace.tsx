@@ -17,6 +17,10 @@ import {
   stairBarMarks,
   STAIR_BEAM_DEPTH,
   stairsDesignChecks,
+  stairsDesignCheckSections,
+  stairOptimizeSpacing,
+  STAIR_OPTIMIZE_TARGET,
+  designCheckStatus,
   stairsDraftSchema,
   stairsInputSchema,
   type DesignRemarks,
@@ -124,28 +128,8 @@ function Choice<T extends string>({
   );
 }
 
-/**
- * Check ids governed by each bar set for "Suggest spacing". Top sets are
- * judged on their own −M zone only; main bottom bars exclude minimum
- * thickness and deflection (spacing cannot fix those; reported separately).
- */
-const governs: Record<BarKey, (id: string) => boolean> = {
-  mainBottom: (id) =>
-    /flexure-pos|strain-pos|:shear/.test(id) ||
-    id.startsWith("bars:mainBottom"),
-  topBottom: (id) =>
-    /(flexure|strain)-neg:topBottom$/.test(id) ||
-    id.startsWith("bars:topBottom"),
-  topTop: (id) =>
-    /(flexure|strain)-neg:topTop$/.test(id) || id.startsWith("bars:topTop"),
-  topKnee: (id) =>
-    /(flexure|strain)-neg:topKnee$/.test(id) ||
-    id === "detail:knee-top" ||
-    id.startsWith("bars:topKnee"),
-  distribution: (id) => id.startsWith("bars:distribution"),
-};
-const SUGGEST_TIP =
-  "Keeps the bar size and tries 300 → 75 mm in 25 mm steps; enters the largest spacing at which this set's own checks pass (DCR ≤ 1.0). Main bottom bars: strength, shear and detailing — thickness / deflection are reported, not changed.";
+const OPTIMIZE_TIP =
+  "Keeps the bar size and tries 300 → 75 mm in 25 mm steps; enters the largest (most economical) spacing at which every check of this set stays below 1.0 and at or below the target DCR. Main bottom bars include calculated deflection; the minimum-thickness screen depends on h only.";
 
 export function StairWorkspace({
   project,
@@ -193,6 +177,8 @@ export function StairWorkspace({
   );
   // V3: bar set being edited, highlighted in the drawings and 3-D view.
   const [activeSet, setActiveSet] = useState<BarKey | null>(null);
+  // Optimize spacing target DCR (session setting).
+  const [optimizeTarget, setOptimizeTarget] = useState(STAIR_OPTIMIZE_TARGET);
   const [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
     [duplicate, setDuplicate] = useState<DraftDuplicate | null>(null),
@@ -225,6 +211,7 @@ export function StairWorkspace({
   const r = analysis.result,
     valid = analysis.valid;
   const checks = useMemo(() => (r ? stairsDesignChecks(r) : []), [r]);
+  const sections = useMemo(() => (r ? stairsDesignCheckSections(r) : []), [r]);
   const quantity = useMemo(
     () => (estimateOn && valid && r ? stairQuantities(valid) : null),
     [estimateOn, valid, r],
@@ -360,40 +347,11 @@ export function StairWorkspace({
             };
     set("localLoads", [...input.localLoads, next]);
   }
-  function suggest(k: BarKey) {
-    if (!valid) return;
-    const options = [300, 275, 250, 225, 200, 175, 150, 125, 100, 75];
-    for (const s of options) {
-      const trial = {
-        ...valid,
-        bars: { ...valid.bars, [k]: { ...valid.bars[k], spacing: s } },
-      };
-      try {
-        const res = analyzeStairs(trial);
-        if (res.error) continue;
-        const ok = stairsDesignChecks(res)
-          .filter((c) => governs[k](c.id))
-          .every((c) => c.dcr !== null && c.dcr <= 1);
-        if (ok) {
-          setBar(k, "spacing", s);
-          const serviceability = stairsDesignChecks(res).filter(
-            (c) => /thickness|deflection/.test(c.id) && (c.dcr ?? Infinity) > 1,
-          );
-          setMessage(
-            `Suggested ${stairBarMarks[k]} spacing ${s} mm (largest of 75–300 mm passing its checks).` +
-              (k === "mainBottom" && serviceability.length
-                ? ` Thickness / deflection still governs (${serviceability.map((c) => c.label).join("; ")}) — increase the waist or landing thickness.`
-                : ""),
-          );
-          return;
-        }
-      } catch {
-        continue;
-      }
-    }
-    setMessage(
-      `No spacing from 75 to 300 mm passes for ${stairBarMarks[k]} with Ø${input.bars[k].diameter} — increase the bar size or thickness.`,
-    );
+  function optimize(k: BarKey) {
+    if (!valid || !Number.isFinite(optimizeTarget)) return;
+    const res = stairOptimizeSpacing(valid, k, optimizeTarget);
+    if (res.spacing !== null) setBar(k, "spacing", res.spacing);
+    setMessage(res.message);
   }
 
   async function save(opts: { overwrite?: boolean; title?: string } = {}) {
@@ -457,6 +415,11 @@ export function StairWorkspace({
   }
 
   const dog = input.stairType === "dog-leg";
+  /** Design width used for totals, m (1 m in strip mode). */
+  const widthM = input.widthMode === "full" ? input.flightWidth / 1000 : 1;
+  const barsAcross = (sp: number) =>
+    Math.floor((widthM * 1000 - 2 * input.bottomCover) / sp) + 1;
+  const full = input.widthMode === "full";
   const bs = input.bottomSupport;
   const flightDead = r?.loads.flight;
   const allSt = r ? r.strips.flatMap((s) => s.stations) : [];
@@ -1053,6 +1016,11 @@ export function StairWorkspace({
                   <th>Ø mm</th>
                   <th>Spacing mm</th>
                   <th>Extension mm</th>
+                  <th>
+                    {input.widthMode === "full"
+                      ? `No. across ${fmt(input.flightWidth / 1000, 2)} m`
+                      : "No. per 1 m"}
+                  </th>
                   <th />
                 </tr>
               </thead>
@@ -1120,15 +1088,22 @@ export function StairWorkspace({
                           "—"
                         )}
                       </td>
+                      <td data-across={row.key}>
+                        {row.key === "distribution"
+                          ? `@ ${b.spacing} along`
+                          : Number.isFinite(b.spacing) && b.spacing > 0
+                            ? `${barsAcross(b.spacing)} × Ø${b.diameter}`
+                            : "—"}
+                      </td>
                       <td>
                         <button
                           type="button"
                           className="slabMode"
                           disabled={!valid}
-                          onClick={() => suggest(row.key)}
-                          title={SUGGEST_TIP}
+                          onClick={() => optimize(row.key)}
+                          title={OPTIMIZE_TIP}
                         >
-                          Suggest spacing
+                          Optimize spacing
                         </button>
                       </td>
                     </tr>
@@ -1143,14 +1118,24 @@ export function StairWorkspace({
               value={input.kneeExtension}
               onChange={(v) => set("kneeExtension", v)}
             />
+            <Numeric
+              label="Optimize target DCR"
+              unit="≤ 1.00"
+              value={optimizeTarget}
+              onChange={(v) =>
+                setOptimizeTarget(
+                  Number.isFinite(v) ? Math.min(1, Math.max(0.5, v)) : v,
+                )
+              }
+            />
           </div>
           <p className="slabMuted">
             Extension = horizontal length each side of the support or knee. Bars
             cross at re-entrant knees (no bar bent round an inside corner).
             Hover or edit a row to highlight that bar set (mark and colour) in
-            the section, plan and 3D view. Suggest spacing keeps the bar size
-            and picks the largest spacing (75–300 mm) passing that set&apos;s
-            own checks.
+            the section, plan and 3D view. Optimize spacing keeps the bar size
+            and picks the largest spacing (75–300 mm) whose checks for that set
+            all stay below 1.0 and at or below the target DCR.
           </p>
           <details>
             <summary>Detailing & Serviceability Settings</summary>
@@ -1597,7 +1582,8 @@ export function StairWorkspace({
                     <div className="slabTableWrap">
                       <table className={styles.reaction}>
                         <caption>
-                          Support reactions · {s.geometry.label} (kN/m; + up / +
+                          Support reactions · {s.geometry.label} (kN per m width
+                          = line load along the supporting beam, kN/m; + up / +
                           toward the run)
                         </caption>
                         <thead>
@@ -1611,9 +1597,8 @@ export function StairWorkspace({
                             <th>Vu min</th>
                             <th>|Hu| max</th>
                             <th>|Mu| max kN·m/m</th>
-                            {input.widthMode === "full" && (
-                              <th>V service × B (kN)</th>
-                            )}
+                            {full && <th>V service × B (kN)</th>}
+                            {full && <th>Vu max × B (kN)</th>}
                           </tr>
                         </thead>
                         <tbody>
@@ -1633,8 +1618,13 @@ export function StairWorkspace({
                               <td>{fmt(x.factored.vMin)}</td>
                               <td>{fmt(x.factored.hAbsMax)}</td>
                               <td>{fmt(x.factored.mAbsMax)}</td>
-                              {input.widthMode === "full" && (
+                              {full && (
                                 <td>{fmt(x.service.v * (x.widthM ?? 1))}</td>
+                              )}
+                              {full && (
+                                <td>
+                                  {fmt(x.factored.vMax * (x.widthM ?? 1))}
+                                </td>
                               )}
                             </tr>
                           ))}
@@ -1712,16 +1702,62 @@ export function StairWorkspace({
                   <dd>{fmt(l.dead)} kPa</dd>
                 </div>
               ))}
+              {full && flightDead && (
+                <div>
+                  <dt>Flight line load (× B {fmt(widthM, 2)} m)</dt>
+                  <dd>
+                    D {fmt(flightDead.total * widthM)} · L{" "}
+                    {fmt(input.live * widthM)} kN/m
+                    <small> along the flight, on plan</small>
+                  </dd>
+                </div>
+              )}
+              {full &&
+                r.strips.map((st) => {
+                  const d = st.reactions.reduce((a, x) => a + x.dead.v, 0),
+                    l = st.reactions.reduce((a, x) => a + x.live.v, 0);
+                  return (
+                    <div key={`tot${st.geometry.index}`}>
+                      <dt>
+                        Total load · {st.geometry.label.replace(" strip", "")}
+                      </dt>
+                      <dd>
+                        D {fmt(d * widthM, 1)} + L {fmt(l * widthM, 1)} ={" "}
+                        {fmt((d + l) * widthM, 1)} kN
+                      </dd>
+                    </div>
+                  );
+                })}
               <div>
                 <dt>Mu+ / Mu− max</dt>
                 <dd>
                   {fmt(Math.max(0, ...allSt.map((s) => s.mPos)))} /{" "}
                   {fmt(Math.min(0, ...allSt.map((s) => s.mNeg)))} kN·m/m
+                  {full && (
+                    <small>
+                      {" "}
+                      × B ={" "}
+                      {fmt(
+                        Math.max(0, ...allSt.map((s) => s.mPos)) * widthM,
+                      )} /{" "}
+                      {fmt(Math.min(0, ...allSt.map((s) => s.mNeg)) * widthM)}{" "}
+                      kN·m
+                    </small>
+                  )}
                 </dd>
               </div>
               <div>
                 <dt>|Vu| max</dt>
-                <dd>{fmt(Math.max(0, ...allSt.map((s) => s.vu)))} kN/m</dd>
+                <dd>
+                  {fmt(Math.max(0, ...allSt.map((s) => s.vu)))} kN/m
+                  {full && (
+                    <small>
+                      {" "}
+                      × B ={" "}
+                      {fmt(Math.max(0, ...allSt.map((s) => s.vu)) * widthM)} kN
+                    </small>
+                  )}
+                </dd>
               </div>
               <div>
                 <dt>Long-term Δ max</dt>
@@ -1766,19 +1802,30 @@ export function StairWorkspace({
           </ul>
         </section>
       )}
-      {r ? (
-        <DesignReviewPanel
-          module="slab"
-          checks={checks}
-          policy={policy}
-          remarks={remarks}
-          onChange={(next) => {
-            editVersion.current++;
-            setSaved(false);
-            setRemarks(next);
-          }}
-        />
-      ) : null}
+      {r && (
+        <h2 className={styles.reviewHeading}>
+          DCR-Based Design Checks · by flight
+        </h2>
+      )}
+      {r
+        ? sections.map((sec, k) => (
+            <div key={sec.title} data-section={sec.title}>
+              <DesignReviewPanel
+                module="slab"
+                compact={k > 0}
+                title={`${sec.title} · governing DCR ${fmt(sec.governing, 3)} · ${designCheckStatus(sec.governing, policy).label}`}
+                checks={sec.checks}
+                policy={policy}
+                remarks={remarks}
+                onChange={(next) => {
+                  editVersion.current++;
+                  setSaved(false);
+                  setRemarks(next);
+                }}
+              />
+            </div>
+          ))
+        : null}
       {r && (
         <section className="slabPanel">
           <h2>Quantity Estimate</h2>
