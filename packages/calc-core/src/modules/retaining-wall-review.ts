@@ -8,12 +8,13 @@ import type { DesignCheck } from "../design-review";
 import type { RetainingWallResult, RwCheck } from "./retaining-wall-design";
 
 const toDesignCheck = ({ group, demand, capacity, unit, ...c }: RwCheck): DesignCheck => {
+  void group;
   void demand;
   void capacity;
   void unit;
   return {
     ...c,
-    detail: `${group}: ${c.detail}`,
+    detail: c.detail,
     ...(c.dcr === null ? { invalidLabel: "Not evaluated" } : {}),
   };
 };
@@ -41,3 +42,11 @@ export function retainingWallCheckSections(
     })
     .filter((s) => s.checks.length > 0);
 }
+
+/** Review headings, shared by the workspace and the PDF check table. */
+export const retainingWallSectionTitles: Record<RwCheck["group"], string> = {
+  Stability: "Stability Checks (Service, FS)",
+  Stem: "Reinforcement Checks — Stem",
+  Footing: "Reinforcement Checks — Footing",
+  Detailing: "Reinforcement Checks — Detailing",
+};

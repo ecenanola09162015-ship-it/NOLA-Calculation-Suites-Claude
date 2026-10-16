@@ -31,10 +31,21 @@ export interface PressureArrow {
   /** Pressure at this point (service), kPa. */
   p: number;
 }
+/** Downward (or toe-ward, for wind) load arrows: tip at (x, y, z). */
+export interface LoadArrow {
+  id: string;
+  kind: "surchargeDead" | "surchargeLive" | "strip" | "axial" | "wind";
+  x: number;
+  y: number;
+  z: number;
+  length: number;
+  direction: "down" | "toe";
+}
 export interface RetainingWall3DModel {
   length: number;
   prisms: Prism[];
   arrows: PressureArrow[];
+  loads: LoadArrow[];
   extent: number;
   center: { x: number; y: number; z: number };
 }
@@ -130,6 +141,34 @@ export function buildRetainingWall3DModel(
       arrows.push({ id: `${c.id}-${j}`, component: c.id, x: xb, y, z: tf + h, length: p * scale, p });
     }
   });
+  // Applied loads on the backfill surface and the stem.
+  const loads: LoadArrow[] = [];
+  const slope = basement ? 0 : Math.tan((i.soil.beta * Math.PI) / 180);
+  const xEnd = basement ? g.backBase + 1.2 : g.width;
+  const ground = (x: number) => top + Math.max(0, x - g.backTop) * slope;
+  const along = Math.max(2, Math.round(L / 0.8));
+  const lenA = 0.12 * i.height + 0.2;
+  const grid = (kind: LoadArrow["kind"], xa: number, xb: number, lift = 0) => {
+    const nx = Math.max(1, Math.round((xb - xa) / 0.5));
+    for (let a = 0; a <= nx; a++)
+      for (let b = 0; b < along; b++) {
+        const x = xa + ((xb - xa) * a) / nx;
+        loads.push({ id: `${kind}-${a}-${b}`, kind, x, y: (L * (b + 0.5)) / along, z: ground(x) + lift, length: lenA, direction: "down" });
+      }
+  };
+  if (i.surcharge.dead > 0) grid("surchargeDead", g.backTop + 0.1, xEnd - 0.05);
+  if (i.surcharge.live > 0) grid("surchargeLive", g.backTop + 0.1, xEnd - 0.05, i.surcharge.dead > 0 ? 0.08 : 0);
+  if (i.strip.enabled && i.strip.q > 0)
+    grid("strip", g.backTop + i.strip.distance, Math.min(xEnd + 2, g.backTop + i.strip.distance + i.strip.width));
+  if (i.axial.enabled && (i.axial.dead > 0 || i.axial.live > 0))
+    for (let b = 0; b < along; b++)
+      loads.push({ id: `axial-${b}`, kind: "axial", x: (g.frontTop + g.backTop) / 2 - i.axial.eccentricity, y: (L * (b + 0.5)) / along, z: top, length: lenA * 1.3, direction: "down" });
+  if (i.wind.enabled && i.wind.pressure > 0) {
+    const h = Math.min(i.wind.height, i.height);
+    for (let j = 0; j < 3; j++)
+      for (let b = 0; b < along; b++)
+        loads.push({ id: `wind-${j}-${b}`, kind: "wind", x: g.backTop, y: (L * (b + 0.5)) / along, z: top - (h * (j + 0.5)) / 3, length: lenA, direction: "toe" });
+  }
   const xs = prisms.flatMap((p) => p.polygon.map((q) => q.x)),
     zs = prisms.flatMap((p) => p.polygon.map((q) => q.z));
   const xmin = Math.min(...xs, 0),
@@ -140,6 +179,7 @@ export function buildRetainingWall3DModel(
     length: L,
     prisms,
     arrows,
+    loads,
     extent: Math.hypot(xmax - xmin, L, zmax - zmin),
     center: { x: (xmin + xmax) / 2, y: L / 2, z: (zmin + zmax) / 2 },
   };

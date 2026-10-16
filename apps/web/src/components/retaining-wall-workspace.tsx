@@ -16,6 +16,8 @@ import {
   retainingWallDraftSchema,
   retainingWallInputSchema,
   retainingWallStatus,
+  retainingWallCheckSections,
+  retainingWallSectionTitles,
   type CombinationSet,
   type DesignRemarks,
   type RetainingWallCombination,
@@ -29,7 +31,7 @@ import { DuplicateSavePrompt, type DraftDuplicate } from "./duplicate-save-promp
 import { ConcreteStrengthFields } from "./concrete-strength-fields";
 import { DesignCodeFields } from "./column-materials-fields";
 import { RebarGradeSelect, RebarSizeSelect, RebarStandardSelect } from "./rebar-select";
-import { retainingWallSectionSvg, retainingWallStemSvg } from "@/lib/retaining-wall-drawing";
+import { RW_BAR_MARKS, retainingWallSectionSvg, retainingWallStemSvg } from "@/lib/retaining-wall-drawing";
 import styles from "./retaining-wall-workspace.module.css";
 
 // three.js is only downloaded when the 3D tab is opened (client-only).
@@ -162,11 +164,11 @@ export function RetainingWallWorkspace({
   }
   /** Seismic method or combination set changed: refresh untouched presets. */
   function changePreset(fn: (d: RetainingWallInput) => void) {
-    const before = retainingWallCombinationPreset(input.combinationSet, input.seismic.method !== "none");
+    const before = retainingWallCombinationPreset(input.combinationSet, input.seismic.method !== "none", input.wind.enabled);
     patch((d) => {
       fn(d);
       if (sameCombos(input.strength, before.strength) && sameCombos(input.service, before.service))
-        Object.assign(d, retainingWallCombinationPreset(d.combinationSet, d.seismic.method !== "none"));
+        Object.assign(d, retainingWallCombinationPreset(d.combinationSet, d.seismic.method !== "none", d.wind.enabled));
     });
   }
   async function save(opts: { overwrite?: boolean; title?: string } = {}) {
@@ -237,7 +239,7 @@ export function RetainingWallWorkspace({
   const stemSvg = useMemo(() => (r ? retainingWallStemSvg(analysed, r) : ""), [r, analysed]);
   const comboTable = (key: "strength" | "service", rows: RetainingWallCombination[]) => (
     <div className="slabTableWrap">
-      <table className="slabBars" aria-label={`${key} combinations`}>
+      <table className={`slabBars ${styles.bars}`} aria-label={`${key} combinations`}>
         <thead>
           <tr>
             <th>Use</th>
@@ -246,6 +248,7 @@ export function RetainingWallWorkspace({
             <th>H</th>
             <th>L</th>
             <th>E</th>
+            <th>W</th>
             <th />
           </tr>
         </thead>
@@ -268,14 +271,14 @@ export function RetainingWallWorkspace({
                   onChange={(e) => patch((d) => (d[key][k]!.id = e.target.value))}
                 />
               </td>
-              {(["d", "h", "l", "e"] as const).map((f) => (
+              {(["d", "h", "l", "e", "w"] as const).map((f) => (
                 <td key={f}>
                   <input
                     aria-label={`${c.id} ${f.toUpperCase()} factor`}
                     type="number"
                     step="0.1"
                     className={styles.factor}
-                    value={Number.isFinite(c[f]) ? c[f] : ""}
+                    value={Number.isFinite(c[f] ?? 0) ? (c[f] ?? 0) : ""}
                     onChange={(e) => patch((d) => (d[key][k]![f] = e.target.value === "" ? NaN : Number(e.target.value)))}
                   />
                 </td>
@@ -301,7 +304,7 @@ export function RetainingWallWorkspace({
           patch((d) => {
             let n = d[key].length + 1;
             while (d[key].some((c) => c.id === `${key === "strength" ? "U" : "S"}${n}`)) n++;
-            d[key].push({ id: `${key === "strength" ? "U" : "S"}${n}`, d: 1, h: 1, l: 1, e: 0, included: true });
+            d[key].push({ id: `${key === "strength" ? "U" : "S"}${n}`, d: 1, h: 1, l: 1, e: 0, w: 0, included: true });
           })
         }
       >
@@ -447,16 +450,63 @@ export function RetainingWallWorkspace({
             <Numeric label={basement ? "Base slab thickness" : "Footing thickness"} unit="m" value={input.footing} onChange={(v) => patch((d) => (d.footing = v))} />
           </div>
           {!basement && (
-            <details>
-              <summary>Shear key {input.key.enabled ? "· on" : ""}</summary>
-              <Check label="Provide shear key" value={input.key.enabled} onChange={(v) => patch((d) => (d.key.enabled = v))} />
-              <div className="slabFieldGrid">
-                <Numeric label="Key depth" unit="m" value={input.key.depth} disabled={!input.key.enabled} onChange={(v) => patch((d) => (d.key.depth = v))} />
-                <Numeric label="Key width" unit="m" value={input.key.width} disabled={!input.key.enabled} onChange={(v) => patch((d) => (d.key.width = v))} />
-                <Numeric label="Offset from toe edge" unit="m" value={input.key.offset} disabled={!input.key.enabled} onChange={(v) => patch((d) => (d.key.offset = v))} />
+            <div className={styles.keyBlock}>
+              <h3 className="rcSubhead">Shear key (bottom of footing)</h3>
+              <div className={styles.keyRow}>
+                <svg viewBox="0 0 150 86" className={styles.keySketch} role="img" aria-label="Shear key sketch">
+                  <rect x="8" y="22" width="134" height="16" fill="#d9d6cf" stroke="#3d4a55" />
+                  <rect x="58" y="4" width="16" height="18" fill="#d9d6cf" stroke="#3d4a55" />
+                  <rect
+                    x={input.key.position === "heel" ? 120 : input.key.position === "stem" ? 58 : 36}
+                    y="38"
+                    width="16"
+                    height="26"
+                    fill={input.key.enabled ? "#f2b58a" : "#eceae5"}
+                    stroke="#3d4a55"
+                  />
+                  <text x="8" y="80" fontSize="9" fill="#5b6670">
+                    toe
+                  </text>
+                  <text x="128" y="80" fontSize="9" fill="#5b6670">
+                    heel
+                  </text>
+                  <text x="78" y="56" fontSize="9" fill="#c0392b">
+                    {input.key.enabled ? "key" : "no key"}
+                  </text>
+                </svg>
+                <div>
+                  <Check label="Provide shear key" value={input.key.enabled} onChange={(v) => patch((d) => (d.key.enabled = v))} />
+                  <label>
+                    Key position
+                    <select
+                      value={input.key.position}
+                      disabled={!input.key.enabled}
+                      onChange={(e) => patch((d) => (d.key.position = e.target.value as RetainingWallInput["key"]["position"]))}
+                    >
+                      <option value="stem">Under stem (centred)</option>
+                      <option value="heel">At heel end</option>
+                      <option value="custom">Custom offset from toe edge</option>
+                    </select>
+                  </label>
+                </div>
               </div>
-              <p className="slabMuted">The key adds the passive depth in front of it; switch on passive in panel 04.</p>
-            </details>
+              {input.key.enabled && (
+                <div className="slabFieldGrid">
+                  <Numeric label="Key depth below footing" unit="m" value={input.key.depth} onChange={(v) => patch((d) => (d.key.depth = v))} />
+                  <Numeric label="Key width" unit="m" value={input.key.width} onChange={(v) => patch((d) => (d.key.width = v))} />
+                  {input.key.position === "custom" && (
+                    <Numeric label="Offset from toe edge" unit="m" value={input.key.offset} onChange={(v) => patch((d) => (d.key.offset = v))} />
+                  )}
+                </div>
+              )}
+              {input.key.enabled && (
+                <p className={input.toeSoil.passive ? "slabMuted" : "slabError"}>
+                  {input.toeSoil.passive
+                    ? "Passive pressure in front of the key adds sliding resistance and loads the key (designed as a cantilever, bar mark 7)."
+                    : "The key needs passive resistance: switch on passive in panel 04, otherwise it adds no sliding resistance."}
+                </p>
+              )}
+            </div>
           )}
 
           <h2>03 · Backfill, Surcharge & Water</h2>
@@ -486,6 +536,36 @@ export function RetainingWallWorkspace({
               {!basement && ` · Kp toe = ${fmt(r.coefficients.kp, 3)}`}
             </p>
           )}
+          <Check label="Strip surcharge (Boussinesq)" value={input.strip.enabled} onChange={(v) => patch((d) => (d.strip.enabled = v))} />
+          {input.strip.enabled && (
+            <div className="slabFieldGrid">
+              <Numeric label="Strip load q" unit="kPa" value={input.strip.q} onChange={(v) => patch((d) => (d.strip.q = v))} />
+              <Numeric label="Distance from stem back face" unit="m" value={input.strip.distance} onChange={(v) => patch((d) => (d.strip.distance = v))} />
+              <Numeric label="Strip width" unit="m" value={input.strip.width} onChange={(v) => patch((d) => (d.strip.width = v))} />
+              <label>
+                Strip load type
+                <select value={input.strip.kind} onChange={(e) => patch((d) => (d.strip.kind = e.target.value as "dead" | "live"))}>
+                  <option value="live">Live</option>
+                  <option value="dead">Dead</option>
+                </select>
+              </label>
+            </div>
+          )}
+          <Check label="Line load on stem top (beam / slab bearing)" value={input.axial.enabled} onChange={(v) => patch((d) => (d.axial.enabled = v))} />
+          {input.axial.enabled && (
+            <div className="slabFieldGrid">
+              <Numeric label="P dead" unit="kN/m" value={input.axial.dead} onChange={(v) => patch((d) => (d.axial.dead = v))} />
+              <Numeric label="P live" unit="kN/m" value={input.axial.live} onChange={(v) => patch((d) => (d.axial.live = v))} />
+              <Numeric label="Eccentricity, + towards toe" unit="m" value={input.axial.eccentricity} onChange={(v) => patch((d) => (d.axial.eccentricity = v))} />
+            </div>
+          )}
+          <Check label="Wind on exposed stem" value={input.wind.enabled} onChange={(v) => changePreset((d) => (d.wind.enabled = v))} />
+          {input.wind.enabled && (
+            <div className="slabFieldGrid">
+              <Numeric label="Wind pressure" unit="kPa" value={input.wind.pressure} onChange={(v) => patch((d) => (d.wind.pressure = v))} />
+              <Numeric label="Wind height (from stem top)" unit="m" value={input.wind.height} onChange={(v) => patch((d) => (d.wind.height = v))} />
+            </div>
+          )}
           <Check label="Groundwater" value={input.water.enabled} onChange={(v) => patch((d) => (d.water.enabled = v))} />
           {input.water.enabled && (
             <div className="slabFieldGrid">
@@ -500,7 +580,8 @@ export function RetainingWallWorkspace({
             <>
               <h2>04 · Toe Soil, Base & Stability</h2>
               <div className="slabFieldGrid">
-                <Numeric label="Soil cover over toe" unit="m" value={input.toeSoil.cover} onChange={(v) => patch((d) => (d.toeSoil.cover = v))} />
+                <Numeric label="Soil cover over toe (at stem)" unit="m" value={input.toeSoil.cover} onChange={(v) => patch((d) => (d.toeSoil.cover = v))} />
+                <Numeric label="Toe ground slope (falling away)" unit="deg" value={input.toeSoil.slope} onChange={(v) => patch((d) => (d.toeSoil.slope = v))} />
                 <Numeric label="γ toe soil" unit="kN/m³" value={input.toeSoil.gamma} onChange={(v) => patch((d) => (d.toeSoil.gamma = v))} />
                 <Numeric label="φ′ toe soil" unit="deg" value={input.toeSoil.phi} onChange={(v) => patch((d) => (d.toeSoil.phi = v))} />
               </div>
@@ -561,9 +642,10 @@ export function RetainingWallWorkspace({
 
           <h2>07 · Reinforcement</h2>
           <div className="slabTableWrap">
-            <table className="slabBars" aria-label="Reinforcement">
+            <table className={`slabBars ${styles.bars}`} aria-label="Reinforcement">
               <thead>
                 <tr>
+                  <th>Mark</th>
                   <th>Bars</th>
                   <th>Size</th>
                   <th>Spacing mm</th>
@@ -574,7 +656,12 @@ export function RetainingWallWorkspace({
                 {barRows
                   .filter(([k]) => !basement || !["toeBottom", "heelTop", "footingDistribution"].includes(k))
                   .map(([k, label]) => (
-                    <tr key={k}>
+                    <tr key={k} className={styles.barRow} style={{ borderLeftColor: RW_BAR_MARKS[k].color }}>
+                      <td>
+                        <span className={styles.mark} style={{ color: RW_BAR_MARKS[k].color, borderColor: RW_BAR_MARKS[k].color }} data-mark={RW_BAR_MARKS[k].mark}>
+                          {RW_BAR_MARKS[k].mark}
+                        </span>
+                      </td>
                       <th>{label}</th>
                       <td>
                         <RebarSizeSelect
@@ -596,11 +683,34 @@ export function RetainingWallWorkspace({
                       <td>{fmt(barAreaPerMetre(input.bars[k as BarKey]), 0)}</td>
                     </tr>
                   ))}
+                {!basement && input.key.enabled && (
+                  <tr className={styles.barRow} style={{ borderLeftColor: RW_BAR_MARKS.key.color }}>
+                    <td>
+                      <span className={styles.mark} style={{ color: RW_BAR_MARKS.key.color, borderColor: RW_BAR_MARKS.key.color }} data-mark={7}>
+                        7
+                      </span>
+                    </td>
+                    <th>Shear key, front face</th>
+                    <td>
+                      <RebarSizeSelect standard={std} ariaLabel="Shear key bars size" value={input.key.bar.diameter} onChange={(v) => patch((d) => (d.key.bar.diameter = v))} />
+                    </td>
+                    <td>
+                      <input
+                        aria-label="Shear key bars spacing"
+                        type="number"
+                        step="25"
+                        value={Number.isFinite(input.key.bar.spacing) ? input.key.bar.spacing : ""}
+                        onChange={(e) => patch((d) => (d.key.bar.spacing = e.target.value === "" ? NaN : Number(e.target.value)))}
+                      />
+                    </td>
+                    <td>{fmt(barAreaPerMetre(input.key.bar), 0)}</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
           <Check
-            label="Stop alternate back-face bars (spacing doubles above)"
+            label="① cut-off: stop alternate back-face bars (spacing doubles above)"
             value={input.bars.stemCut.enabled}
             onChange={(v) => patch((d) => (d.bars.stemCut.enabled = v))}
           />
@@ -619,7 +729,7 @@ export function RetainingWallWorkspace({
           <button
             type="button"
             className="suiteSecondary"
-            onClick={() => patch((d) => Object.assign(d, retainingWallCombinationPreset(d.combinationSet, d.seismic.method !== "none")))}
+            onClick={() => patch((d) => Object.assign(d, retainingWallCombinationPreset(d.combinationSet, d.seismic.method !== "none", d.wind.enabled)))}
           >
             Reset to preset
           </button>
@@ -966,7 +1076,7 @@ export function RetainingWallWorkspace({
                     </div>
                   </dl>
                   <div className="slabTableWrap">
-                    <table>
+                    <table className={styles.bars}>
                       <thead>
                         <tr>
                           <th>Mark</th>
@@ -980,7 +1090,16 @@ export function RetainingWallWorkspace({
                       <tbody>
                         {estimate.bars.map((b) => (
                           <tr key={b.label}>
-                            <td>{b.mark}</td>
+                            <td>
+                              {(() => {
+                                const color = Object.values(RW_BAR_MARKS).find((m) => m.mark === b.mark)?.color ?? "#555";
+                                return (
+                                  <span className={styles.mark} style={{ color, borderColor: color }}>
+                                    {b.mark}
+                                  </span>
+                                );
+                              })()}
+                            </td>
                             <th>{b.label}</th>
                             <td>
                               {rebarDesignation(std, b.diameter)} @ {b.spacing}
@@ -1007,17 +1126,32 @@ export function RetainingWallWorkspace({
         </section>
       )}
       {r ? (
-        <DesignReviewPanel
-          module="slab"
-          checks={checks}
-          policy={policy}
-          remarks={remarks}
-          onChange={(next) => {
-            editVersion.current++;
-            setSaved(false);
-            setRemarks(next);
-          }}
-        />
+        <section className={styles.review} aria-label="DCR-based design checks">
+          <h2>DCR-Based Design Checks</h2>
+          <p className="slabMuted">
+            Workflow status bands do not waive mandatory code or detailing requirements. “Not Evaluated” does not mean pass.
+          </p>
+          {retainingWallCheckSections(r).map((sec) => (
+            <DesignReviewPanel
+              key={sec.title}
+              module="slab"
+              compact
+              title={`${retainingWallSectionTitles[sec.title]} — governing DCR ${fmt(sec.governing, 3)}`}
+              checks={sec.checks}
+              policy={policy}
+              remarks={remarks}
+              onChange={(next) => {
+                editVersion.current++;
+                setSaved(false);
+                setRemarks(next);
+              }}
+            />
+          ))}
+          <p className="slabMuted">
+            Status limits: optimize below {policy.optimizeBelow}; pass through {policy.passThrough}; engineering judgment through{" "}
+            {policy.judgmentThrough}.
+          </p>
+        </section>
       ) : null}
     </section>
   );

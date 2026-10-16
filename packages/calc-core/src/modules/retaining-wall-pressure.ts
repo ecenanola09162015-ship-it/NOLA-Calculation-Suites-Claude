@@ -60,6 +60,32 @@ export function mononobeOkabeKae(
     (Math.cos(t) * Math.cos(d + t) * (1 + root) ** 2)
   );
 }
+/**
+ * Coulomb passive coefficient, vertical face, δ = 0, ground slope β (negative
+ * = falling away from the wall). Equals Rankine Kp for β = 0.
+ */
+export function coulombKp(phiDeg: number, betaDeg = 0) {
+  const p = rad(phiDeg),
+    b = rad(betaDeg);
+  if (p + b <= 0) return 1;
+  const root = Math.sqrt((Math.sin(p) * Math.sin(p + b)) / Math.cos(b));
+  return Math.cos(p) ** 2 / (1 - root) ** 2;
+}
+/**
+ * Lateral pressure on a rigid wall from a strip load q (Das, Principles of
+ * Foundation Engineering, Ch. 13): σ = (2q/π)(β − sinβ cos2α), with the strip
+ * from a to a + b behind the wall and z the depth below the strip level.
+ * Resultant check (Jarquio 1981): P = q/90 · H(θ2 − θ1), θ in degrees.
+ */
+export function stripPressure(q: number, a: number, b: number, z: number) {
+  if (z <= 1e-9 || b <= 0) return 0;
+  const t1 = Math.atan(Math.max(a, 0) / z),
+    t2 = Math.atan((Math.max(a, 0) + b) / z),
+    beta = t2 - t1,
+    alpha = t1 + beta / 2;
+  return ((2 * q) / Math.PI) * (beta - Math.sin(beta) * Math.cos(2 * alpha));
+}
+
 /** At-rest coefficient (Jaky; Mayne & Kulhawy 1982 for OCR > 1). */
 export function atRestK0(phiDeg: number, ocr = 1) {
   const s = Math.sin(rad(phiDeg));
@@ -114,7 +140,7 @@ export function earthCoefficients(i: RetainingWallInput): EarthCoefficients {
     kh: k * Math.cos(rad(inclination)),
     kv: k * Math.sin(rad(inclination)),
     ka,
-    kp: rankineKp(i.toeSoil.phi),
+    kp: coulombKp(i.toeSoil.phi, -(i.toeSoil.slope ?? 0)),
     kae,
     theta:
       i.seismic.method === "none"
@@ -123,14 +149,18 @@ export function earthCoefficients(i: RetainingWallInput): EarthCoefficients {
   };
 }
 
-export type PressureKind = "H" | "L" | "E";
+export type PressureKind = "D" | "H" | "L" | "E" | "W";
 export type PressureId =
   | "soil"
   | "surchargeDead"
   | "surchargeLive"
   | "water"
   | "seismic"
-  | "inertia";
+  | "inertia"
+  | "strip"
+  | "wind"
+  | "axialD"
+  | "axialL";
 export interface PressureComponent {
   id: PressureId;
   label: string;
@@ -141,12 +171,21 @@ export interface PressureComponent {
   breaks: number[];
   /** Vertical / horizontal ratio of the thrust (stabilising, at the plane). */
   verticalRatio: number;
+  /** Stem only: couple applied at the stem top (tension on the back face > 0), kN·m/m. */
+  couple?: number;
+  /** Stem only: extra determinate moment at height y (tension back > 0), kN·m/m. */
+  extraMoment?: (y: number) => number;
 }
 export interface PressurePlane {
   /** Plane height, m. */
   height: number;
   /** Water height above the bottom of the plane, m (0 = dry). */
   water: number;
+  /**
+   * Strip surcharge: near edge distance from this plane and loaded width
+   * beyond it (m); the strip level is the plane top. Omit for none.
+   */
+  strip?: { distance: number; width: number };
 }
 
 export function pressureComponents(
@@ -200,6 +239,18 @@ export function pressureComponents(
       breaks,
       verticalRatio: 0,
     });
+  if (i.strip?.enabled && plane.strip && plane.strip.width > 0 && i.strip.q > 0) {
+    const { distance, width } = plane.strip,
+      q = i.strip.q;
+    out.push({
+      id: "strip",
+      label: `Strip surcharge (${i.strip.kind})`,
+      kind: i.strip.kind === "dead" ? "H" : "L",
+      p: (z) => stripPressure(q, distance, width, Math.min(Math.max(z, 0), H)),
+      breaks: [],
+      verticalRatio: 0,
+    });
+  }
   const dp = seismicIncrement(i, c, H);
   if (dp > 0) {
     // Inverted trapezoid: top 8F/5H, bottom 2F/5H → resultant at 0.6H above base.

@@ -41,7 +41,7 @@ import {
 import { solveStem, type StemSolution, type StemSupports } from "./retaining-wall-stem";
 import { retainingWallClauses as clauses } from "../code-clauses";
 
-export type LoadKind = "D" | "L" | "H" | "E";
+export type LoadKind = "D" | "L" | "H" | "E" | "W";
 export interface WeightItem {
   id: string;
   label: string;
@@ -189,7 +189,7 @@ export interface RetainingWallResult {
 }
 
 const kindFactor = (c: RetainingWallCombination, kind: LoadKind | PressureKind) =>
-  kind === "D" ? c.d : kind === "H" ? c.h : kind === "L" ? c.l : c.e;
+  kind === "D" ? c.d : kind === "H" ? c.h : kind === "L" ? c.l : kind === "W" ? (c.w ?? 0) : c.e;
 
 export function bearingPressure(B: number, V: number, moment: number): BearingResult {
   // moment = net moment about the toe of all loads (resisting − overturning).
@@ -258,6 +258,13 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
     } else addPoly("soil", "Backfill over heel", "D", g.backfill, i.soil.gamma, false);
     if (i.toeSoil.includeWeight) addPoly("toeSoil", "Soil over toe", "D", g.toeSoil, i.toeSoil.gamma, false);
     const run = B - g.backTop;
+    // Strip surcharge: the part over the heel acts as a vertical load there.
+    if (i.strip.enabled && i.strip.q > 0) {
+      const x0 = g.backTop + i.strip.distance,
+        x1 = Math.min(B, x0 + i.strip.width);
+      if (x1 > x0)
+        weights.push({ id: "stripV", label: "Strip surcharge over heel", kind: i.strip.kind === "dead" ? "D" : "L", weight: i.strip.q * (x1 - x0), x: (x0 + x1) / 2, y: g.heelGround, concrete: false });
+    }
     if (run > 1e-9) {
       if (i.surcharge.dead > 0)
         weights.push({ id: "qDead", label: "Dead surcharge over heel", kind: "D", weight: i.surcharge.dead * run, x: g.backTop + run / 2, y: g.heelGround, concrete: false });
@@ -266,8 +273,28 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
     }
   }
 
+  // Line load on the stem top (both wall types with and without footing).
+  const axialX = (g.frontTop + g.backTop) / 2 - i.axial.eccentricity;
+  if (i.axial.enabled) {
+    if (i.axial.dead > 0)
+      weights.push({ id: "axialD", label: "Line load on stem top, dead", kind: "D", weight: i.axial.dead, x: axialX, y: g.stemTopLevel, concrete: false });
+    if (i.axial.live > 0)
+      weights.push({ id: "axialL", label: "Line load on stem top, live", kind: "L", weight: i.axial.live, x: axialX, y: g.stemTopLevel, concrete: false });
+  }
+
   // ---- Lateral loads on the virtual back plane -----------------------------
-  const plane = { height: g.virtualHeight, water: i.water.enabled ? i.water.back : 0 };
+  const heelRun = B - g.backTop;
+  const stripBeyond = i.strip.enabled
+    ? {
+        distance: Math.max(0, i.strip.distance - heelRun),
+        width: i.strip.width - Math.max(0, heelRun - i.strip.distance),
+      }
+    : undefined;
+  const plane = {
+    height: g.virtualHeight,
+    water: i.water.enabled ? i.water.back : 0,
+    strip: stripBeyond && stripBeyond.width > 0 ? stripBeyond : undefined,
+  };
   const planeComps = basement ? [] : pressureComponents(i, coeff, plane);
   const lateral: LateralItem[] = [];
   const verticalThrust: WeightItem[] = [];
@@ -281,6 +308,9 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
   if (seismicOn && i.seismic.inertia && !basement)
     for (const w of weights.filter((w) => w.concrete))
       lateral.push({ id: `inertia-${w.id}`, label: `Inertia, ${w.label.toLowerCase()}`, kind: "E", force: i.seismic.kh * w.weight, arm: w.y });
+  const windH = Math.min(i.wind.height, H);
+  if (i.wind.enabled && i.wind.pressure > 0)
+    lateral.push({ id: "wind", label: "Wind on exposed stem", kind: "W", force: i.wind.pressure * windH, arm: tf + H - windH / 2 });
   const hb = i.water.enabled ? i.water.back : 0,
     hf = i.water.enabled ? i.water.front : 0,
     gw = i.water.gammaW;
@@ -288,7 +318,7 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
   const upliftX = hb + hf > 0 ? (B * (hf + 2 * hb)) / (3 * (hf + hb)) : B / 2;
   const frontWater = basement ? 0 : (gw * hf * hf) / 2;
   const keyDepth = i.key.enabled ? i.key.depth : 0;
-  const passiveDepth = Math.min(i.toeSoil.cover, H) + tf + keyDepth;
+  const passiveDepth = g.toeEdgeCover + tf + keyDepth;
   const passive = !basement && i.toeSoil.passive
     ? { force: i.toeSoil.mobilization * 0.5 * coeff.kp * i.toeSoil.gamma * passiveDepth ** 2, arm: passiveDepth / 3 - keyDepth, depth: passiveDepth }
     : { force: 0, arm: 0, depth: passiveDepth };
@@ -297,7 +327,36 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
 
   // ---- Stem analysis per pressure component -------------------------------
   const stemWater = i.water.enabled ? i.water.back - tf : 0;
-  const stemComps: PressureComponent[] = pressureComponents(i, coeff, { height: H, water: stemWater });
+  const stemComps: PressureComponent[] = pressureComponents(i, coeff, {
+    height: H,
+    water: stemWater,
+    strip: i.strip.enabled ? { distance: i.strip.distance, width: i.strip.width } : undefined,
+  });
+  if (i.wind.enabled && i.wind.pressure > 0)
+    stemComps.push({ id: "wind", label: "Wind on exposed stem", kind: "W", p: (z) => (z <= windH ? i.wind.pressure : 0), breaks: [windH], verticalRatio: 0 });
+  if (i.axial.enabled) {
+    // Eccentric line load: couple P·e at the stem top plus the taper offset of the section centroid.
+    const xcTop = (g.frontTop + g.backTop) / 2;
+    const xc = (y: number) => {
+      const r = y / H;
+      return (g.frontBase + (g.frontTop - g.frontBase) * r + g.backBase + (g.backTop - g.backBase) * r) / 2;
+    };
+    for (const [id, P, kind] of [
+      ["axialD", i.axial.dead, "D"],
+      ["axialL", i.axial.live, "L"],
+    ] as const)
+      if (P > 0)
+        stemComps.push({
+          id,
+          label: `Stem-top line load (${kind === "D" ? "dead" : "live"}), e = ${i.axial.eccentricity.toFixed(2)} m`,
+          kind,
+          p: () => 0,
+          breaks: [],
+          verticalRatio: 0,
+          couple: P * (xcTop - axialX),
+          extraMoment: (y) => P * (xc(y) - xcTop),
+        });
+  }
   if (seismicOn && i.seismic.inertia && i.seismic.method === "mononobe-okabe")
     stemComps.push({ id: "inertia", label: "Stem inertia", kind: "E", p: (z) => i.seismic.kh * i.concreteWeight * stemThickness(i, H - z), breaks: [], verticalRatio: 0 });
   const Ec = 4700 * Math.sqrt(i.fc) * 1000;
@@ -310,7 +369,12 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
         : { base: i.basement.base, top: i.basement.top, prop: null };
   const stemSol: { c: PressureComponent; s: StemSolution }[] = stemComps.map((c) => ({
     c,
-    s: solveStem(H, ei, supports, { p: (y) => c.p(H - y), breaks: c.breaks.map((z) => H - z) }),
+    s: solveStem(H, ei, supports, {
+      p: (y) => c.p(H - y),
+      breaks: c.breaks.map((z) => H - z),
+      couple: c.couple,
+      extraMoment: c.extraMoment,
+    }),
   }));
   const combine = (combo: RetainingWallCombination, f: (s: StemSolution) => number) =>
     stemSol.reduce((sum, { c, s }) => sum + kindFactor(combo, c.kind) * f(s), 0);
@@ -412,8 +476,10 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
         }
         const u = (x: number) => combo.h * gw * (hf + ((hb - hf) * x) / B);
         const fd = combo.d;
+        const coverAt = (x: number) =>
+          Math.max(0, g.toeEdgeCover + ((Math.min(i.toeSoil.cover, H) - g.toeEdgeCover) * x) / Math.max(xf, 1e-9));
         const toeDown = (x: number) =>
-          fd * (i.concreteWeight * tf + (i.toeSoil.includeWeight && x <= xf ? i.toeSoil.gamma * Math.min(i.toeSoil.cover, H) : 0));
+          fd * (i.concreteWeight * tf + (i.toeSoil.includeWeight && x <= xf ? i.toeSoil.gamma * coverAt(x) : 0));
         const toeNet = (x: number) => br.at(x) + u(x) - toeDown(x);
         const brk = br.shape === "triangle" ? [br.e > 0 ? br.contact : B - br.contact] : [];
         if (xf > 0) {
@@ -451,6 +517,24 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
       const c = shearCapacity(i.fc, asHeel, dHeel, false);
       shear.push({ id: "heel-shear", label: "Heel one-way shear", vu: Math.abs(vHeel.shear), phiVc: c.phiVc, d: dHeel, lambdaS: c.lambdaS, combo: vHeel.combo, location: "back face of stem" });
     }
+  }
+
+  // ---- Shear key: cantilever from the footing underside, loaded by passive ----
+  let keyAction: { force: number; moment: number; d: number; as: number } | null = null;
+  if (!basement && i.key.enabled && i.toeSoil.passive) {
+    const d1 = g.toeEdgeCover + tf,
+      d2 = d1 + i.key.depth,
+      k = i.toeSoil.mobilization * coeff.kp * i.toeSoil.gamma;
+    const force = (k * (d2 * d2 - d1 * d1)) / 2;
+    const moment = k * ((d2 ** 3 - d1 ** 3) / 3 - (d1 * (d2 * d2 - d1 * d1)) / 2);
+    const hmax = Math.max(...strength.map((c) => c.h), 0);
+    const dKey = i.key.width * 1000 - i.cover.footingBottom - i.key.bar.diameter / 2;
+    const asKey = barAreaPerMetre(i.key.bar);
+    keyAction = { force, moment, d: dKey, as: asKey };
+    const cap = slabFlexuralStrength(fcfy, [{ as: asKey, d: dKey }]);
+    flexure.push({ id: "key", label: "Shear key, front-face bars", mu: hmax * moment, ...cap, combo: `${hmax.toFixed(1)} × passive on key`, location: "key root (footing underside)" });
+    const c = shearCapacity(i.fc, asKey, dKey, false);
+    shear.push({ id: "key-shear", label: "Shear key one-way shear", vu: hmax * force, phiVc: c.phiVc, d: dKey, lambdaS: c.lambdaS, combo: `${hmax.toFixed(1)} × passive on key`, location: "key root" });
   }
 
   // ---- Stem design (strength envelopes) -------------------------------------
@@ -609,6 +693,13 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
     push({ id: "cr:heel", group: "Detailing", label: "Footing top bars · crack-control spacing", demand: i.bars.heelTop.spacing, capacity: crackSpacing(i.fy, i.cover.footingTop), unit: "mm", detail: `cc = ${i.cover.footingTop} mm`, clause: clauses.crackControl() });
   }
   push({ id: "dev:hook", group: "Detailing", label: "Stem dowels · hooked development into footing", demand: ldh, capacity: available, unit: "mm", detail: `ldh = max(fy ψr ψc db^1.5/(23√f′c), 8db, 150) with ψr ${psiR}, ψc ${psiC.toFixed(2)}; lap above base (Class B) ${development.lap.toFixed(0)} mm`, clause: clauses.hook() });
+  if (keyAction) {
+    const kd = i.key.bar.diameter,
+      kr = i.key.bar.spacing >= 6 * kd ? 1 : 1.6;
+    const ldhKey = Math.max(((i.fy * kr * psiC) / (23 * root)) * kd ** 1.5, 8 * kd, 150);
+    push({ id: "dev:key", group: "Detailing", label: "Shear key bars · hooked development into footing", demand: ldhKey, capacity: tf * 1000 - i.cover.footingTop, unit: "mm", detail: `ldh with ψr ${kr}, ψc ${psiC.toFixed(2)}; key bars ${i.key.bar.diameter} mm @ ${i.key.bar.spacing}`, clause: clauses.hook() });
+    push({ id: "min:key", group: "Detailing", label: "Shear key front-face bars · minimum steel", demand: rhoMin * i.key.width * 1e6, capacity: keyAction.as, unit: "mm²/m", detail: `ρmin ${rhoMin.toFixed(4)} × ${(i.key.width * 1000).toFixed(0)} mm`, clause: clauses.minFlexural() });
+  }
   if (Number.isFinite(cut) && cut < H) {
     const half = { ...back, spacing: back.spacing * 2 };
     let yt = 0;
@@ -624,6 +715,14 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
   }
 
   // ---- Warnings -----------------------------------------------------------------
+  if (i.strip.enabled && i.soil.beta > 0)
+    warnings.push("Strip surcharge pressure (Boussinesq) assumes level ground; the backfill slope is not applied to it.");
+  if (i.wind.enabled)
+    warnings.push("Wind acts on the stem towards the toe over the entered height (stem projecting above the retained soil or a fence); it is not reduced by the soil.");
+  if (i.axial.enabled)
+    warnings.push("Axial compression from the stem-top line load is not used to increase flexural capacity (conservative); its eccentric moment is included.");
+  if (i.key.enabled && (i.toeSoil.slope ?? 0) > 0)
+    warnings.push("Passive in front of the footing and key uses the soil cover at the toe edge with the sloping-ground Kp (Coulomb, δ = 0).");
   if (i.soil.theory === "at-rest" && i.soil.beta > 0)
     warnings.push("At-rest pressure with a sloping backfill uses K0 without a slope correction; review with the geotechnical engineer.");
   if (i.soil.theory === "coulomb" && i.heel > 0 && !basement)

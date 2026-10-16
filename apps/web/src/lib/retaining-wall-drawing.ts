@@ -7,6 +7,7 @@
  */
 import {
   barAreaPerMetre,
+  keyOffset,
   rebarDesignation,
   stemThickness,
   type RetainingWallInput,
@@ -30,6 +31,8 @@ export const RW_COLORS = {
     water: "#2d7fd3",
     seismic: "#d35400",
     inertia: "#d35400",
+    strip: "#6b3fa0",
+    wind: "#0e7c86",
   } as Record<string, string>,
   bearing: "#2e8b57",
 } as const;
@@ -37,6 +40,17 @@ export const RW_COLORS = {
 const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const n2 = (v: number, p = 2) => (Number.isFinite(v) ? v.toFixed(p) : "—");
+
+/** Bar marks and colours shared by the drawing, the input table and the schedule. */
+export const RW_BAR_MARKS = {
+  stemBack: { mark: 1, color: RW_COLORS.back },
+  stemFront: { mark: 2, color: RW_COLORS.front },
+  stemHorizontal: { mark: 3, color: RW_COLORS.front },
+  toeBottom: { mark: 4, color: RW_COLORS.back },
+  heelTop: { mark: 5, color: RW_COLORS.back },
+  footingDistribution: { mark: 6, color: RW_COLORS.front },
+  key: { mark: 7, color: RW_COLORS.back },
+} as const;
 
 /** Governing service case for the drawing: the largest bearing pressure. */
 export function governingService(r: RetainingWallResult): StabilityCase | null {
@@ -75,7 +89,7 @@ export function retainingWallSectionSvg(
   const planeHeight = basement ? i.height : g.virtualHeight;
   const comps: { id: string; label: string; force: number; arm: number }[] = basement
     ? r.stem.components.filter((c) => c.id !== "inertia")
-    : r.lateral.filter((l) => !l.id.startsWith("inertia"));
+    : r.lateral.filter((l) => !l.id.startsWith("inertia") && l.id !== "wind");
   // Pressure on the plane at height y above the plane bottom (kPa).
   const planeP = (id: string, y: number) =>
     basement ? r.stem.pressure(id, y) : r.plane.pressure(id, y);
@@ -88,14 +102,43 @@ export function retainingWallSectionSvg(
   const pressPer = pressWidthM / maxP; // m per kPa for each diagram
   const nComp = show.pressures ? ids.length : 0;
   const gap = 0.25;
-  const x0 = basement ? -1.4 : -0.7,
-    x1 = plane + 0.25 + nComp * (pressWidthM * 0.6 + gap) + 1.1;
+  const stripEnd = i.strip.enabled ? g.backTop + i.strip.distance + i.strip.width + 0.3 : 0;
+  // Each pressure diagram gets a slot as wide as its shape or its labels, whichever is wider.
+  const slotLabelPx = comps.map(
+    (c) => Math.max(c.label.length, `${n2(c.force, 1)} kN/m @ ${n2(c.arm)} m`.length) * 12 * 0.8 * 0.56 + 8,
+  );
+  const slotShapeM = ids.map((id) => {
+    let m = 0;
+    for (let k = 0; k <= 24; k++) m = Math.max(m, planeP(id, (planeHeight * k) / 24));
+    return m * pressPer * 0.6;
+  });
+  const slotWidth = (k: number, scale: number) => Math.max(slotShapeM.at(k)!, slotLabelPx.at(k)! / scale, 0.15) + gap;
+  const x0 = basement ? -1.4 : -0.7;
+  const extentX1 = (scale: number) =>
+    Math.max(plane + 0.25 + (nComp ? ids.reduce((sum, _, k) => sum + slotWidth(k, scale), 0) : 0) + 0.3, stripEnd + 1.2);
   const bearH = show.bearing && qMax > 0 ? Math.min(0.22 * planeHeight, 1.2) : 0;
   const y0 = -(g.key ? i.key.depth : 0) - bearH - (show.dimensions ? 1.0 : 0.3),
-    y1 = Math.max(top, g.heelGround) + 0.7;
+    y1 =
+      Math.max(top, g.heelGround) +
+      0.7 +
+      (show.pressures && (i.surcharge.dead > 0 || i.surcharge.live > 0 || i.strip.enabled || i.axial.enabled) ? 0.6 : 0);
   // Pixel rows reserved above the drawing for the bar legend.
-  const legendPx = show.bars ? (basement ? 3 : 6) * 17 + 10 : 0;
-  const s = Math.min((W - 20) / (x1 - x0), (Hpx - 20 - legendPx) / (y1 - y0));
+  const loadNotes: [string, string][] = [];
+  if (show.pressures) {
+    if (i.surcharge.dead > 0) loadNotes.push([`qD = ${n2(i.surcharge.dead, 1)} kPa uniform surcharge (dead)`, RW_COLORS.pressure.surchargeDead!]);
+    if (i.surcharge.live > 0) loadNotes.push([`qL = ${n2(i.surcharge.live, 1)} kPa uniform surcharge (live)`, RW_COLORS.pressure.surchargeLive!]);
+    if (i.strip.enabled && i.strip.q > 0)
+      loadNotes.push([`strip ${n2(i.strip.q, 1)} kPa (${i.strip.kind}), ${n2(i.strip.distance)} m from stem, width ${n2(i.strip.width)} m`, RW_COLORS.pressure.strip!]);
+    if (i.axial.enabled && (i.axial.dead > 0 || i.axial.live > 0))
+      loadNotes.push([`P = ${n2(i.axial.dead, 1)} D + ${n2(i.axial.live, 1)} L kN/m on stem top, e = ${n2(i.axial.eccentricity)} m`, "#c0392b"]);
+    if (i.wind.enabled && i.wind.pressure > 0)
+      loadNotes.push([`W = wind ${n2(i.wind.pressure, 2)} kPa over top ${n2(Math.min(i.wind.height, i.height))} m of stem`, RW_COLORS.pressure.wind!]);
+  }
+  const barRowsN = show.bars ? (basement ? 3 : 6) + (i.key.enabled && !basement ? 1 : 0) : 0;
+  const legendPx = Math.max(barRowsN, loadNotes.length) > 0 ? Math.max(barRowsN, loadNotes.length + 1) * 17 + 10 : 0;
+  let s = 60;
+  for (let it = 0; it < 4; it++) s = Math.min((W - 20) / (extentX1(s) - x0), (Hpx - 20 - legendPx) / (y1 - y0));
+  const x1 = extentX1(s);
   const ox = 10 - x0 * s + ((W - 20) - (x1 - x0) * s) / 2,
     oy = 10 + legendPx + y1 * s;
   const X = (x: number) => ox + x * s,
@@ -275,6 +318,20 @@ export function retainingWallSectionSvg(
         [5, `${bd(b.heelTop)} footing top (heel main)`, RW_COLORS.back],
         [6, `${bd(b.footingDistribution)} footing distribution, each face (dots)`, RW_COLORS.front],
       );
+      if (g.key) {
+        const kb = i.key.bar,
+          kx = keyOffset(i) + (i.cover.footingBottom + kb.diameter / 2) / 1000,
+          ky0 = -i.key.depth + i.cover.footingBottom / 1000,
+          ky1 = tf - (i.cover.footingTop + b.heelTop.diameter) / 1000,
+          kh = Math.max(0.12, (12 * kb.diameter) / 1000);
+        out += `<polyline points="${pts([
+          { x: kx, y: ky0 },
+          { x: kx, y: ky1 },
+          { x: kx + kh, y: ky1 },
+        ])}" fill="none" stroke="${RW_COLORS.back}" stroke-width="${w * 0.9}"/>`;
+        tag(kx, -i.key.depth * 0.5, 7, RW_COLORS.back, -24);
+        legend.push([7, `${bd(kb)} shear key ${n2(i.key.width)} × ${n2(i.key.depth)} m${i.key.position === "stem" ? " under stem" : i.key.position === "heel" ? " at heel" : ""}, front face (hooked into footing)`, RW_COLORS.back]);
+      }
     }
     legend.forEach(([n, t, color], k) => {
       const ly = 18 + k * 17;
@@ -283,6 +340,12 @@ export function retainingWallSectionSvg(
     });
   }
 
+  // Height (px) of the applied-load band above the ground line: diagram titles sit above it.
+  const uniformRows = (i.surcharge.dead > 0 ? 1 : 0) + (i.surcharge.live > 0 ? 1 : 0);
+  const loadBandPx = !show.pressures
+    ? 0
+    : Math.max(uniformRows ? 8 + uniformRows * 20 : 0, i.strip.enabled && i.strip.q > 0 ? 52 : 0, i.axial.enabled ? 44 : 0) +
+      (uniformRows || i.strip.enabled || i.axial.enabled ? 8 : 0);
   // ---- Pressure diagrams on the virtual plane ----------------------------------------
   if (show.pressures && nComp) {
     line(plane, planeBottom, plane, planeBottom + planeHeight, RW_COLORS.dim, 1, "4 3");
@@ -303,7 +366,7 @@ export function retainingWallSectionSvg(
       line(cx, planeBottom, cx, planeBottom + planeHeight, color, 1);
       const pb = planeP(c.id, 0);
       text(X(cx), Y(planeBottom) + fs + 2, `${n2(pb, 1)} kPa`, { size: fs * 0.8, color });
-      text(X(cx), Y(planeBottom + planeHeight) - 6 - (ids.indexOf(c.id) % 2) * fs, c.label, { size: fs * 0.8, color, weight: 600 });
+      text(X(cx), Y(planeBottom + planeHeight) - 6 - loadBandPx - (ids.indexOf(c.id) % 2) * fs, c.label, { size: fs * 0.8, color, weight: 600 });
       const { force, arm } = c;
       if (force > 0) {
         const ya = planeBottom + arm,
@@ -312,10 +375,94 @@ export function retainingWallSectionSvg(
           hy = Y(ya);
         out += `<line x1="${X(xa + 0.35).toFixed(1)}" y1="${hy.toFixed(1)}" x2="${(hx + 6).toFixed(1)}" y2="${hy.toFixed(1)}" stroke="${color}" stroke-width="1.6"/>`;
         out += `<polygon points="${hx.toFixed(1)},${hy.toFixed(1)} ${(hx + 8).toFixed(1)},${(hy - 4).toFixed(1)} ${(hx + 8).toFixed(1)},${(hy + 4).toFixed(1)}" fill="${color}"/>`;
-        text(X(xa + 0.02), Y(ya) - 4, `${n2(force, 1)} kN/m @ ${n2(arm)} m`, { size: fs * 0.75, color });
+        text(X(cx), Y(planeBottom) + 2 * fs + 4, `${n2(force, 1)} kN/m @ ${n2(arm)} m`, { size: fs * 0.75, color });
       }
-      cx += Math.max(wmax * pressPer * 0.6, 0.15) + gap + 0.55;
+      cx += slotWidth(ids.indexOf(c.id), s);
     }
+  }
+
+  // ---- Applied loads: surcharge, strip, stem-top line load, wind; slope angles ----------
+  if (show.pressures) {
+    const slope = basement ? 0 : Math.tan((i.soil.beta * Math.PI) / 180);
+    const groundY = (x: number) => top + Math.max(0, x - g.backTop) * slope;
+    const xEnd = basement ? plane + 0.22 : B;
+    const downArrow = (x: number, y: number, len: number, color: string, dash = "") => {
+      const tx = X(x),
+        ty = Y(y);
+      out += `<line x1="${tx.toFixed(1)}" y1="${(ty - len).toFixed(1)}" x2="${tx.toFixed(1)}" y2="${(ty - 6).toFixed(1)}" stroke="${color}" stroke-width="1.3"${dash ? ` stroke-dasharray="${dash}"` : ""}/>`;
+      out += `<polygon points="${tx.toFixed(1)},${ty.toFixed(1)} ${(tx - 3.5).toFixed(1)},${(ty - 7).toFixed(1)} ${(tx + 3.5).toFixed(1)},${(ty - 7).toFixed(1)}" fill="${color}"/>`;
+    };
+    const rows: [number, string, string, string][] = [];
+    if (i.surcharge.dead > 0) rows.push([i.surcharge.dead, "dead", RW_COLORS.pressure.surchargeDead!, ""]);
+    if (i.surcharge.live > 0) rows.push([i.surcharge.live, "live", RW_COLORS.pressure.surchargeLive!, "4 2"]);
+    rows.forEach(([q, kind, color, dash], k) => {
+      // Dead row tips on the ground; the live row sits on top of it.
+      const tipPx = k * 20,
+        n = Math.max(2, Math.round((xEnd - g.backTop) / 0.4));
+      for (let j = 0; j <= n; j++) {
+        const x = g.backTop + 0.06 + ((xEnd - g.backTop - 0.12) * j) / n;
+        const tx = X(x),
+          ty = Y(groundY(x)) - tipPx;
+        out += `<line x1="${tx.toFixed(1)}" y1="${(ty - 16).toFixed(1)}" x2="${tx.toFixed(1)}" y2="${(ty - 6).toFixed(1)}" stroke="${color}" stroke-width="1.3"${dash ? ` stroke-dasharray="${dash}"` : ""}/>`;
+        out += `<polygon points="${tx.toFixed(1)},${ty.toFixed(1)} ${(tx - 3.5).toFixed(1)},${(ty - 7).toFixed(1)} ${(tx + 3.5).toFixed(1)},${(ty - 7).toFixed(1)}" fill="${color}"/>`;
+      }
+      const lx = Math.max(xEnd, i.strip.enabled ? g.backTop + i.strip.distance + i.strip.width + 0.15 : 0);
+      text(X(lx) + 5, Y(groundY(xEnd)) - tipPx - 4, `${kind === "dead" ? "qD" : "qL"} ${n2(q, 1)} kPa`, { size: fs * 0.78, color, weight: 600 });
+    });
+    if (i.strip.enabled && i.strip.q > 0) {
+      const color = RW_COLORS.pressure.strip!;
+      const xa = g.backTop + i.strip.distance,
+        xb = xa + i.strip.width,
+        n = Math.max(2, Math.round(i.strip.width / 0.25));
+      for (let j = 0; j <= n; j++) {
+        const x = xa + ((xb - xa) * j) / n;
+        downArrow(x + 0.11, groundY(x + 0.11), 50, color);
+      }
+      line(xa + 0.11, groundY(xa + 0.11) + 50 / s, xb + 0.11, groundY(xb + 0.11) + 50 / s, color, 1.4);
+      text(X((xa + xb) / 2 + 0.11), Y(groundY((xa + xb) / 2)) - 55, `strip ${n2(i.strip.q, 1)} kPa`, { size: fs * 0.78, color, anchor: "middle", weight: 600 });
+    }
+    if (i.axial.enabled && (i.axial.dead > 0 || i.axial.live > 0)) {
+      const xp = (g.frontTop + g.backTop) / 2 - i.axial.eccentricity;
+      downArrow(xp, top, 40, "#c0392b");
+      out += `<line x1="${X(xp).toFixed(1)}" y1="${(Y(top) - 40).toFixed(1)}" x2="${X(xp).toFixed(1)}" y2="${(Y(top) - 6).toFixed(1)}" stroke="#c0392b" stroke-width="2.2"/>`;
+      text(X(xp) - 6, Y(top) - 30, "P", { size: fs * 0.9, color: "#c0392b", anchor: "end", weight: 600 });
+    }
+    if (i.wind.enabled && i.wind.pressure > 0) {
+      const h = Math.min(i.wind.height, i.height),
+        n = Math.max(2, Math.round(h / 0.3));
+      for (let j = 0; j <= n; j++) {
+        const y = top - (h * j) / n,
+          bx = g.backBase + ((y - tf) / i.height) * (g.backTop - g.backBase),
+          tx = X(bx) + 2,
+          ty = Y(y);
+        out += `<line x1="${(tx + 26).toFixed(1)}" y1="${ty.toFixed(1)}" x2="${(tx + 6).toFixed(1)}" y2="${ty.toFixed(1)}" stroke="#0e7c86" stroke-width="1.3"/><polygon points="${tx.toFixed(1)},${ty.toFixed(1)} ${(tx + 7).toFixed(1)},${(ty - 3.5).toFixed(1)} ${(tx + 7).toFixed(1)},${(ty + 3.5).toFixed(1)}" fill="#0e7c86"/>`;
+      }
+      text(X(g.backTop) + 30, Y(top - h / 2) + 4, "W", { size: fs * 0.9, color: "#0e7c86", weight: 600 });
+    }
+    // Slope angles.
+    const arc = (cx: number, cy: number, r: number, a0: number, a1: number, label: string, color: string, anchor: string) => {
+      const p0 = { x: X(cx) + r * Math.cos(a0), y: Y(cy) - r * Math.sin(a0) },
+        p1 = { x: X(cx) + r * Math.cos(a1), y: Y(cy) - r * Math.sin(a1) };
+      const sweep = a1 > a0 ? 0 : 1;
+      out += `<path d="M${p0.x.toFixed(1)} ${p0.y.toFixed(1)} A${r} ${r} 0 0 ${sweep} ${p1.x.toFixed(1)} ${p1.y.toFixed(1)}" fill="none" stroke="${color}" stroke-width="1"/>`;
+      text(X(cx) + (anchor === "end" ? -r - 4 : r + 4), Y(cy) - r * Math.sin((a0 + a1) / 2) + 4, label, { size: fs * 0.8, color, anchor });
+    };
+    if (!basement && i.soil.beta > 0) {
+      const b0 = (i.soil.beta * Math.PI) / 180;
+      line(g.backTop, top, g.backTop + 0.8, top, RW_COLORS.soilEdge, 0.8, "3 3");
+      arc(g.backTop, top, 0.6 * s, 0, b0, `β = ${n2(i.soil.beta, 0)}°`, RW_COLORS.soilEdge, "start");
+    }
+    if (!basement && (i.toeSoil.slope ?? 0) > 0 && g.toeSoil) {
+      const a0 = ((i.toeSoil.slope ?? 0) * Math.PI) / 180,
+        pt = g.toeSoil.at(2)!;
+      line(pt.x - 0.7, pt.y, pt.x, pt.y, RW_COLORS.soilEdge, 0.8, "3 3");
+      arc(pt.x, pt.y, 0.5 * s, Math.PI, Math.PI + a0, `toe slope ${n2(i.toeSoil.slope ?? 0, 0)}°`, RW_COLORS.soilEdge, "end");
+    }
+  }
+
+  if (loadNotes.length) {
+    text(W - 12, 18, "Loads", { size: fs * 0.85, anchor: "end", weight: 600 });
+    loadNotes.forEach(([t, color], k) => text(W - 12, 18 + (k + 1) * 17, t, { size: fs * 0.8, color, anchor: "end" }));
   }
 
   // ---- Bearing pressure ---------------------------------------------------------------
@@ -330,7 +477,8 @@ export function retainingWallSectionSvg(
     poly.push({ x: B, y: yb });
     out += `<polygon points="${pts(poly)}" fill="${RW_COLORS.bearing}" fill-opacity="0.22" stroke="${RW_COLORS.bearing}" stroke-width="1.2"/>`;
     text(X(0) - 4, Y(yb - qGov.bearing.qToe * k) + 4, `${n2(qGov.bearing.qToe, 1)} kPa`, { size: fs * 0.8, color: RW_COLORS.bearing, anchor: "end" });
-    text(X(B) - 2, Y(yb - qGov.bearing.qHeel * k) + fs + 2, `${n2(qGov.bearing.qHeel, 1)} kPa`, { size: fs * 0.8, color: RW_COLORS.bearing, anchor: "end" });
+    const deepHeel = qGov.bearing.qHeel * k > 0.35 * bearH;
+    text(deepHeel ? X(B) + 4 : X(B) - 2, Y(yb - qGov.bearing.qHeel * k) + (deepHeel ? 4 : fs + 2), `${n2(qGov.bearing.qHeel, 1)} kPa`, { size: fs * 0.8, color: RW_COLORS.bearing, anchor: deepHeel ? "start" : "end" });
     text(X(B) + 4, Y(yb - bearH * 0.8) + 4, `Bearing (${qGov.id}) · ${qGov.bearing.shape === "triangle" ? `contact ${n2(qGov.bearing.contact)} m` : "full contact"}, qa ${n2(qGov.allowable, 0)} kPa`, { size: fs * 0.8, color: RW_COLORS.bearing });
   }
 
@@ -359,8 +507,12 @@ export function retainingWallSectionSvg(
     const dx = x0 + 0.2;
     dimV(dx, tf, top, `H = ${n2(i.height)} m`);
     dimV(dx, 0, tf, `${n2(tf)}`);
-    dimH(g.frontTop, g.backTop, top + 0.32, `${n2(i.stemTop)}`);
-    if (g.key) text(X(i.key.offset + i.key.width) + 4, Y(-i.key.depth / 2), `key ${n2(i.key.width)} × ${n2(i.key.depth)}`, { size: fs * 0.8, color: RW_COLORS.dim });
+    dimH(g.frontTop, g.backTop, top + 0.32 + loadBandPx / s, `${n2(i.stemTop)}`);
+    if (g.key) {
+      const ko = keyOffset(i);
+      if (!show.bars)
+        text(X(ko) - 4, Y(-i.key.depth / 2) + 4, `key ${n2(i.key.width)} × ${n2(i.key.depth)} m (${i.key.position === "stem" ? "under stem" : i.key.position === "heel" ? "at heel" : `at ${n2(ko)} m`})`, { size: fs * 0.8, color: RW_COLORS.dim, anchor: "end" });
+    }
   }
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${Hpx}" width="${W}" height="${Hpx}" font-family="Century Gothic, Manrope, Arial, sans-serif" role="img" aria-label="Retaining wall section"><rect width="${W}" height="${Hpx}" fill="#ffffff"/>${out}</svg>`;
 }

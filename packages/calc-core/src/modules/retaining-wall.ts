@@ -56,6 +56,8 @@ const combinationSchema = z.object({
   l: z.number().min(0).max(3),
   /** Seismic earth-pressure increment and wall inertia. */
   e: z.number().min(0).max(3),
+  /** Wind on the exposed stem. */
+  w: z.number().min(0).max(3).default(0),
   included: z.boolean(),
 });
 export type RetainingWallCombination = z.infer<typeof combinationSchema>;
@@ -76,8 +78,12 @@ export const retainingWallInputSchema = z
     footing: z.number().min(0.1).max(2.5),
     key: z.object({
       enabled: z.boolean(),
+      /** Under the stem (centred), at the heel end, or at the custom offset. */
+      position: z.enum(["stem", "heel", "custom"]).default("custom"),
       depth: z.number().min(0.1).max(2),
       width: z.number().min(0.15).max(2),
+      /** Vertical bars on the key's front (toe-side) face, hooked into the footing. */
+      bar: barSchema.default({ diameter: 16, spacing: 200 }),
       /** Distance from the toe edge to the front face of the key, m. */
       offset: z.number().min(0).max(20),
     }),
@@ -109,6 +115,36 @@ export const retainingWallInputSchema = z
       dead: z.number().min(0).max(200),
       live: z.number().min(0).max(200),
     }),
+    /** Strip surcharge on level ground behind the wall (Boussinesq, rigid wall). */
+    strip: z
+      .object({
+        enabled: z.boolean(),
+        q: z.number().min(0).max(1000),
+        /** Distance from the stem back face (at the top) to the near edge, m. */
+        distance: z.number().min(0).max(50),
+        width: z.number().min(0.1).max(50),
+        kind: z.enum(["dead", "live"]),
+      })
+      .default({ enabled: false, q: 20, distance: 1, width: 1, kind: "live" }),
+    /** Line load on the stem top (e.g. beam or slab bearing), per metre. */
+    axial: z
+      .object({
+        enabled: z.boolean(),
+        dead: z.number().min(0).max(5000),
+        live: z.number().min(0).max(5000),
+        /** Eccentricity from the stem-top centreline, + towards the toe, m. */
+        eccentricity: z.number().min(-2).max(2),
+      })
+      .default({ enabled: false, dead: 10, live: 5, eccentricity: 0 }),
+    /** Wind on the exposed stem, acting towards the toe. */
+    wind: z
+      .object({
+        enabled: z.boolean(),
+        pressure: z.number().min(0).max(20),
+        /** Height of the stem exposed to wind, measured down from the stem top, m. */
+        height: z.number().min(0.1).max(12),
+      })
+      .default({ enabled: false, pressure: 1, height: 1 }),
     water: z.object({
       enabled: z.boolean(),
       /** Water level behind the wall above the underside of the footing, m. */
@@ -118,8 +154,10 @@ export const retainingWallInputSchema = z
       gammaW: z.number().min(9.5).max(10.5),
     }),
     toeSoil: z.object({
-      /** Soil cover above the top of the footing at the toe, m. */
+      /** Soil cover above the top of the footing at the stem front face, m. */
       cover: z.number().min(0).max(5),
+      /** Ground slope in front of the wall, falling away from it, deg. */
+      slope: z.number().min(0).max(40).default(0),
       gamma: z.number().min(12).max(24),
       phi: z.number().min(15).max(50),
       includeWeight: z.boolean(),
@@ -192,6 +230,7 @@ export const retainingWallInputSchema = z
   .refine(
     (i) =>
       !i.key.enabled ||
+      i.key.position !== "custom" ||
       i.key.offset + i.key.width <= i.toe + i.stemBase + i.heel + 1e-9,
     "The shear key must lie under the footing.",
   )
@@ -225,54 +264,36 @@ export type RetainingWallDraft = z.infer<typeof retainingWallDraftSchema>;
 export function retainingWallCombinationPreset(
   set: CombinationSet,
   seismic: boolean,
+  wind = false,
 ): Pick<RetainingWallInput, "strength" | "service"> {
   const nscp = set === "NSCP 2015";
+  const c = (id: string, d: number, h: number, l: number, e = 0, w = 0): RetainingWallCombination => ({
+    id,
+    d,
+    h,
+    l,
+    e,
+    w,
+    included: true,
+  });
   const strength: RetainingWallCombination[] = [
-    { id: nscp ? "203-1: 1.4D" : "2.3.1(1): 1.4D", d: 1.4, h: 0, l: 0, e: 0, included: true },
-    {
-      id: nscp ? "203-2: 1.2D + 1.6L + 1.6H" : "2.3.1(2): 1.2D + 1.6L + 1.6H",
-      d: 1.2,
-      h: 1.6,
-      l: 1.6,
-      e: 0,
-      included: true,
-    },
-    {
-      id: nscp ? "203-6: 0.9D + 1.6H (W = 0)" : "2.3.1(5): 0.9D + 1.6H (W = 0)",
-      d: 0.9,
-      h: 1.6,
-      l: 0,
-      e: 0,
-      included: true,
-    },
+    c(nscp ? "203-1: 1.4D" : "2.3.1(1): 1.4D", 1.4, 0, 0),
+    c(nscp ? "203-2: 1.2D + 1.6L + 1.6H" : "2.3.1(2): 1.2D + 1.6L + 1.6H", 1.2, 1.6, 1.6),
+    c(nscp ? "203-6: 0.9D + 1.6H (W = 0)" : "2.3.1(5): 0.9D + 1.6H (W = 0)", 0.9, 1.6, 0),
   ];
+  if (wind)
+    strength.push(
+      c(nscp ? "203-4: 1.2D + 1.0W + 0.5L + 1.6H" : "2.3.1(4): 1.2D + 1.0W + 0.5L + 1.6H", 1.2, 1.6, 0.5, 0, 1),
+      c(nscp ? "203-6: 0.9D + 1.0W + 1.6H" : "2.3.1(5): 0.9D + 1.0W + 1.6H", 0.9, 1.6, 0, 0, 1),
+    );
   if (seismic)
     strength.push(
-      {
-        id: nscp
-          ? "203-5: 1.2D + 1.0E + 0.5L + 1.6H"
-          : "2.3.6(6): 1.2D + 1.0E + 0.5L + 1.6H",
-        d: 1.2,
-        h: 1.6,
-        l: 0.5,
-        e: 1,
-        included: true,
-      },
-      {
-        id: nscp ? "203-7: 0.9D + 1.0E + 1.6H" : "2.3.6(7): 0.9D + 1.0E + 1.6H",
-        d: 0.9,
-        h: 1.6,
-        l: 0,
-        e: 1,
-        included: true,
-      },
+      c(nscp ? "203-5: 1.2D + 1.0E + 0.5L + 1.6H" : "2.3.6(6): 1.2D + 1.0E + 0.5L + 1.6H", 1.2, 1.6, 0.5, 1),
+      c(nscp ? "203-7: 0.9D + 1.0E + 1.6H" : "2.3.6(7): 0.9D + 1.0E + 1.6H", 0.9, 1.6, 0, 1),
     );
-  const service: RetainingWallCombination[] = [
-    { id: "S1: D + H + L", d: 1, h: 1, l: 1, e: 0, included: true },
-    { id: "S2: D + H", d: 1, h: 1, l: 0, e: 0, included: true },
-  ];
-  if (seismic)
-    service.push({ id: "S3: D + H + 0.7E", d: 1, h: 1, l: 0, e: 0.7, included: true });
+  const service: RetainingWallCombination[] = [c("S1: D + H + L", 1, 1, 1), c("S2: D + H", 1, 1, 0)];
+  if (wind) service.push(c("S4: D + H + 0.6W", 1, 1, 0, 0, 0.6));
+  if (seismic) service.push(c("S3: D + H + 0.7E", 1, 1, 0, 0.7));
   return { strength, service };
 }
 
@@ -288,7 +309,14 @@ export function defaultRetainingWallInput(): RetainingWallInput {
     toe: 1,
     heel: 1.4,
     footing: 0.3,
-    key: { enabled: false, depth: 0.4, width: 0.3, offset: 1 },
+    key: {
+      enabled: false,
+      position: "stem",
+      depth: 0.4,
+      width: 0.3,
+      offset: 1,
+      bar: { diameter: 16, spacing: 200 },
+    },
     prop: { height: 3.8, rigid: true, stiffness: 50000 },
     basement: { top: "pinned", base: "fixed" },
     soil: {
@@ -302,9 +330,13 @@ export function defaultRetainingWallInput(): RetainingWallInput {
       userK: 0.5,
     },
     surcharge: { dead: 0, live: 0 },
+    strip: { enabled: false, q: 20, distance: 1, width: 1, kind: "live" },
+    axial: { enabled: false, dead: 10, live: 5, eccentricity: 0 },
+    wind: { enabled: false, pressure: 1, height: 1 },
     water: { enabled: false, back: 0, front: 0, gammaW: 9.81 },
     toeSoil: {
       cover: 0.5,
+      slope: 0,
       gamma: 18,
       phi: 30,
       includeWeight: true,
@@ -335,6 +367,14 @@ export function defaultRetainingWallInput(): RetainingWallInput {
     combinationSet: "NSCP 2015",
     ...retainingWallCombinationPreset("NSCP 2015", false),
   };
+}
+
+/** Front-face offset of the shear key from the toe edge, m. */
+export function keyOffset(i: Pick<RetainingWallInput, "key" | "toe" | "stemBase" | "heel">) {
+  const B = i.toe + i.stemBase + i.heel;
+  if (i.key.position === "stem") return Math.max(0, i.toe + (i.stemBase - i.key.width) / 2);
+  if (i.key.position === "heel") return Math.max(0, B - i.key.width);
+  return i.key.offset;
 }
 
 /** Bar area per metre, mm²/m. */

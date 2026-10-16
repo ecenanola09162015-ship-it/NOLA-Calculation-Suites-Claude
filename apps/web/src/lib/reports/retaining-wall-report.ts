@@ -8,6 +8,8 @@ import {
   rebarDesignation,
   rebarGradeLabel,
   retainingWallDesignChecks,
+  retainingWallCheckSections,
+  retainingWallSectionTitles,
   retainingWallStatus,
   barAreaPerMetre,
   estimateRetainingWallQuantity,
@@ -236,7 +238,10 @@ export function retainingWallReportData(
     ],
     checks: section(
       "DCR Design Checks And Engineering Remarks",
-      checks.map((x) => [x.label, x.clause, f(x.dcr, 3), status(x.dcr, policy, remarks[x.id])]),
+      retainingWallCheckSections(r).flatMap((sec) => [
+        [{ text: `${retainingWallSectionTitles[sec.title]} — governing DCR ${f(sec.governing, 3)}`, color: "#1f3864" }, "", "", ""],
+        ...sec.checks.map((x) => [x.label, x.clause, f(x.dcr, 3), status(x.dcr, policy, remarks[x.id])]),
+      ]),
       ["Check", "Code Reference", "DCR", "Status / Remarks"],
     ),
     sections: [loads, equations, stemRows],

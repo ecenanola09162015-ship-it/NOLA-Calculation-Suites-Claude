@@ -87,6 +87,28 @@ function buildGroups(model: RetainingWall3DModel) {
     arrow.position.copy(v3(a.x, a.y, a.z));
     pressures.add(arrow);
   }
+  const loadColors: Record<string, string> = {
+    surchargeDead: RW_COLORS.pressure.surchargeDead!,
+    surchargeLive: RW_COLORS.pressure.surchargeLive!,
+    strip: "#6b3fa0",
+    axial: "#c0392b",
+    wind: "#0e7c86",
+  };
+  for (const a of model.loads) {
+    const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(loadColors[a.kind] ?? "#555"), roughness: 0.6 });
+    const head = a.length * 0.3,
+      arrow = new THREE.Group();
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(r0 * 0.8, r0 * 0.8, a.length - head, 8), mat);
+    shaft.position.set(0, head + (a.length - head) / 2, 0);
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(r0 * 2.6, head, 12), mat);
+    cone.rotation.x = Math.PI;
+    cone.position.set(0, head / 2, 0);
+    arrow.add(shaft, cone);
+    // Local +y = tail: "down" keeps the tail up; "toe" points the tip towards −x.
+    if (a.direction === "toe") arrow.rotation.z = -Math.PI / 2;
+    arrow.position.copy(v3(a.x, a.y, a.z));
+    pressures.add(arrow);
+  }
   return { concrete: concreteG, soil, water, pressures };
 }
 function frame(camera: THREE.PerspectiveCamera, controls: OrbitControls, model: RetainingWall3DModel, view: View) {

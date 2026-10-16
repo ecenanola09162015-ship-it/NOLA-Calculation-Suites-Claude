@@ -4,7 +4,7 @@
  * counter-clockwise and shared by the engine (weights, lever arms) and the
  * drawings (section view, 3D), so both always agree.
  */
-import type { RetainingWallInput } from "./retaining-wall";
+import { keyOffset, type RetainingWallInput } from "./retaining-wall";
 
 export type Pt = { x: number; y: number };
 export type Polygon = Pt[];
@@ -31,6 +31,8 @@ export interface RetainingWallGeometry {
   backfill: Polygon;
   /** Soil over the toe (null when there is no cover or no toe). */
   toeSoil: Polygon | null;
+  /** Soil cover above the footing top at the toe edge (toe slope applied), m. */
+  toeEdgeCover: number;
 }
 
 /** Stem thickness at height y above the top of the footing (m). */
@@ -64,13 +66,14 @@ export function retainingWallGeometry(i: RetainingWallInput): RetainingWallGeome
     { x: width, y: tf },
     { x: 0, y: tf },
   ];
+  const ko = keyOffset(i);
   const key =
     i.key.enabled && !basement
       ? [
-          { x: i.key.offset, y: -i.key.depth },
-          { x: i.key.offset + i.key.width, y: -i.key.depth },
-          { x: i.key.offset + i.key.width, y: 0 },
-          { x: i.key.offset, y: 0 },
+          { x: ko, y: -i.key.depth },
+          { x: ko + i.key.width, y: -i.key.depth },
+          { x: ko + i.key.width, y: 0 },
+          { x: ko, y: 0 },
         ]
       : null;
   const backfill: Polygon = [
@@ -82,14 +85,24 @@ export function retainingWallGeometry(i: RetainingWallInput): RetainingWallGeome
   const cover = Math.min(i.toeSoil.cover, i.height);
   const frontAt = (y: number) =>
     frontBase + ((y - tf) / i.height) * (frontTop - frontBase);
-  const toeSoil =
+  // Toe ground falls away from the wall at the toe slope; clipped at the footing top.
+  const fall = Math.tan(((i.toeSoil.slope ?? 0) * Math.PI) / 180);
+  const xc = frontAt(tf + cover);
+  const edgeCover = Math.max(0, cover - xc * fall);
+  const toeSoil: Polygon | null =
     cover > 0 && toe > 0 && !basement
-      ? [
-          { x: 0, y: tf },
-          { x: frontBase, y: tf },
-          { x: frontAt(tf + cover), y: tf + cover },
-          { x: 0, y: tf + cover },
-        ]
+      ? edgeCover > 0
+        ? [
+            { x: 0, y: tf },
+            { x: frontBase, y: tf },
+            { x: xc, y: tf + cover },
+            { x: 0, y: tf + edgeCover },
+          ]
+        : [
+            { x: xc - cover / fall, y: tf },
+            { x: frontBase, y: tf },
+            { x: xc, y: tf + cover },
+          ]
       : null;
   return {
     width,
@@ -106,6 +119,7 @@ export function retainingWallGeometry(i: RetainingWallInput): RetainingWallGeome
     key,
     backfill,
     toeSoil,
+    toeEdgeCover: toe > 0 && !basement ? edgeCover : 0,
   };
 }
 

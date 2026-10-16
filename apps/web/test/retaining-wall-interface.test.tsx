@@ -94,12 +94,14 @@ describe("retaining wall drawings, 3D model and report", () => {
     const pm = buildRetainingWall3DModel(propped, designRetainingWall(propped), 6);
     expect(pm.prisms.some((p) => p.kind === "prop")).toBe(true);
   });
-  it("report lists stability, member design, clauses and limitations", () => {
+  it("report lists stability, member design, clauses and limitations", async () => {
     const d = retainingWallReportData(undefined, "RW-01", i, r, defaultDesignCheckPolicy, {});
     expect(d.module).toBe("Concrete Retaining Wall");
     expect(d.basis).toBe("ACI 318-19");
     expect(d.summary.map((s) => s.title)).toContain("External Stability (Service)");
-    expect(d.checks.rows.length).toBe(r.checks.length);
+    const { retainingWallCheckSections } = await import("@nola/calc-core");
+    expect(d.checks.rows.length).toBe(r.checks.length + retainingWallCheckSections(r).length);
+    expect(String((d.checks.rows[0]![0] as { text: string }).text)).toContain("Stability Checks (Service, FS)");
     expect(d.criticalNotes.some((n) => n.includes("Bearing"))).toBe(true);
     expect(d.figures.length).toBeGreaterThanOrEqual(2);
     expect(JSON.stringify(d)).not.toContain("NaN");
@@ -150,5 +152,60 @@ describe("retaining wall PDF", () => {
     const out = await generateCalculationPdf(d, { type, paper: "A4", nolaLogo: png });
     expect(out.pageCount).toBeGreaterThan(0);
     if (type === "simple") expect(out.pageCount).toBeLessThanOrEqual(2);
+  });
+});
+
+describe("UI polish batch", () => {
+  it("review has four headed sections and the reinforcement table shows marks and lowercase units", () => {
+    const i = defaultRetainingWallInput();
+    i.key.enabled = true;
+    const html = renderToStaticMarkup(
+      <RetainingWallWorkspace
+        cloudReady={false}
+        onSaved={() => {}}
+        draft={{
+          id: "00000000-0000-4000-8000-000000000004",
+          projectId: "00000000-0000-4000-8000-000000000002",
+          moduleSlug: "retaining-wall",
+          title: "RW-K",
+          payload: { kind: "retaining-wall", version: 1, input: i },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        } as never}
+      />,
+    );
+    const order = ["Stability Checks (Service, FS)", "Reinforcement Checks — Stem", "Reinforcement Checks — Footing", "Reinforcement Checks — Detailing"].map((t) => html.indexOf(t));
+    expect(order.every((k) => k > 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(html).toContain("Spacing mm");
+    expect(html).toContain("As mm²/m");
+    for (const m of [1, 2, 3, 4, 5, 6, 7]) expect(html).toContain(`data-mark="${m}"`);
+    expect(html).toContain("Shear key (bottom of footing)");
+    expect(html).toContain("Under stem (centred)");
+  });
+  it("drawing shows surcharge rows, strip, line load, wind, slope angles and key bars", () => {
+    const i = defaultRetainingWallInput();
+    i.surcharge = { dead: 5, live: 10 };
+    i.strip = { enabled: true, q: 20, distance: 1, width: 1, kind: "live" };
+    i.axial = { enabled: true, dead: 10, live: 5, eccentricity: 0.05 };
+    i.wind = { enabled: true, pressure: 1, height: 1 };
+    i.soil.beta = 10;
+    i.toeSoil.slope = 10;
+    i.key = { ...i.key, enabled: true, position: "stem" };
+    const svg = retainingWallSectionSvg(i, designRetainingWall(i));
+    expect(svg).toContain("qD = 5.0 kPa uniform surcharge (dead)");
+    expect(svg).toContain("qL = 10.0 kPa uniform surcharge (live)");
+    expect(svg).toContain("strip 20.0 kPa (live)");
+    expect(svg).toContain("P = 10.0 D + 5.0 L kN/m on stem top");
+    expect(svg).toContain("W = wind 1.00 kPa");
+    expect(svg).toContain("β = 10°");
+    expect(svg).toContain("toe slope 10°");
+    expect(svg).toMatch(/shear key [\d.]+ × [\d.]+ m under stem, front face/);
+    expect(svg).toContain("under stem");
+    expect(svg).not.toContain("NaN");
+    const plain = retainingWallSectionSvg(defaultRetainingWallInput(), designRetainingWall(defaultRetainingWallInput()));
+    expect(plain).not.toContain("uniform surcharge");
+    const m = buildRetainingWall3DModel(i, designRetainingWall(i), 5);
+    for (const k of ["surchargeDead", "surchargeLive", "strip", "axial", "wind"]) expect(m.loads.some((l) => l.kind === k)).toBe(true);
   });
 });

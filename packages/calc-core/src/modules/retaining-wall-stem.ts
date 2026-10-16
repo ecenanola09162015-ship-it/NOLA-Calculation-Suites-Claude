@@ -26,6 +26,10 @@ export interface StemLoad {
   p: (y: number) => number;
   /** Heights with kinks in p. */
   breaks: number[];
+  /** Couple applied at the stem top, tension on the back face > 0 (kN·m/m). */
+  couple?: number;
+  /** Determinate moment added at each height (tension back > 0). */
+  extraMoment?: (y: number) => number;
 }
 export interface StemSolution {
   /** Horizontal reaction at the base (towards the back, kN/m), magnitude of shear. */
@@ -123,6 +127,7 @@ export function solveStem(
       for (let r = 0; r < 4; r++) F[map[r]!]! += (w! * h * p * N[r]!) / 2;
     }
   }
+  if (load.couple) F[2 * (n - 1) + 1]! += load.couple;
   const fixed = new Set<number>([0]);
   if (supports.base === "fixed") fixed.add(1);
   const top = n - 1;
@@ -166,12 +171,13 @@ export function solveStem(
   const pointForces: [number, number][] = [];
   if (propR !== null && supports.prop) pointForces.push([nodes.at(propNode)!, propR]);
   if (topR !== null) pointForces.push([H, topR]);
-  const couple = topM ?? 0;
+  const couple = (topM ?? 0) + (load.couple ?? 0);
   const moment = (y: number) => {
     const yy = Math.min(Math.max(y, 0), H);
     let m = integrate((s) => load.p(s) * (s - yy), yy, H, load.breaks, 6);
     for (const [s, f] of pointForces) if (s > yy + 1e-12) m += f * (s - yy);
     if (yy < H - 1e-12) m += couple;
+    if (load.extraMoment) m += load.extraMoment(yy);
     return m;
   };
   const shear = (y: number) => {

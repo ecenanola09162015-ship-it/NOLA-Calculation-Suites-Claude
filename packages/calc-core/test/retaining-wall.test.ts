@@ -20,6 +20,7 @@ import {
   retainingWallDraftSchema,
   retainingWallInputSchema,
   solveStem,
+  retainingWallCombinationPreset,
   type RetainingWallInput,
 } from "../src";
 
@@ -193,7 +194,7 @@ describe("BW-01 basement wall (audit A2, corrected)", () => {
       i.soil.theory = "at-rest";
       i.surcharge.dead = 5;
       i.basement = { top, base: "fixed" };
-      i.service = [{ id: "S", d: 1, h: 1, l: 1, e: 0, included: true }];
+      i.service = [{ id: "S", d: 1, h: 1, l: 1, e: 0, w: 0, included: true }];
     }));
   it("fixed–fixed reactions 17.82 + 36.26 = 54.08 kN/m (workbook 10.91 + 20.13)", () => {
     const r = base("fixed");
@@ -238,7 +239,7 @@ describe("water and seismic", () => {
       i.seismic = { method: "mononobe-okabe", kh: 0.2, kv: 0, inertia: true };
       Object.assign(i, (({ strength, service }) => ({ strength, service }))(
         // seismic presets
-        { strength: [...i.strength, { id: "E", d: 0.9, h: 1.6, l: 0, e: 1, included: true }], service: [...i.service, { id: "SE", d: 1, h: 1, l: 0, e: 0.7, included: true }] },
+        { strength: [...i.strength, { id: "E", d: 0.9, h: 1.6, l: 0, e: 1, w: 0, included: true }], service: [...i.service, { id: "SE", d: 1, h: 1, l: 0, e: 0.7, w: 0, included: true }] },
       ));
     }));
     const dp = r.lateral.find((l) => l.id === "seismic")!;
@@ -291,5 +292,64 @@ describe("quantity estimate (Phase 1b)", () => {
     close(back.weight, 100 * ((Math.PI * 256) / 4) * back.length * 0.00785, 1e-9);
     expect(q.ratio).toBeGreaterThan(40);
     expect(q.ratio).toBeLessThan(200);
+  });
+});
+
+import { coulombKp, stripPressure, keyOffset, integrate as integ } from "../src";
+describe("new loads and geometry (UI polish batch)", () => {
+  it("strip surcharge resultant matches Jarquio P = q/90·H(θ2 − θ1)", () => {
+    const q = 20, a = 1, b = 2, H = 4;
+    const P = integ((z) => stripPressure(q, a, b, z), 0, H, [], 64);
+    const deg = (x: number) => (x * 180) / Math.PI;
+    close(P, (q / 90) * H * (deg(Math.atan((a + b) / H)) - deg(Math.atan(a / H))), 2e-3);
+  });
+  it("strip on the stem adds a lateral component; part over the heel is vertical", () => {
+    const r = designRetainingWall(wall((i) => (i.strip = { enabled: true, q: 20, distance: 1, width: 1, kind: "dead" })));
+    expect(r.stem.components.some((c) => c.id === "strip" && c.force > 0)).toBe(true);
+    // Heel run 1.4 m: strip 1.0–2.0 m → 0.4 m over the heel, 0.6 m beyond the plane.
+    close(r.weights.find((w) => w.id === "stripV")!.weight, 20 * 0.4, 1e-9);
+    expect(r.lateral.some((l) => l.id === "strip")).toBe(true);
+  });
+  it("eccentric stem-top load: base moment = P·e on a prismatic cantilever", () => {
+    const base = designRetainingWall(defaultRetainingWallInput());
+    const r = designRetainingWall(wall((i) => {
+      i.axial = { enabled: true, dead: 50, live: 0, eccentricity: 0.1 };
+      i.service = [{ id: "S", d: 1, h: 0, l: 0, e: 0, w: 0, included: true }];
+    }));
+    close(r.stem.stations[0]!.mService, 50 * 0.1, 1e-6);
+    expect(r.weights.find((w) => w.id === "axialD")!.weight).toBe(50);
+    expect(base.weights.some((w) => w.id === "axialD")).toBe(false);
+  });
+  it("wind on the exposed stem: Mbase = w h (H − h/2) and W combinations", () => {
+    const i = wall((i) => {
+      i.wind = { enabled: true, pressure: 1.5, height: 1 };
+      Object.assign(i, retainingWallCombinationPreset("NSCP 2015", false, true));
+      i.service = [{ id: "W", d: 1, h: 0, l: 0, e: 0, w: 1, included: true }];
+    });
+    const r = designRetainingWall(i);
+    close(r.stem.stations[0]!.mService, 1.5 * 1 * (3.8 - 0.5), 1e-6);
+    expect(i.strength.some((c) => c.w === 1)).toBe(true);
+  });
+  it("toe slope lowers Kp (Coulomb δ = 0), equals Rankine on level ground", () => {
+    close(coulombKp(30, 0), 3, 1e-9);
+    expect(coulombKp(30, -15)).toBeLessThan(3);
+    const r = designRetainingWall(wall((i) => (i.toeSoil.slope = 15)));
+    expect(r.coefficients.kp).toBeLessThan(3);
+    expect(r.geometry.toeEdgeCover).toBeLessThan(0.5);
+  });
+  it("shear key positions and key design by hand", () => {
+    const i = defaultRetainingWallInput();
+    i.key = { ...i.key, enabled: true, position: "stem", width: 0.3, depth: 0.4 };
+    close(keyOffset(i), 1.0, 1e-9);
+    close(keyOffset({ ...i, key: { ...i.key, position: "heel" } }), 2.4, 1e-9);
+    i.toeSoil.passive = true;
+    i.toeSoil.mobilization = 1;
+    const r = designRetainingWall(retainingWallInputSchema.parse(i));
+    // d1 = 0.5 + 0.3 = 0.8, d2 = 1.2; k = 3 × 18 = 54 → P = 27(1.44 − 0.64) = 21.6 kN/m.
+    const k = r.flexure.find((f) => f.id === "key")!;
+    const m = 54 * ((1.2 ** 3 - 0.8 ** 3) / 3 - (0.8 * (1.44 - 0.64)) / 2);
+    close(k.mu, 1.6 * m, 1e-9);
+    close(r.shear.find((v) => v.id === "key-shear")!.vu, 1.6 * 21.6, 1e-9);
+    close(r.passive.depth, 1.2, 1e-9);
   });
 });

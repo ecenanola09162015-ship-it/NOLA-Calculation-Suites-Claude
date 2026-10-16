@@ -34,3 +34,43 @@
   margin: 0;
   font-weight: 600;
 }
+/* Units stay as typed (mm, mm²/m): the shared .slabBars th capitalises. */
+.bars.bars th {
+  text-transform: none;
+}
+.barRow td:first-child {
+  border-left: 4px solid;
+  border-left-color: inherit;
+}
+.barRow {
+  border-left: 4px solid transparent;
+}
+.mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  background: #fff;
+}
+.keyBlock {
+  margin: 0.5rem 0 0.75rem;
+}
+.keyRow {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.keySketch {
+  width: 150px;
+  height: 86px;
+  flex: none;
+}
+.review {
+  margin-top: 1rem;
+}

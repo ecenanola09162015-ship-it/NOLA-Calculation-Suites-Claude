@@ -97,6 +97,10 @@ export function estimateRetainingWallQuantity(
     add(4, "Footing bottom (toe main)", b.toeBottom, countAlong(L - 0.1, b.toeBottom.spacing), across + 2 * hook(b.toeBottom));
     add(5, "Footing top (heel main)", b.heelTop, countAlong(L - 0.1, b.heelTop.spacing), across + 2 * hook(b.heelTop));
     add(6, "Footing distribution, both faces", b.footingDistribution, 2 * countAlong(across, b.footingDistribution.spacing), L - 0.1);
+    if (i.key.enabled) {
+      const kb = i.key.bar;
+      add(7, "Shear key, front face", kb, countAlong(L - 0.1, kb.spacing), i.key.depth + tf - (cv.footingBottom + cv.footingTop) / 1000 + hook(kb));
+    }
   }
   const steel = lines.reduce((s, l) => s + l.weight, 0),
     total = stem + footing + key;
