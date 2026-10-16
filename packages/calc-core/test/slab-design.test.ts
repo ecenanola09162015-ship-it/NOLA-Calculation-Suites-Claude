@@ -16,6 +16,7 @@ import {
   slabTopBarFactor,
   slabSupportLayout,
   slabLoadPatch,
+  slabAdoptSpacing,
   slabInputSchema,
   slabBeamSizes,
 } from "../src/modules/slab-design";
@@ -1421,5 +1422,82 @@ describe("concrete strength range (1000-15000 psi)", () => {
     });
     expect(s.west).toEqual({ width: 300, depth: 600 });
     expect(s.south).toEqual({ width: 400, depth: 700 });
+  });
+});
+describe("spacing suggestions: main, extra, main + extra, adopt", () => {
+  const i = { ...defaultSlabInput(), lx: 6, ly: 6, live: 4.8 };
+  const flexureOk = (x: typeof i) => {
+    const r = analyzeSlab(x, false);
+    return r.regions.every((g) => g.dcr <= x.dcrLimit + 1e-9);
+  };
+  it("adopting each suggestion gives a flexure-adequate slab", () => {
+    const recs = analyzeSlab(i).recommendations;
+    expect(recs).toHaveLength(4);
+    const main = slabAdoptSpacing(i, recs, "main-only", "main").input;
+    expect(flexureOk(main)).toBe(true);
+    const extra = slabAdoptSpacing(i, recs, "extra-only", "extra").input;
+    expect(flexureOk(extra)).toBe(true);
+    const both = slabAdoptSpacing(
+      slabAdoptSpacing(i, recs, "combined", "main").input,
+      recs,
+      "combined",
+      "extra",
+    ).input;
+    expect(flexureOk(both)).toBe(true);
+    // Inputs not mutated.
+    expect(i.main["long-top"].spacing).toBe(
+      defaultSlabInput().main["long-top"].spacing,
+    );
+  });
+  it("combined: wider main spacing with staggered extras at 1×–3× the main spacing", () => {
+    const top = analyzeSlab(i).recommendations.find(
+      (r) => r.layer === "long-top",
+    )!;
+    expect(top.combined).not.toBeNull();
+    const c = top.combined!;
+    expect(c.main.spacing).toBeGreaterThan(top.spacing!);
+    expect(c.extra.status).toBe("required");
+    const k = c.extra.suggestion!.spacing / c.main.spacing;
+    expect([1, 2, 3]).toContain(k);
+  });
+  it("leaves not-required extras as entered and skips larger diameters unless confirmed", () => {
+    const recs = analyzeSlab(defaultSlabInput()).recommendations;
+    expect(recs.every((r) => r.extra.status !== "required")).toBe(true);
+    const a = slabAdoptSpacing(defaultSlabInput(), recs, "extra-only", "extra");
+    expect(a.adopted).toEqual([]);
+    expect(a.input.extra).toEqual(defaultSlabInput().extra);
+    // Heavy load on Ø10 (h 150, 7 × 7 m, L 15 kPa): Ø10 top fails, a larger size is offered.
+    const heavy = {
+      ...defaultSlabInput(),
+      h: 150,
+      lx: 7,
+      ly: 7,
+      live: 15,
+      main: Object.fromEntries(
+        Object.entries(defaultSlabInput().main).map(([k, v]) => [
+          k,
+          { ...v, diameter: 10 },
+        ]),
+      ) as typeof i.main,
+    };
+    const hr = analyzeSlab(heavy).recommendations;
+    const failing = hr.find((r) => r.spacing === null && r.mainUpsize);
+    expect(failing).toBeDefined();
+    expect(failing!.mainUpsize!.diameter).toBeGreaterThan(10);
+    const skip = slabAdoptSpacing(heavy, hr, "main-only", "main", [
+      failing!.layer,
+    ]);
+    expect(skip.skipped).toEqual([failing!.layer]);
+    const take = slabAdoptSpacing(
+      heavy,
+      hr,
+      "main-only",
+      "main",
+      [failing!.layer],
+      true,
+    );
+    expect(take.input.main[failing!.layer].diameter).toBe(
+      failing!.mainUpsize!.diameter,
+    );
   });
 });
