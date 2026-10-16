@@ -117,6 +117,10 @@ export const retainingWallClauses = {
       "√f′c ≤ 8.3 MPa 22.5.3.1",
       "φ Table 21.2.1",
     ),
+  plateFlexure: () =>
+    ref("13.3.7.2† stem as two-way slab (Ch. 8)", "8.5.1.1", "22.2, 22.3", "φ Table 21.2.2", "Wood–Armer design moments"),
+  plateShear: () =>
+    ref("13.3.7.2†", "8.5.3.1.1", "Table 22.5.5.1(c)", "λs 22.5.5.1.3", "√f′c ≤ 8.3 MPa 22.5.3.1", "φ Table 21.2.1"),
   footingFlexure: () =>
     ref("13.2.7.1† critical section at the stem face", "7.5.1.1", "22.2, 22.3", "φ Table 21.2.2"),
   footingShear: () =>

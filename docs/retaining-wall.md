@@ -14,8 +14,16 @@ Engine `rwall-0.1.0`, slug `retaining-wall`, status `verification-required`. Bas
 
 ## Not covered (reported as warnings)
 
-Global stability and settlement; footing rotation (base assumed fixed); the prop, the slabs and their connections; the temporary stages before the prop or top slab exist; ACI 350 water-retaining provisions; compaction pressure; strip/line surcharges. Full-width plate analysis and buttresses are Phase 2 and 3.
+Global stability and settlement; footing rotation (base assumed fixed); the prop, the slabs and their connections; the temporary stages before the prop or top slab exist; ACI 350 water-retaining provisions; compaction pressure; broken-back backfill. Buttress/counterfort design is Phase 3.
 
 ## Verification
 
 `packages/calc-core/test/retaining-wall.test.ts`: Rankine, Coulomb, M-O and K0 coefficients; cantilever, propped and fixed–fixed closed forms (including the 0.0214wH² span moment); spring-prop limit; and the corrected audit values from the user's workbook (RW-01: Pa 50.43 kN/m, FS sliding 1.50, toe pressure 72.4 kPa; RW-X: Mu 51.63 kN·m/m; BW-01: reactions 17.82 / 36.26 kN/m, span +M 7.36 kN·m/m, pinned-top base M 22.86 kN·m/m), plus bearing redistribution, water, seismic and schema limits.
+
+## Phase 2 — full-width stem plate
+
+`analysis: "plate"` analyses the stem as an L × H Kirchhoff plate (`retaining-wall-plate-fe.ts`, a wall-owned copy of the Slab BFS 16-DOF element so the Slab module is unchanged). Edges: base fixed/pinned; top free / pinned / fixed (cantilever), pinned or a horizontal prop line (propped), the basement slabs (basement); each end free or a perpendicular wall, pinned or fixed; buttresses as vertical line supports of their own height. Loads are the same depth-varying pressure components as the strip, one right-hand side each on one factorisation.
+
+Design moments are Wood–Armer per face and direction from the factored combinations; the governing point is the largest DCR on the sampled mesh (d and bars vary with height). Optional 1 m averaging beside the peak. Checks replace the strip stem checks: vertical back/front, horizontal back/front (horizontal bars ③ now carry moment), shear for vertical spanning at the base and horizontal spanning at end walls and buttresses, crack-control spacing for horizontal bars. Clauses: ACI 318-19 13.3.7.2† (two-way slab, Ch. 8), 8.5.1.1, 22.2–22.3, Table 22.5.5.1. Footing and stability stay per metre (strip). Buttress design and buttress reactions are Phase 3; the stem-top line-load eccentric moment is carried in the strip only.
+
+Verification (`test/retaining-wall-plate.test.ts`): Navier series (uniform and hydrostatic, simply supported), Timoshenko clamped square (0.0231 / −0.0513 qa²), long cantilever wall = PH/3 and cylindrical bending mx = ν my, long propped wall = 2PH/15 (top edge and prop line), closely spaced buttresses = q s²/12, partial-height buttress support, Wood–Armer rules, and wall-design integration (strip match at mid-length, end-wall and buttress effects, averaging ≤ peak). The UI adds the plate panel, the Elevation tab (contours, restraints, buttresses, governing point), the 3D end walls, counterforts and back-face moment map, and the report elevation figures and peaks table. Moody (USBR EM27) and PCA (via IS 3370-4) table benchmarks are to be keyed in from the free sources.

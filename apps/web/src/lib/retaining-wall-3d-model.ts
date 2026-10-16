@@ -41,8 +41,21 @@ export interface LoadArrow {
   length: number;
   direction: "down" | "toe";
 }
+/** Colour map of a plate design moment on the stem back face (Phase 2). */
+export interface MomentMap {
+  nx: number;
+  nz: number;
+  /** values[a][b]: along-wall index a (0…nx), height index b (0…nz). */
+  values: number[][];
+  vmax: number;
+  /** Back-face x at height z (m above footing underside). */
+  faceX: (z: number) => number;
+  z0: number;
+  z1: number;
+}
 export interface RetainingWall3DModel {
   length: number;
+  momentMap: MomentMap | null;
   prisms: Prism[];
   arrows: PressureArrow[];
   loads: LoadArrow[];
@@ -58,7 +71,7 @@ export function buildRetainingWall3DModel(
   length = 5,
 ): RetainingWall3DModel {
   const g = r.geometry,
-    L = Math.max(1, length),
+    L = r.plate ? r.plate.length : Math.max(1, length),
     tf = i.footing,
     top = g.stemTopLevel,
     basement = i.wallType === "basement";
@@ -67,6 +80,39 @@ export function buildRetainingWall3DModel(
     if (poly && poly.length >= 3) prisms.push({ id, kind, polygon: toPts(poly), y0, y1 });
   };
   add("stem", "concrete", g.stem);
+  // Full-width plate: perpendicular end walls, top slab, buttresses at their true positions.
+  if (r.plate) {
+    const sup = r.plate.supports,
+      tw = Math.max(0.2, i.stemBase),
+      xb = basement ? g.backBase + 1.2 : g.width,
+      endPoly = [
+        { x: g.frontBase, y: basement ? tf : 0 },
+        { x: xb, y: basement ? tf : 0 },
+        { x: xb, y: top },
+        { x: g.frontTop, y: top },
+      ];
+    if (sup.left !== "free") add("end-left", "slab", endPoly, -tw, 0);
+    if (sup.right !== "free") add("end-right", "slab", endPoly, L, L + tw);
+    if (!basement && i.wallType === "cantilever" && i.plate.top !== "free") {
+      const ts = 0.2;
+      add("top-slab", "slab", [
+        { x: g.frontTop - 1, y: top },
+        { x: g.backTop, y: top },
+        { x: g.backTop, y: top + ts },
+        { x: g.frontTop - 1, y: top + ts },
+      ]);
+    }
+    i.plate.buttresses.forEach((b, k) => {
+      const h = Math.min(b.height, i.height),
+        reach = Math.max(0.3, (basement ? 1 : g.width - g.backBase) - 0.02);
+      add(`buttress-${k}`, "concrete", [
+        { x: g.backBase, y: tf },
+        { x: g.backBase + reach, y: tf },
+        { x: g.backBase + reach * 0.15, y: tf + h },
+        { x: g.backBase, y: tf + h },
+      ], b.x - b.width / 2, b.x + b.width / 2);
+    });
+  }
   if (basement) {
     const ext = 1.2;
     add("base-slab", "slab", [
@@ -175,8 +221,34 @@ export function buildRetainingWall3DModel(
     xmax = Math.max(...xs, g.width) + 0.4 * i.height,
     zmin = Math.min(...zs, 0),
     zmax = Math.max(...zs, top);
+  let momentMap: MomentMap | null = null;
+  if (r.plate) {
+    const nx = Math.min(60, Math.max(16, Math.round(L * 4))),
+      nz = Math.min(32, Math.max(10, Math.round(i.height * 4)));
+    const values: number[][] = [];
+    let vmax = 0;
+    for (let a = 0; a <= nx; a++) {
+      const col: number[] = [];
+      for (let b = 0; b <= nz; b++) {
+        const v = r.plate.field("backY", (L * a) / nx, (i.height * b) / nz) + r.plate.field("backX", (L * a) / nx, (i.height * b) / nz);
+        col.push(v);
+        vmax = Math.max(vmax, v);
+      }
+      values.push(col);
+    }
+    momentMap = {
+      nx,
+      nz,
+      values,
+      vmax,
+      faceX: (z) => g.backBase + ((z - tf) / i.height) * (g.backTop - g.backBase),
+      z0: tf,
+      z1: top,
+    };
+  }
   return {
     length: L,
+    momentMap,
     prisms,
     arrows,
     loads,

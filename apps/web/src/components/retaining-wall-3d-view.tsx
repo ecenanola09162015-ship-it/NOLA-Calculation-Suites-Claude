@@ -11,6 +11,7 @@ import {
 } from "@/lib/retaining-wall-3d-model";
 import { watercolorConcretePixels } from "@/lib/slab-3d-model";
 import { RW_COLORS } from "@/lib/retaining-wall-drawing";
+import { rampColor } from "@/lib/retaining-wall-elevation";
 
 type View = "iso" | "section" | "front" | "back" | "plan";
 /** Engineering (x across, y along the wall, z up) → three.js (x, y up, z). */
@@ -60,7 +61,35 @@ function buildGroups(model: RetainingWall3DModel) {
   const concreteG = new THREE.Group(),
     soil = new THREE.Group(),
     water = new THREE.Group(),
-    pressures = new THREE.Group();
+    pressures = new THREE.Group(),
+    moments = new THREE.Group();
+  const mm = model.momentMap;
+  if (mm && mm.vmax > 0) {
+    // Vertex-coloured surface just behind the stem back face.
+    const pos: number[] = [],
+      col: number[] = [],
+      idx: number[] = [];
+    for (let a = 0; a <= mm.nx; a++)
+      for (let b = 0; b <= mm.nz; b++) {
+        const z = mm.z0 + ((mm.z1 - mm.z0) * b) / mm.nz,
+          y = (model.length * a) / mm.nx,
+          p = v3(mm.faceX(z) + 0.004, y, z);
+        pos.push(p.x, p.y, p.z);
+        const c = new THREE.Color(rampColor(mm.values[a]![b]! / mm.vmax));
+        col.push(c.r, c.g, c.b);
+      }
+    for (let a = 0; a < mm.nx; a++)
+      for (let b = 0; b < mm.nz; b++) {
+        const k = a * (mm.nz + 1) + b;
+        idx.push(k, k + mm.nz + 1, k + 1, k + 1, k + mm.nz + 1, k + mm.nz + 2);
+      }
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    geom.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+    geom.setIndex(idx);
+    geom.computeVertexNormals();
+    moments.add(new THREE.Mesh(geom, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })));
+  }
   for (const p of model.prisms) {
     const m = prismMesh(p);
     (p.kind === "soil" ? soil : p.kind === "water" ? water : concreteG).add(m);
@@ -109,7 +138,7 @@ function buildGroups(model: RetainingWall3DModel) {
     arrow.position.copy(v3(a.x, a.y, a.z));
     pressures.add(arrow);
   }
-  return { concrete: concreteG, soil, water, pressures };
+  return { concrete: concreteG, soil, water, pressures, moments };
 }
 function frame(camera: THREE.PerspectiveCamera, controls: OrbitControls, model: RetainingWall3DModel, view: View) {
   const c = model.center,
@@ -154,7 +183,7 @@ export default function RetainingWall3DView({
   const [error, setError] = useState(""),
     [view, setView] = useState<View>("iso"),
     [length, setLength] = useState(5),
-    [show, setShow] = useState({ soil: true, water: true, pressures: true }),
+    [show, setShow] = useState({ soil: true, water: true, pressures: true, moments: true }),
     [note, setNote] = useState("");
   const model = useMemo(() => {
     try {
@@ -225,6 +254,7 @@ export default function RetainingWall3DView({
     s.groups.soil.visible = show.soil;
     s.groups.water.visible = show.water;
     s.groups.pressures.visible = show.pressures;
+    s.groups.moments.visible = show.moments;
     s.render();
   }, [model]);
   useEffect(() => {
@@ -239,6 +269,7 @@ export default function RetainingWall3DView({
     s.groups.soil.visible = show.soil;
     s.groups.water.visible = show.water;
     s.groups.pressures.visible = show.pressures;
+    s.groups.moments.visible = show.moments;
     s.render();
   }, [show]);
   if (!model) return <p className="slabMuted">Complete valid inputs to view the wall in 3D.</p>;
@@ -259,12 +290,13 @@ export default function RetainingWall3DView({
             {t}
           </button>
         ))}
-        {(["soil", "water", "pressures"] as const).map((k) => (
+        {(["soil", "water", "pressures", ...(model.momentMap ? (["moments"] as const) : [])] as const).map((k) => (
           <label key={k} className="slab3dToggle">
             <input type="checkbox" checked={show[k]} onChange={(e) => setShow({ ...show, [k]: e.target.checked })} />{" "}
-            {k === "soil" ? "Backfill" : k === "water" ? "Water" : "Pressure"}
+            {k === "soil" ? "Backfill" : k === "water" ? "Water" : k === "moments" ? "Moment map" : "Pressure"}
           </label>
         ))}
+        {!result.plate && (
         <label className="slab3dToggle">
           Length{" "}
           <input
@@ -278,6 +310,7 @@ export default function RetainingWall3DView({
           />{" "}
           m
         </label>
+        )}
         {onSnapshot && (
           <button
             className="suiteSecondary"
@@ -296,7 +329,9 @@ export default function RetainingWall3DView({
       </div>
       {error ? <p className="slabError">{error}</p> : <div ref={host} className="slab3dCanvas" />}
       <figcaption className="slabMuted">
-        True scale, 1 m strip extruded to {length} m for display. Drag to rotate, right-drag to pan, scroll to zoom. Arrows show service
+        {result.plate
+          ? `True scale, full wall L = ${result.plate.length} m; the colour map on the back face shows the factored Wood–Armer back-face moment (vertical + horizontal).`
+          : `True scale, 1 m strip extruded to ${length} m for display.`} Drag to rotate, right-drag to pan, scroll to zoom. Arrows show service
         pressure on the stem, scaled to the largest value
         {comps.length > 0 &&
           `: ${comps.map((c) => `${c.label.toLowerCase()} (${c.base.toFixed(1)} kPa at base)`).join(", ")}`}

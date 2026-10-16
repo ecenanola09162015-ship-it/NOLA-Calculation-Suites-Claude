@@ -23,7 +23,7 @@ describe("retaining wall workspace", () => {
       "08 · Load Combinations",
       "Section view",
       "3D view",
-      "Full width (plate) — Phase 2",
+      "Full width (plate): end walls, top slab, buttresses",
       "203-2: 1.2D + 1.6L + 1.6H",
       "Calculation basis: ACI 318-19",
     ])
@@ -207,5 +207,44 @@ describe("UI polish batch", () => {
     expect(plain).not.toContain("uniform surcharge");
     const m = buildRetainingWall3DModel(i, designRetainingWall(i), 5);
     for (const k of ["surchargeDead", "surchargeLive", "strip", "axial", "wind"]) expect(m.loads.some((l) => l.kind === k)).toBe(true);
+  });
+});
+
+import { retainingWallElevationSvg } from "../src/lib/retaining-wall-elevation";
+describe("full-width plate UI (Phase 2)", () => {
+  const input = defaultRetainingWallInput();
+  input.analysis = "plate";
+  input.plate = { ...input.plate, length: 8, left: "fixed", right: "pinned", buttresses: [{ x: 3, height: 3.8, width: 0.3 }] };
+  const r = designRetainingWall(input);
+  it("elevation SVG shows the field, restraints, buttress and governing point", () => {
+    const svg = retainingWallElevationSvg(input, r, "backY");
+    expect(svg).toContain("Vertical moment, back face");
+    expect(svg).toContain("L = 8.00 m");
+    expect(svg).toContain(">B1<");
+    expect(svg).toMatch(/Mu [\d.]+ \/ φMn [\d.]+ · DCR [\d.]+/);
+    expect(svg).toContain("left fixed, right pinned");
+    expect(svg).not.toContain("NaN");
+  });
+  it("3D model uses the true length with end walls, buttresses and a moment map", () => {
+    const m = buildRetainingWall3DModel(input, r, 5);
+    expect(m.length).toBe(8);
+    expect(m.prisms.map((p) => p.id)).toEqual(expect.arrayContaining(["end-left", "end-right", "buttress-0"]));
+    expect(m.momentMap!.vmax).toBeGreaterThan(0);
+  });
+  it("workspace offers the plate panel and the Elevation tab; report adds elevation figures", () => {
+    const html = renderToStaticMarkup(
+      <RetainingWallWorkspace
+        cloudReady={false}
+        onSaved={() => {}}
+        draft={{ id: "00000000-0000-4000-8000-000000000011", projectId: "00000000-0000-4000-8000-000000000002", moduleSlug: "retaining-wall", title: "P", payload: { kind: "retaining-wall", version: 1, input }, createdAt: "", updatedAt: "" } as never}
+      />,
+    );
+    expect(html).toContain("Full-width stem (plate)");
+    expect(html).toContain("Elevation");
+    expect(html).toContain("Add buttress");
+    const d = retainingWallReportData(undefined, "P", input, r, defaultDesignCheckPolicy, {});
+    expect(d.figures.some((f) => f.title.includes("Elevation"))).toBe(true);
+    expect(d.sections.some((s) => s.title.startsWith("Full-Width Plate"))).toBe(true);
+    expect(d.checks.rows.some((row) => String(row[0]).startsWith("Plate ·"))).toBe(true);
   });
 });

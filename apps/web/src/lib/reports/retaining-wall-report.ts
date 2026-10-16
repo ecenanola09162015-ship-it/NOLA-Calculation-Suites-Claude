@@ -22,6 +22,7 @@ import {
 } from "@nola/calc-core";
 import type { ProjectRecord } from "../projects";
 import { retainingWallSectionSvg, retainingWallStemSvg } from "../retaining-wall-drawing";
+import { elevationFieldLabels, retainingWallElevationSvg } from "../retaining-wall-elevation";
 import { f, fcText, type Cell, type ReportData, type ReportSection } from "./data";
 
 const section = (title: string, rows: (string | Cell)[][], columns = ["Item", "Value"]): ReportSection => ({
@@ -233,7 +234,13 @@ export function retainingWallReportData(
     summary: [overall, wall, soil, ...(basement ? [] : [stability]), member],
     figures: [
       { title: "Section With Pressures, Bearing And Reinforcement", svg: retainingWallSectionSvg(i, r) },
-      { title: "Stem Moment And Shear Envelopes", svg: retainingWallStemSvg(i, r), completeOnly: true },
+      ...(r.plate
+        ? [
+            { title: "Elevation — Vertical Moment, Back Face (Full-Width Plate)", svg: retainingWallElevationSvg(i, r, "backY") },
+            { title: "Elevation — Horizontal Moment, Back Face", svg: retainingWallElevationSvg(i, r, "backX"), completeOnly: true },
+            { title: "Elevation — Horizontal Moment, Front Face", svg: retainingWallElevationSvg(i, r, "frontX"), completeOnly: true },
+          ]
+        : [{ title: "Stem Moment And Shear Envelopes", svg: retainingWallStemSvg(i, r), completeOnly: true }]),
       ...(snapshot3d ? [{ title: "3D View (snapshot)", svg: "", png: snapshot3d, completeOnly: true }] : []),
     ],
     checks: section(
@@ -244,7 +251,25 @@ export function retainingWallReportData(
       ]),
       ["Check", "Code Reference", "DCR", "Status / Remarks"],
     ),
-    sections: [loads, equations, stemRows],
+    sections: [
+      loads,
+      equations,
+      ...(r.plate
+        ? [
+            section(
+              `Full-Width Plate — L ${f(r.plate.length)} m × H ${f(r.plate.height)} m (base ${r.plate.supports.base}, top ${r.plate.supports.top}, left ${r.plate.supports.left}, right ${r.plate.supports.right}${i.plate.buttresses.length ? `, ${i.plate.buttresses.length} buttresses` : ""})`,
+              r.plate.peaks.map((pk) => [
+                pk.id === "shearY" ? "Shear, vertical spanning" : pk.id === "shearX" ? "Shear, horizontal spanning" : elevationFieldLabels[pk.id],
+                `x ${f(pk.x)} m, y ${f(pk.y)} m; ${pk.combo}`,
+                f(pk.demand, 1),
+                f(pk.capacity, 1),
+                f(pk.dcr, 3),
+              ]),
+              ["Design Quantity", "Governing Point", "Demand", "Capacity", "DCR"],
+            ),
+          ]
+        : [stemRows]),
+    ],
     references,
     criticalNotes: fails.map((x) => `REVISE: ${x.label} (DCR ${f(x.dcr, 3)}).`),
     limitations: [

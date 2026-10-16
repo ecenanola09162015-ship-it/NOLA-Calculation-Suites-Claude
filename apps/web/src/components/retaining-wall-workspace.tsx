@@ -32,6 +32,7 @@ import { ConcreteStrengthFields } from "./concrete-strength-fields";
 import { DesignCodeFields } from "./column-materials-fields";
 import { RebarGradeSelect, RebarSizeSelect, RebarStandardSelect } from "./rebar-select";
 import { RW_BAR_MARKS, retainingWallSectionSvg, retainingWallStemSvg } from "@/lib/retaining-wall-drawing";
+import { elevationFieldLabels, retainingWallElevationSvg, type ElevationField } from "@/lib/retaining-wall-elevation";
 import styles from "./retaining-wall-workspace.module.css";
 
 // three.js is only downloaded when the 3D tab is opened (client-only).
@@ -117,7 +118,8 @@ export function RetainingWallWorkspace({
   const [remarks, setRemarks] = useState<DesignRemarks>(restored.success ? (restored.data.remarks ?? {}) : {});
   const [title, setTitle] = useState(draft?.title ?? "Retaining Wall — RW-01");
   const [id, setId] = useState<string | undefined>(restored.success ? draft?.id : undefined);
-  const [tab, setTab] = useState<"section" | "stem" | "3d">("section");
+  const [tab, setTab] = useState<"section" | "stem" | "elevation" | "3d">("section");
+  const [elevationField, setElevationField] = useState<ElevationField>("backY");
   const [layers, setLayers] = useState({ pressures: true, bars: true, bearing: true, dimensions: true });
   const [snapshot3d, setSnapshot3d] = useState<string | null>(null);
   const [message, setMessage] = useState(""),
@@ -236,6 +238,10 @@ export function RetainingWallWorkspace({
       return null;
     }
   }, [quantity, r, analysed]);
+  const elevationSvg = useMemo(
+    () => (r?.plate && tab === "elevation" ? retainingWallElevationSvg(analysed, r, elevationField) : ""),
+    [r, analysed, elevationField, tab],
+  );
   const stemSvg = useMemo(() => (r ? retainingWallStemSvg(analysed, r) : ""), [r, analysed]);
   const comboTable = (key: "strength" | "service", rows: RetainingWallCombination[]) => (
     <div className="slabTableWrap">
@@ -397,13 +403,115 @@ export function RetainingWallWorkspace({
           </label>
           <label>
             Analysis
-            <select value="strip" onChange={() => undefined}>
+            <select value={input.analysis} onChange={(e) => patch((d) => (d.analysis = e.target.value as "strip" | "plate"))}>
               <option value="strip">1 m strip</option>
-              <option value="full" disabled>
-                Full width (plate) — Phase 2
-              </option>
+              <option value="plate">Full width (plate): end walls, top slab, buttresses</option>
             </select>
           </label>
+          {input.analysis === "plate" && (
+            <div className={styles.keyBlock} aria-label="Full-width plate">
+              <h3 className="rcSubhead">Full-width stem (plate)</h3>
+              <div className="slabFieldGrid">
+                <Numeric label="Wall length L" unit="m" value={input.plate.length} onChange={(v) => patch((d) => (d.plate.length = v))} />
+                {(["left", "right"] as const).map((k) => (
+                  <label key={k}>
+                    {k === "left" ? "Left end" : "Right end"}
+                    <select value={input.plate[k]} onChange={(e) => patch((d) => (d.plate[k] = e.target.value as "free" | "pinned" | "fixed"))}>
+                      <option value="free">Free</option>
+                      <option value="pinned">Perpendicular wall, pinned</option>
+                      <option value="fixed">Perpendicular wall, fixed</option>
+                    </select>
+                  </label>
+                ))}
+                {input.wallType === "cantilever" && (
+                  <label>
+                    Top edge
+                    <select value={input.plate.top} onChange={(e) => patch((d) => (d.plate.top = e.target.value as "free" | "pinned" | "fixed"))}>
+                      <option value="free">Free</option>
+                      <option value="pinned">Top slab, pinned</option>
+                      <option value="fixed">Top slab, fixed</option>
+                    </select>
+                  </label>
+                )}
+                {input.wallType !== "basement" && (
+                  <label>
+                    Base
+                    <select value={input.plate.base} onChange={(e) => patch((d) => (d.plate.base = e.target.value as "fixed" | "pinned"))}>
+                      <option value="fixed">Fixed (footing)</option>
+                      <option value="pinned">Pinned</option>
+                    </select>
+                  </label>
+                )}
+                <label>
+                  Design moments
+                  <select value={input.plate.averaging} onChange={(e) => patch((d) => (d.plate.averaging = e.target.value as "peak" | "1m"))}>
+                    <option value="peak">Peak elastic (Wood–Armer)</option>
+                    <option value="1m">Averaged over 1 m at the peak</option>
+                  </select>
+                </label>
+                <Numeric label="Mesh divisions over H" value={input.plate.divisions} onChange={(v) => patch((d) => (d.plate.divisions = Math.round(v)))} />
+              </div>
+              <div className="slabTableWrap">
+                <table className={`slabBars ${styles.bars}`} aria-label="Buttresses">
+                  <thead>
+                    <tr>
+                      <th>Buttress</th>
+                      <th>x from left, m</th>
+                      <th>Height, m</th>
+                      <th>Thickness, m</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {input.plate.buttresses.map((b, k) => (
+                      <tr key={k}>
+                        <th>B{k + 1}</th>
+                        {(["x", "height", "width"] as const).map((f) => (
+                          <td key={f}>
+                            <input
+                              aria-label={`Buttress ${k + 1} ${f}`}
+                              type="number"
+                              step="0.1"
+                              className={styles.factor}
+                              value={Number.isFinite(b[f]) ? b[f] : ""}
+                              onChange={(e) => patch((d) => (d.plate.buttresses[k]![f] = e.target.value === "" ? NaN : Number(e.target.value)))}
+                            />
+                          </td>
+                        ))}
+                        <td>
+                          <button type="button" className="slabMode" onClick={() => patch((d) => d.plate.buttresses.splice(k, 1))}>
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <button
+                type="button"
+                className="suiteSecondary"
+                disabled={input.plate.buttresses.length >= 12}
+                onClick={() =>
+                  patch((d) => {
+                    const n = d.plate.buttresses.length + 1;
+                    d.plate.buttresses = Array.from({ length: n }, (_, k) => ({
+                      x: Number((((k + 1) * d.plate.length) / (n + 1)).toFixed(2)),
+                      height: d.height,
+                      width: d.plate.buttresses[k]?.width ?? 0.3,
+                    }));
+                  })
+                }
+              >
+                Add buttress (re-spaces evenly)
+              </button>
+              <p className="slabMuted">
+                The stem is analysed as an L × H plate: base {input.wallType === "basement" ? input.basement.base : input.plate.base}, ends and buttresses as line
+                supports{input.wallType === "propped" ? ", prop as a horizontal line support" : ""}. Horizontal bars ③ now carry plate moments. Footing and
+                stability stay per metre.
+              </p>
+            </div>
+          )}
           {input.wallType === "propped" && (
             <div className="slabFieldGrid">
               <Numeric label="Prop height above footing" unit="m" value={input.prop.height} onChange={(v) => patch((d) => (d.prop.height = v))} />
@@ -750,6 +858,7 @@ export function RetainingWallWorkspace({
               [
                 ["section", "Section view"],
                 ["stem", "Stem actions"],
+                ...(input.analysis === "plate" ? ([["elevation", "Elevation"]] as const) : []),
                 ["3d", "3D view"],
               ] as const
             ).map(([k, t]) => (
@@ -783,6 +892,56 @@ export function RetainingWallWorkspace({
             <section className="slabPanel">
               {r ? <div className={styles.drawing} dangerouslySetInnerHTML={{ __html: stemSvg }} /> : <p className="slabMuted">Complete valid inputs.</p>}
               <p className="slabMuted">Factored envelopes over the strength combinations; φMn steps where alternate back bars stop.</p>
+            </section>
+          )}
+          {tab === "elevation" && (
+            <section className="slabPanel">
+              <div className="slabViewButtons">
+                {(Object.keys(elevationFieldLabels) as ElevationField[]).map((k) => (
+                  <button key={k} aria-pressed={elevationField === k} onClick={() => setElevationField(k)}>
+                    {k === "backY" ? "Vertical · back" : k === "frontY" ? "Vertical · front" : k === "backX" ? "Horizontal · back" : k === "frontX" ? "Horizontal · front" : "Deflection"}
+                  </button>
+                ))}
+              </div>
+              {r?.plate ? (
+                <div className={styles.drawing} role="img" aria-label="Wall elevation" dangerouslySetInnerHTML={{ __html: elevationSvg }} />
+              ) : (
+                <p className="slabMuted">Select Full width (plate) analysis and complete valid inputs.</p>
+              )}
+              {r?.plate && (
+                <div className="slabTableWrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Design quantity</th>
+                        <th>Governing point</th>
+                        <th>Demand</th>
+                        <th>Capacity</th>
+                        <th>DCR</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {r.plate.peaks.map((pk) => (
+                        <tr key={pk.id}>
+                          <th>{pk.id === "shearY" ? "Shear, vertical spanning" : pk.id === "shearX" ? "Shear, horizontal spanning" : elevationFieldLabels[pk.id]}</th>
+                          <td>
+                            x {fmt(pk.x)} m, y {fmt(pk.y)} m · {pk.combo}
+                          </td>
+                          <td>{fmt(pk.demand, 1)}</td>
+                          <td>{fmt(pk.capacity, 1)}</td>
+                          <td>
+                            <DesignStatus dcr={pk.demand > 0 ? pk.dcr : 0} policy={policy} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <p className="slabMuted">
+                Strength envelope over the combinations. Mesh {r?.plate ? `${r.plate.mesh.xs.length - 1} × ${r.plate.mesh.ys.length - 1} elements (${r.plate.mesh.dof} DOF)` : ""}. Values at a free
+                corner meeting a restrained edge, or at the top of a partial-height buttress, are local peaks; consider 1 m averaging there.
+              </p>
             </section>
           )}
           {tab === "3d" && r && (

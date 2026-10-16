@@ -40,6 +40,7 @@ import {
 } from "./retaining-wall-pressure";
 import { solveStem, type StemSolution, type StemSupports } from "./retaining-wall-stem";
 import { retainingWallClauses as clauses } from "../code-clauses";
+import { analyseWallPlate, plateDemandLabels, type PlateDemandId, type WallPlateResult } from "./retaining-wall-plate";
 
 export type LoadKind = "D" | "L" | "H" | "E" | "W";
 export interface WeightItem {
@@ -186,6 +187,8 @@ export interface RetainingWallResult {
   };
   checks: RwCheck[];
   warnings: string[];
+  /** Full-width plate analysis of the stem (analysis = "plate"). */
+  plate: WallPlateResult | null;
 }
 
 const kindFactor = (c: RetainingWallCombination, kind: LoadKind | PressureKind) =>
@@ -615,6 +618,67 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
     }
     shear.unshift({ id: "stem-shear", label: "Stem one-way shear", vu: sShear.v, phiVc: c.phiVc, d: dBack(sShear.y), lambdaS: c.lambdaS, combo, location: `y = ${sShear.y.toFixed(2)} m above footing` });
   }
+  // ---- Full-width plate (Phase 2): replaces the strip stem design -----------------
+  let plateResult: WallPlateResult | null = null;
+  if (i.analysis === "plate") {
+    const hor = i.bars.stemHorizontal;
+    const dHorBack = (y: number) => stemThickness(i, y) * 1000 - i.cover.stemBack - back.diameter - hor.diameter / 2;
+    const dHorFront = (y: number) => stemThickness(i, y) * 1000 - i.cover.stemFront - front.diameter - hor.diameter / 2;
+    const section = (id: PlateDemandId, y: number) =>
+      id === "backY"
+        ? { as: barAreaPerMetre(backAt(y)), d: dBack(y) }
+        : id === "frontY"
+          ? { as: barAreaPerMetre(front), d: dFront(y) }
+          : id === "backX"
+            ? { as: barAreaPerMetre(hor), d: dHorBack(y) }
+            : { as: barAreaPerMetre(hor), d: dHorFront(y) };
+    const tAvg = (i.stemTop + i.stemBase) / 2;
+    plateResult = analyseWallPlate(
+      i,
+      stemComps,
+      strength,
+      kindFactor,
+      {
+        flexure: (id, y) => slabFlexuralStrength(fcfy, [section(id, y)]).phiMn,
+        shear: (dir, y) =>
+          dir === "shearY"
+            ? shearCapacity(i.fc, barAreaPerMetre(backAt(y)), dBack(y), true).phiVc
+            : shearCapacity(i.fc, barAreaPerMetre(hor), dHorBack(y), true).phiVc,
+      },
+      (Ec * tAvg ** 3) / (12 * (1 - 0.2 ** 2)),
+    );
+    for (const id of ["stem-back", "stem-front"]) {
+      const k = flexure.findIndex((f) => f.id === id);
+      if (k >= 0) flexure.splice(k, 1);
+    }
+    const ks = shear.findIndex((v) => v.id === "stem-shear");
+    if (ks >= 0) shear.splice(ks, 1);
+    const at = (p: { x: number; y: number }) => `x = ${p.x.toFixed(2)} m, y = ${p.y.toFixed(2)} m`;
+    const plateFlex: FlexureCheck[] = [];
+    for (const pk of plateResult.peaks) {
+      if (pk.id === "shearY" || pk.id === "shearX") {
+        const d = pk.id === "shearY" ? dBack(pk.y) : dHorBack(pk.y);
+        shear.unshift({
+          id: `plate-${pk.id}`,
+          label: pk.id === "shearY" ? "Plate · shear, vertical spanning (base)" : "Plate · shear, horizontal spanning (end walls / buttresses)",
+          vu: pk.demand,
+          phiVc: pk.capacity,
+          d,
+          lambdaS: Math.min(1, Math.sqrt(2 / (1 + 0.004 * d))),
+          combo: pk.combo,
+          location: at(pk),
+        });
+        continue;
+      }
+      if (pk.demand <= 0 && (pk.id === "frontY" || pk.id === "frontX" || pk.id === "backX")) continue;
+      const sec = section(pk.id, pk.y),
+        cap = slabFlexuralStrength(fcfy, [sec]);
+      plateFlex.push({ id: `plate-${pk.id}`, label: `Plate · ${plateDemandLabels[pk.id]}`, mu: pk.demand, ...cap, combo: pk.combo, location: at(pk) });
+    }
+    flexure.unshift(...plateFlex);
+    warnings.push(...plateResult.notes);
+  }
+  const isStem = (id: string) => id.startsWith("stem") || id.startsWith("plate");
   const reactions = strength.map((combo) => ({
     combo: combo.id,
     prop: nullable(combo, (s) => s.prop),
@@ -654,9 +718,9 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
       push({ id: `ec:${s.id}`, group: "Stability", label: `${s.id} · Eccentricity`, demand: Math.abs(s.bearing.e), capacity: B / 3, unit: "m", dcr: s.bearing.shape === "unstable" ? Infinity : undefined, detail: `e = ${Number.isFinite(s.bearing.e) ? s.bearing.e.toFixed(3) : "—"} m; B/6 = ${(B / 6).toFixed(3)} m`, clause: clauses.eccentricity() });
     }
   for (const f of flexure)
-    push({ id: `fl:${f.id}`, group: f.id.startsWith("stem") ? "Stem" : "Footing", label: `${f.label} · Flexure`, demand: f.mu, capacity: f.phiMn, unit: "kN·m/m", detail: `${f.combo}; ${f.location}; As ${f.as.toFixed(0)} mm²/m, d ${f.d.toFixed(0)} mm, φ ${f.phi.toFixed(3)}${f.tensionControlled ? "" : " (not tension-controlled)"}`, clause: f.id.startsWith("stem") ? clauses.stemFlexure() : clauses.footingFlexure() });
+    push({ id: `fl:${f.id}`, group: isStem(f.id) ? "Stem" : "Footing", label: `${f.label} · Flexure`, demand: f.mu, capacity: f.phiMn, unit: "kN·m/m", detail: `${f.combo}; ${f.location}; As ${f.as.toFixed(0)} mm²/m, d ${f.d.toFixed(0)} mm, φ ${f.phi.toFixed(3)}${f.tensionControlled ? "" : " (not tension-controlled)"}`, clause: f.id.startsWith("plate") ? clauses.plateFlexure() : f.id.startsWith("stem") ? clauses.stemFlexure() : clauses.footingFlexure() });
   for (const v of shear)
-    push({ id: `sh:${v.id}`, group: v.id.startsWith("stem") ? "Stem" : "Footing", label: v.label, demand: v.vu, capacity: v.phiVc, unit: "kN/m", detail: `${v.combo}; ${v.location}; d ${v.d.toFixed(0)} mm, λs ${v.lambdaS.toFixed(3)}`, clause: v.id.startsWith("stem") ? clauses.stemShear() : clauses.footingShear() });
+    push({ id: `sh:${v.id}`, group: isStem(v.id) ? "Stem" : "Footing", label: v.label, demand: v.vu, capacity: v.phiVc, unit: "kN/m", detail: `${v.combo}; ${v.location}; d ${v.d.toFixed(0)} mm, λs ${v.lambdaS.toFixed(3)}`, clause: v.id.startsWith("plate") ? clauses.plateShear() : v.id.startsWith("stem") ? clauses.stemShear() : clauses.footingShear() });
   // Minimum steel and spacing.
   const tBase = i.stemBase * 1000,
     rhoMin = slabMinimumSteelRatio(i.fy);
@@ -675,6 +739,8 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
   push({ id: "sp:stem-front", group: "Detailing", label: "Stem front verticals · maximum spacing", demand: front.spacing, capacity: sMaxStem, unit: "mm", detail: "≤ min(3t, 450)", clause: clauses.spacingVertical() });
   push({ id: "sp:stem-horizontal", group: "Detailing", label: "Stem horizontals · maximum spacing", demand: i.bars.stemHorizontal.spacing, capacity: sMaxStem, unit: "mm", detail: "≤ min(3t, 450)", clause: clauses.spacingHorizontal() });
   push({ id: "cr:stem-back", group: "Detailing", label: "Stem back face · crack-control spacing", demand: backAt(sBack.y).spacing, capacity: crackSpacing(i.fy, i.cover.stemBack), unit: "mm", detail: `fs = 2/3 fy = ${((2 / 3) * i.fy).toFixed(0)} MPa, cc = ${i.cover.stemBack} mm`, clause: clauses.crackControl() });
+  if (plateResult)
+    push({ id: "cr:stem-horizontal", group: "Detailing", label: "Stem horizontal bars · crack-control spacing (plate)", demand: i.bars.stemHorizontal.spacing, capacity: crackSpacing(i.fy, i.cover.stemBack), unit: "mm", detail: `Horizontal bars carry plate moments; cc = ${i.cover.stemBack} mm`, clause: clauses.crackControl() });
   if (sFront.mFront < -1e-9)
     push({ id: "cr:stem-front", group: "Detailing", label: "Stem front face · crack-control spacing", demand: front.spacing, capacity: crackSpacing(i.fy, i.cover.stemFront), unit: "mm", detail: `cc = ${i.cover.stemFront} mm`, clause: clauses.crackControl() });
   if (!basement) {
@@ -772,6 +838,7 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
     development,
     checks,
     warnings,
+    plate: plateResult,
   };
 }
 

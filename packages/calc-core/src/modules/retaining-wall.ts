@@ -67,6 +67,27 @@ export const retainingWallInputSchema = z
     code: z.enum(["ACI 318-19", "NSCP 2015"]),
     otherCodes: z.string().max(300).optional(),
     wallType: z.enum(retainingWallTypes),
+    /** 1 m strip (Phase 1) or full-width plate of the stem (Phase 2). */
+    analysis: z.enum(["strip", "plate"]).default("strip"),
+    /** Full-width stem plate: length, edge restraints and buttresses. */
+    plate: z
+      .object({
+        length: z.number().min(1).max(60),
+        /** Ends of the wall: free, or a perpendicular wall (pinned / fixed). */
+        left: z.enum(["free", "pinned", "fixed"]),
+        right: z.enum(["free", "pinned", "fixed"]),
+        /** Top edge for cantilever walls (propped and basement walls set it). */
+        top: z.enum(["free", "pinned", "fixed"]),
+        base: z.enum(["fixed", "pinned"]),
+        /** Buttresses / counterforts: position from the left end and height above the footing. */
+        buttresses: z
+          .array(z.object({ x: z.number().min(0.1).max(60), height: z.number().min(0.2).max(12), width: z.number().min(0.15).max(1.5) }))
+          .max(12),
+        /** Design moments: peak elastic values or averaged over 1 m beside supports. */
+        averaging: z.enum(["peak", "1m"]),
+        divisions: z.number().int().min(8).max(32),
+      })
+      .default({ length: 10, left: "free", right: "free", top: "free", base: "fixed", buttresses: [], averaging: "peak", divisions: 16 }),
     /** Stem height above the top of the footing (retained soil at stem top). */
     height: z.number().min(0.5).max(12),
     stemTop: z.number().min(0.12).max(1.5),
@@ -220,6 +241,10 @@ export const retainingWallInputSchema = z
     service: z.array(combinationSchema).min(1).max(20),
   })
   .refine(
+    (i) => i.plate.buttresses.every((b) => b.x < i.plate.length && b.height <= i.height + 1e-9),
+    "Buttresses must lie within the wall length and not exceed the stem height.",
+  )
+  .refine(
     (i) => i.stemBase >= i.stemTop - 1e-9,
     "Stem base thickness must be at least the stem top thickness.",
   )
@@ -318,6 +343,8 @@ export function defaultRetainingWallInput(): RetainingWallInput {
       bar: { diameter: 16, spacing: 200 },
     },
     prop: { height: 3.8, rigid: true, stiffness: 50000 },
+    analysis: "strip",
+    plate: { length: 10, left: "free", right: "free", top: "free", base: "fixed", buttresses: [], averaging: "peak", divisions: 16 },
     basement: { top: "pinned", base: "fixed" },
     soil: {
       theory: "rankine",
