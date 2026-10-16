@@ -24,3 +24,10 @@ export * from "./rebar-catalogue";
 export * from "./concrete-units";
 export * from "./report-settings";
 export * from "./code-clauses";
+
+export * from "./modules/retaining-wall";
+export * from "./modules/retaining-wall-geometry";
+export * from "./modules/retaining-wall-pressure";
+export * from "./modules/retaining-wall-stem";
+export * from "./modules/retaining-wall-design";
+export * from "./modules/retaining-wall-review";

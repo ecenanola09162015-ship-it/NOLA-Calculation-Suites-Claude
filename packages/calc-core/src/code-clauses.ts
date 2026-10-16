@@ -101,3 +101,46 @@ export const columnClauses = {
       "Mc ≤ 1.4 M2 6.2.5.3",
     ),
 } as const;
+
+/**
+ * Retaining wall (engine rwall-0.1.0). † = clause number to be confirmed
+ * against the licensed ACI 318-19 / NSCP 2015 text before release.
+ */
+export const retainingWallClauses = {
+  stemFlexure: () =>
+    ref("13.3.7.1† stem as one-way slab", "7.5.1.1", "22.2, 22.3", "φ Table 21.2.2"),
+  stemShear: () =>
+    ref(
+      "13.3.7.3† critical section at the stem–footing interface",
+      "Table 22.5.5.1(c)",
+      "λs 22.5.5.1.3",
+      "√f′c ≤ 8.3 MPa 22.5.3.1",
+      "φ Table 21.2.1",
+    ),
+  footingFlexure: () =>
+    ref("13.2.7.1† critical section at the stem face", "7.5.1.1", "22.2, 22.3", "φ Table 21.2.2"),
+  footingShear: () =>
+    ref(
+      "13.2.7.2† critical section",
+      "Table 22.5.5.1(c), λs = 1 (13.2.6.2†)",
+      "√f′c ≤ 8.3 MPa 22.5.3.1",
+      "φ Table 21.2.1",
+    ),
+  minFlexural: () => ref("Table 7.6.1.1", "24.4.3.2"),
+  wallVertical: () => ref("Table 11.6.1 ρℓ"),
+  wallHorizontal: () => ref("11.1.6† / Table 11.6.1 ρt (both faces)"),
+  spacingVertical: () => ref("7.7.2.3 (≤ 3h, 450 mm)"),
+  spacingHorizontal: () => ref("11.7.3.1 (≤ 3h, 450 mm)"),
+  spacingFooting: () => ref("7.7.2.3", "24.4.3.3 (≤ 5h, 450 mm)"),
+  crackControl: () => ref("24.3.2 Table 24.3.2", "fs = 2/3 fy 24.3.2.1"),
+  hook: () => ref("25.4.3.1", "Table 25.4.3.2", "√f′c ≤ 8.3 MPa 25.4.1.4"),
+  lap: () => ref("25.4.2.4", "Class B lap 25.5.2.1"),
+  cutoff: () => ref("7.7.3.3 / 9.7.3.3 extension max(d, 12db)", "9.7.3.4"),
+  overturning: () =>
+    "NSCP 2015 Sec. 307† (IBC 1807.2.3): FS ≥ project value, service loads",
+  sliding: () =>
+    "NSCP 2015 Sec. 307† (IBC 1807.2.3): FS ≥ project value, service loads",
+  bearing: () =>
+    "Allowable bearing (service); e > B/6 triangular contact q = 2V/3a (Das Ch. 13)",
+  eccentricity: () => "Resultant within B/3 of the centre (contact ≥ B/2)",
+} as const;

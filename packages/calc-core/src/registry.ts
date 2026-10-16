@@ -13,6 +13,17 @@ export const moduleRegistry = [
     initialCodes: ["ACI 318-19", "NSCP 2015 project / ACI 318-19 basis"],
   },
   {
+    slug: "retaining-wall",
+    name: "Concrete Retaining Wall",
+    discipline: "Concrete",
+    summary:
+      "RC cantilever, propped and basement walls on a 1 m strip: earth pressure, stability, stem and footing design.",
+    releasePhase: "Pilot",
+    priority: "P1",
+    verificationStatus: "verification-required",
+    initialCodes: ["ACI 318-19", "NSCP 2015 project / ACI 318-19 basis"],
+  },
+  {
     slug: "rc-column",
     name: "RC Column",
     discipline: "Concrete",
