@@ -23,6 +23,17 @@ export const moduleRegistry = [
     initialCodes: ["ACI 318", "NSCP"],
   },
   {
+    slug: "stairs",
+    name: "Stairs",
+    discipline: "Concrete",
+    summary:
+      "RC waist-slab stairs: single flight with landings or dog-leg, frame analysis, flexure, shear, deflection, detailing and optional ground footing.",
+    releasePhase: "Pilot",
+    priority: "P1",
+    verificationStatus: "verification-required",
+    initialCodes: ["ACI 318-19", "NSCP 2015 project / ACI 318-19 basis"],
+  },
+  {
     slug: "steel-column",
     name: "Steel Column",
     discipline: "Steel",
