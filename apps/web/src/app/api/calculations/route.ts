@@ -10,6 +10,9 @@ import {
   slabDesignChecks,
   missingJudgmentRemarks,
   defaultDesignCheckPolicy,
+  retainingWallDraftSchema,
+  designRetainingWall,
+  retainingWallDesignChecks,
 } from "@nola/calc-core";
 import { isDatabaseConfigured } from "@/lib/env";
 import { DuplicateNameError, saveCalculationDraft } from "@/lib/projects";
@@ -91,6 +94,18 @@ export async function POST(request: Request) {
       );
     body.payload = parsed.data;
   }
+  if (body.moduleSlug === "retaining-wall") {
+    const parsed = retainingWallDraftSchema.safeParse(body.payload);
+    if (!parsed.success)
+      return NextResponse.json(
+        {
+          error:
+            "Invalid retaining wall inputs. Check geometry, soil, reinforcement and unique load combination labels.",
+        },
+        { status: 400 },
+      );
+    body.payload = parsed.data;
+  }
   try {
     if (body.payload.reviewCompleted) {
       const policy = body.payload.designPolicy ?? defaultDesignCheckPolicy;
@@ -103,7 +118,11 @@ export async function POST(request: Request) {
                 body.payload.input,
                 analyzeSlab(body.payload.input, false),
               )
-            : [];
+            : body.moduleSlug === "retaining-wall"
+              ? retainingWallDesignChecks(
+                  designRetainingWall(body.payload.input),
+                )
+              : [];
       if (missingJudgmentRemarks(checks, policy, remarks).length)
         return NextResponse.json(
           { error: "Add Remarks For Each Amber Design Check Before Saving." },

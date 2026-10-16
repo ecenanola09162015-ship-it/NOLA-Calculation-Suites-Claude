@@ -1,0 +1,22 @@
+/* Retaining wall workspace: module-scoped additions to the shared slab layout. */
+.drawing {
+  width: 100%;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #fff;
+}
+.drawing svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.35rem 0;
+  font-size: 0.9rem;
+}
+.factor {
+  width: 4.2em;
+}

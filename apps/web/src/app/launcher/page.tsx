@@ -21,12 +21,13 @@ export default async function LauncherPage({
     ? await Promise.all([listProjects(userId), listCalculationDrafts(userId)])
     : [[], []];
   const requested = (await searchParams).module;
+  const workspaceModule = requested === "retaining-wall" ? requested : undefined;
   return (
     <SuiteWorkspace
       initialModule={
         requested === "rc-column" || requested === "slab"
           ? requested
-          : undefined
+          : workspaceModule
       }
       initialProjects={projects}
       initialDrafts={drafts}

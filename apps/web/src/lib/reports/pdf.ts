@@ -666,7 +666,9 @@ async function build(
     data.module === "RC Column"
       ? (data.scopeNote ??
         "Section-Strength Screening Only. Shear / Slenderness / Seismic Tie Compliance Not Evaluated.")
-      : "Immediate Elastic Deflection Screen; Long-Term / Cracked Deflection And Full Anchorage Compliance Require Review.",
+      : data.module === "Slab Design"
+        ? "Immediate Elastic Deflection Screen; Long-Term / Cracked Deflection And Full Anchorage Compliance Require Review."
+        : (data.scopeNote ?? ""),
     ...(data.estimate
       ? ["Estimate Excludes Splices, Couplers, Waste And Bend Deductions."]
       : []),
