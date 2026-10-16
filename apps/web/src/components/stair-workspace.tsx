@@ -14,6 +14,8 @@ import {
   missingJudgmentRemarks,
   stairCodeBasisLabel,
   stairQuantities,
+  stairBarMarks,
+  STAIR_BEAM_DEPTH,
   stairsDesignChecks,
   stairsDraftSchema,
   stairsInputSchema,
@@ -36,6 +38,7 @@ import {
 } from "./rebar-select";
 import { StairForceDiagrams, StairPlan, StairSection } from "./stair-diagrams";
 import styles from "./stair-workspace.module.css";
+import { stairBarColors } from "@/lib/stair-bar-styles";
 
 // three.js is only downloaded when the 3D tab is opened (client-only).
 const Stair3DView = dynamic(() => import("./stair-3d-view"), {
@@ -121,19 +124,28 @@ function Choice<T extends string>({
   );
 }
 
-/** Check ids governed by each bar set (for the spacing suggestion). */
+/**
+ * Check ids governed by each bar set for "Suggest spacing". Top sets are
+ * judged on their own −M zone only; main bottom bars exclude minimum
+ * thickness and deflection (spacing cannot fix those; reported separately).
+ */
 const governs: Record<BarKey, (id: string) => boolean> = {
   mainBottom: (id) =>
-    /flexure-pos|strain-pos|:shear|deflection|thickness/.test(id) ||
+    /flexure-pos|strain-pos|:shear/.test(id) ||
     id.startsWith("bars:mainBottom"),
   topBottom: (id) =>
-    /flexure-neg|strain-neg/.test(id) || id.startsWith("bars:topBottom"),
+    /(flexure|strain)-neg:topBottom$/.test(id) ||
+    id.startsWith("bars:topBottom"),
   topTop: (id) =>
-    /flexure-neg|strain-neg/.test(id) || id.startsWith("bars:topTop"),
+    /(flexure|strain)-neg:topTop$/.test(id) || id.startsWith("bars:topTop"),
   topKnee: (id) =>
-    /flexure-neg|strain-neg|knee-top/.test(id) || id.startsWith("bars:topKnee"),
+    /(flexure|strain)-neg:topKnee$/.test(id) ||
+    id === "detail:knee-top" ||
+    id.startsWith("bars:topKnee"),
   distribution: (id) => id.startsWith("bars:distribution"),
 };
+const SUGGEST_TIP =
+  "Keeps the bar size and tries 300 → 75 mm in 25 mm steps; enters the largest spacing at which this set's own checks pass (DCR ≤ 1.0). Main bottom bars: strength, shear and detailing — thickness / deflection are reported, not changed.";
 
 export function StairWorkspace({
   project,
@@ -175,6 +187,12 @@ export function StairWorkspace({
     restored.success ? draft?.id : undefined,
   );
   const [tab, setTab] = useState<"drawings" | "analysis" | "3d">("drawings");
+  // V2: estimate off until the user enables it (saved with the draft).
+  const [estimateOn, setEstimateOn] = useState(
+    restored.success ? (restored.data.estimate?.enabled ?? false) : false,
+  );
+  // V3: bar set being edited, highlighted in the drawings and 3-D view.
+  const [activeSet, setActiveSet] = useState<BarKey | null>(null);
   const [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
     [duplicate, setDuplicate] = useState<DraftDuplicate | null>(null),
@@ -208,8 +226,8 @@ export function StairWorkspace({
     valid = analysis.valid;
   const checks = useMemo(() => (r ? stairsDesignChecks(r) : []), [r]);
   const quantity = useMemo(
-    () => (valid && r ? stairQuantities(valid) : null),
-    [valid, r],
+    () => (estimateOn && valid && r ? stairQuantities(valid) : null),
+    [estimateOn, valid, r],
   );
   const maxDcr = checks.length
     ? Math.max(...checks.map((c) => c.dcr ?? Infinity))
@@ -358,8 +376,14 @@ export function StairWorkspace({
           .every((c) => c.dcr !== null && c.dcr <= 1);
         if (ok) {
           setBar(k, "spacing", s);
+          const serviceability = stairsDesignChecks(res).filter(
+            (c) => /thickness|deflection/.test(c.id) && (c.dcr ?? Infinity) > 1,
+          );
           setMessage(
-            `Suggested ${k} spacing ${s} mm (largest of 75–300 mm passing its checks).`,
+            `Suggested ${stairBarMarks[k]} spacing ${s} mm (largest of 75–300 mm passing its checks).` +
+              (k === "mainBottom" && serviceability.length
+                ? ` Thickness / deflection still governs (${serviceability.map((c) => c.label).join("; ")}) — increase the waist or landing thickness.`
+                : ""),
           );
           return;
         }
@@ -368,7 +392,7 @@ export function StairWorkspace({
       }
     }
     setMessage(
-      `No spacing from 75 to 300 mm passes for ${k} with Ø${input.bars[k].diameter} — increase the bar size or thickness.`,
+      `No spacing from 75 to 300 mm passes for ${stairBarMarks[k]} with Ø${input.bars[k].diameter} — increase the bar size or thickness.`,
     );
   }
 
@@ -386,6 +410,7 @@ export function StairWorkspace({
         designPolicy: policy,
         remarks,
         reviewCompleted: !!r,
+        estimate: { enabled: estimateOn },
       });
       if (!parsed.success || !title.trim())
         throw new Error(
@@ -820,10 +845,17 @@ export function StairWorkspace({
               </select>
             </label>
             <Numeric
-              label="Bottom bearing width"
+              label={bs.onGround ? "Bottom bearing width" : "Bottom beam width"}
               value={bs.bearing}
               onChange={(v) => setBottom({ bearing: v })}
             />
+            {!bs.onGround && (
+              <Numeric
+                label="Bottom beam depth"
+                value={bs.beamDepth ?? STAIR_BEAM_DEPTH}
+                onChange={(v) => setBottom({ beamDepth: v })}
+              />
+            )}
           </div>
           {bs.onGround && (
             <>
@@ -928,13 +960,24 @@ export function StairWorkspace({
               </select>
             </label>
             <Numeric
-              label="Top bearing width"
+              label="Top beam width"
               value={input.topSupport.bearing}
               onChange={(v) =>
                 set("topSupport", { ...input.topSupport, bearing: v })
               }
             />
+            <Numeric
+              label="Top / landing beam depth"
+              value={input.topSupport.beamDepth ?? STAIR_BEAM_DEPTH}
+              onChange={(v) =>
+                set("topSupport", { ...input.topSupport, beamDepth: v })
+              }
+            />
           </div>
+          <p className="slabMuted">
+            Beam tops are flush with the landing / floor finish; beams are drawn
+            for detailing and quantities only and are not designed here.
+          </p>
           <Choice
             question="Seismic connection"
             value={input.seismic.connection}
@@ -1017,8 +1060,28 @@ export function StairWorkspace({
                 {barRows.map((row) => {
                   const b = input.bars[row.key];
                   return (
-                    <tr key={row.key}>
-                      <th scope="row">{row.label}</th>
+                    <tr
+                      key={row.key}
+                      className={
+                        activeSet === row.key ? styles.activeRow : undefined
+                      }
+                      onMouseEnter={() => setActiveSet(row.key)}
+                      onMouseLeave={() => setActiveSet(null)}
+                      onFocusCapture={() => setActiveSet(row.key)}
+                      onBlurCapture={() => setActiveSet(null)}
+                      data-set={row.key}
+                    >
+                      <th scope="row">
+                        <span
+                          className={styles.chip}
+                          style={{ background: stairBarColors[row.key] }}
+                          aria-hidden="true"
+                        />
+                        <b style={{ color: stairBarColors[row.key] }}>
+                          {stairBarMarks[row.key]}
+                        </b>{" "}
+                        {row.label}
+                      </th>
                       <td>
                         <RebarSizeSelect
                           ariaLabel={`${row.label} diameter`}
@@ -1063,8 +1126,9 @@ export function StairWorkspace({
                           className="slabMode"
                           disabled={!valid}
                           onClick={() => suggest(row.key)}
+                          title={SUGGEST_TIP}
                         >
-                          Suggest
+                          Suggest spacing
                         </button>
                       </td>
                     </tr>
@@ -1083,8 +1147,10 @@ export function StairWorkspace({
           <p className="slabMuted">
             Extension = horizontal length each side of the support or knee. Bars
             cross at re-entrant knees (no bar bent round an inside corner).
-            Suggest picks the largest spacing (75–300 mm) passing that
-            set&apos;s checks.
+            Hover or edit a row to highlight that bar set (mark and colour) in
+            the section, plan and 3D view. Suggest spacing keeps the bar size
+            and picks the largest spacing (75–300 mm) passing that set&apos;s
+            own checks.
           </p>
           <details>
             <summary>Detailing & Serviceability Settings</summary>
@@ -1198,7 +1264,7 @@ export function StairWorkspace({
           {tab === "3d" && (
             <section className="slabPanel slab3dPanel">
               {valid ? (
-                <Stair3DView input={valid} />
+                <Stair3DView input={valid} highlight={activeSet} />
               ) : (
                 <p className="slabMuted">
                   Complete valid inputs to view the stair in 3D.
@@ -1211,8 +1277,8 @@ export function StairWorkspace({
           >
             {valid ? (
               <>
-                <StairSection input={valid} />
-                <StairPlan input={valid} />
+                <StairSection input={valid} highlight={activeSet} />
+                <StairPlan input={valid} highlight={activeSet} />
               </>
             ) : (
               <p className="slabMuted">
@@ -1713,6 +1779,31 @@ export function StairWorkspace({
           }}
         />
       ) : null}
+      {r && (
+        <section className="slabPanel">
+          <h2>Quantity Estimate</h2>
+          <button
+            type="button"
+            className={estimateOn ? "suiteSecondary" : "suitePrimary"}
+            aria-pressed={estimateOn}
+            onClick={() => {
+              editVersion.current++;
+              setSaved(false);
+              setEstimateOn(!estimateOn);
+            }}
+          >
+            {estimateOn
+              ? "Disable Quantity Estimate"
+              : "Enable Quantity Estimate"}
+          </button>
+          {!estimateOn && (
+            <p className="slabMuted">
+              Concrete, formwork and bar schedule for the selected design width.
+              Off by default; the setting is saved with the calculation.
+            </p>
+          )}
+        </section>
+      )}
       {quantity && !quantity.error && (
         <section className="slabPanel">
           <h2>

@@ -8,7 +8,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import type { StairsInput } from "@nola/calc-core";
+import type { StairBarSetId, StairsInput } from "@nola/calc-core";
+import { stairBarColors } from "@/lib/stair-bar-styles";
 import { watercolorConcretePixels } from "@/lib/slab-3d-model";
 import { loadStyles } from "@/lib/load-styles";
 import {
@@ -202,10 +203,40 @@ function buildGroups(model: Stair3DModel) {
       const a = l.arrows[Math.floor(l.arrows.length / 2)];
       const sprite = label(l.label, c.text, text * 0.8);
       sprite.position.set(a.x, top + text * 1.6, a.z);
-      labels.add(sprite);
+      uniform.add(sprite);
     }
   }
-  return { stair, supports, uniform, local, labels };
+  // Rebar layer (V3): one mesh group per bar set, coloured as in the 2-D
+  // drawings; hidden unless "Rebars" is ticked.
+  const rebars = new THREE.Group();
+  const up = new THREE.Vector3(0, 1, 0);
+  const minR = Math.max(0.004, model.extent * 0.0012);
+  for (const b of model.bars) {
+    const group = new THREE.Group();
+    group.name = b.set;
+    const material = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(stairBarColors[b.set]),
+      roughness: 0.45,
+      metalness: 0.2,
+      transparent: true,
+    });
+    const r = Math.max(b.radius, minR);
+    for (const [x1, y1, z1, x2, y2, z2] of b.segments) {
+      const a = new THREE.Vector3(x1, y1, z1),
+        c = new THREE.Vector3(x2, y2, z2);
+      const len = a.distanceTo(c);
+      if (len < 1e-6) continue;
+      const mesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(r, r, len, 6),
+        material,
+      );
+      mesh.position.copy(a.clone().add(c).multiplyScalar(0.5));
+      mesh.quaternion.setFromUnitVectors(up, c.clone().sub(a).normalize());
+      group.add(mesh);
+    }
+    rebars.add(group);
+  }
+  return { stair, supports, uniform, local, labels, rebars };
 }
 
 function frame(
@@ -233,7 +264,14 @@ function frame(
   controls.update();
 }
 
-export default function Stair3DView({ input }: { input: StairsInput }) {
+export default function Stair3DView({
+  input,
+  highlight = null,
+}: {
+  input: StairsInput;
+  /** Bar set being edited: shown at full strength, others dimmed (V3). */
+  highlight?: StairBarSetId | null;
+}) {
   const host = useRef<HTMLDivElement>(null),
     stage = useRef<{
       renderer: THREE.WebGLRenderer;
@@ -250,6 +288,7 @@ export default function Stair3DView({ input }: { input: StairsInput }) {
       local: true,
       supports: true,
       labels: true,
+      rebars: false,
     });
   const model = useMemo(() => {
     try {
@@ -338,8 +377,27 @@ export default function Stair3DView({ input }: { input: StairsInput }) {
     s.groups.local.visible = show.local;
     s.groups.supports.visible = show.supports;
     s.groups.labels.visible = show.labels;
+    s.groups.rebars.visible = show.rebars;
+    // See-through concrete while the rebar layer is on.
+    s.groups.stair.traverse((o) => {
+      const m = (o as THREE.Mesh).material as THREE.Material | undefined;
+      if (m && "opacity" in m && (o as THREE.Mesh).isMesh) {
+        m.transparent = show.rebars;
+        m.opacity = show.rebars ? 0.28 : 1;
+        m.depthWrite = !show.rebars;
+        m.needsUpdate = true;
+      }
+    });
+    for (const g of s.groups.rebars.children) {
+      const active = !highlight || g.name === highlight;
+      g.traverse((o) => {
+        const m = (o as THREE.Mesh).material as
+          THREE.MeshStandardMaterial | undefined;
+        if (m && (o as THREE.Mesh).isMesh) m.opacity = active ? 1 : 0.15;
+      });
+    }
     s.render();
-  }, [show, model]);
+  }, [show, model, highlight]);
   if (!model)
     return (
       <p className="slabMuted">
@@ -370,6 +428,7 @@ export default function Stair3DView({ input }: { input: StairsInput }) {
             ["local", "Local loads"],
             ["supports", "Supports"],
             ["labels", "Labels"],
+            ["rebars", "Rebars"],
           ] as const
         ).map(([k, t]) => (
           <label key={k} className="slab3dToggle">
@@ -390,7 +449,9 @@ export default function Stair3DView({ input }: { input: StairsInput }) {
       <figcaption className="slabMuted">
         True scale · drag to rotate, right-drag to pan, scroll to zoom. Purple
         arrows: uniform live load and finishes on plan; red point, blue line and
-        green area loads at their positions with unfactored values.
+        green area loads at their positions with unfactored values. Tick Rebars
+        to see the bars (coloured by mark) through see-through concrete; the set
+        being edited stays bright.
         {model.widthMode === "strip"
           ? " Dashed green lines mark the 1 m design strip."
           : " Full flight width is designed; point and area loads spread over their effective width."}

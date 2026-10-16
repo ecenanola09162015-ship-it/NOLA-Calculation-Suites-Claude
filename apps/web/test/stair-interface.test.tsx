@@ -56,8 +56,10 @@ describe("stairs workspace", () => {
       "Calculation basis: ACI 318-19.",
       "ACI 318-14 — Future Development",
       "DCR-Based Design Checks",
-      "Quantity Estimate · per 1 m strip",
-      "Bar schedule",
+      "Enable Quantity Estimate",
+      "Suggest spacing",
+      "Bottom beam depth",
+      "Top / landing beam depth",
       "LONGITUDINAL SECTION",
       "PLAN",
       "3D view with loads",
@@ -81,7 +83,12 @@ describe("stairs workspace", () => {
             projectId: "00000000-0000-4000-8000-000000000002",
             moduleSlug: "stairs",
             title: "ST-02",
-            payload: { kind: "stairs", version: 1, input: i },
+            payload: {
+              kind: "stairs",
+              version: 1,
+              input: i,
+              estimate: { enabled: true },
+            },
             createdAt: "2026-10-16T00:00:00Z",
             updatedAt: "2026-10-16T00:00:00Z",
           } as never
@@ -92,6 +99,8 @@ describe("stairs workspace", () => {
     expect(html).toContain("Allowable bearing qa");
     expect(html).toContain("Footing q,max / qa");
     expect(html).toContain("Concrete · strip footing");
+    expect(html).toContain("Disable Quantity Estimate");
+    expect(html).toContain("Quantity Estimate · per 1 m strip");
   });
   it("restores a dog-leg draft with the mid landing and two flights", () => {
     const html = renderToStaticMarkup(
@@ -121,6 +130,9 @@ describe("stairs workspace", () => {
       "Project standard: NSCP 2015. Calculation basis: ACI 318-19.",
     );
     expect(html).toContain("SECTION · FLIGHT 2 STRIP");
+    expect(html).toContain("DOG-LEG ELEVATION");
+    expect(html).toContain("Flight 2 (behind)");
+    expect(html).toContain("drawn as built (returns toward the start)");
     expect(html).not.toContain("NaN");
   });
   it("draws crossed bars at knees, supports and the 1 m strip band", () => {
@@ -142,5 +154,35 @@ describe("stairs workspace", () => {
     );
     expect(forces).toContain("Mu envelope");
     expect(forces).toContain("Nu envelope");
+  });
+});
+
+describe("stairs drawing aids (V1, V3)", () => {
+  it("draws support beams flush with the finished level, with marks and colour chips", () => {
+    const i = defaultStairsInput();
+    const section = renderToStaticMarkup(<StairSection input={i} />);
+    expect(section).toContain('data-beam="250x500"');
+    for (const m of ["mainBottom", "topBottom", "topTop", "distribution"])
+      expect(section).toContain(`data-mark="${m}"`);
+    expect(section).toContain(">B1<");
+    expect(section).toContain(">T2<");
+    const html = renderToStaticMarkup(
+      <StairWorkspace cloudReady={false} onSaved={() => {}} />,
+    );
+    expect(html).toContain('data-set="topKnee"');
+    expect(html).toContain(">T3</b>");
+  });
+  it("dims the other bar sets when one is highlighted", () => {
+    const i = defaultStairsInput();
+    const hl = renderToStaticMarkup(
+      <StairSection input={i} highlight="topTop" />,
+    );
+    expect(hl).toMatch(/<g opacity="0.18">[^]*data-bar="bottom"/);
+    expect(hl).toMatch(/<g opacity="1">[^]*data-bar="topTop"/);
+    const plan = renderToStaticMarkup(
+      <StairPlan input={i} highlight="mainBottom" />,
+    );
+    expect(plan).toContain('data-zone="topTop"');
+    expect(plan).toMatch(/opacity="0.18" data-zone="topTop"/);
   });
 });

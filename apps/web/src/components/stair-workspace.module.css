@@ -93,3 +93,15 @@
 .reaction th {
   white-space: nowrap;
 }
+.chip {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+.activeRow th,
+.activeRow td {
+  background: #eef6fb;
+}

@@ -15,6 +15,7 @@
  *   wastage (add per project practice). Mass 7850 kg/m³.
  */
 import {
+  stairBarMarks,
   stairGeometry,
   type StairStripGeometry,
   type StairsInput,
@@ -198,7 +199,7 @@ export function stairQuantities(i: StairsInput): StairQuantityResult {
       });
     const mb = i.bars.mainBottom;
     add({
-      mark: `${g.index}B1`,
+      mark: stairBarMarks.mainBottom,
       label: "Main bottom bars",
       strip,
       diameter: mb.diameter,
@@ -244,7 +245,7 @@ export function stairQuantities(i: StairsInput): StairQuantityResult {
         key: "topKnee",
         ranges: [rng(k.x, i.bars.topKnee.extension)],
       });
-    tops.forEach((t, n) => {
+    tops.forEach((t) => {
       const b = i.bars[t.key];
       const len =
         t.ranges.reduce(
@@ -253,7 +254,7 @@ export function stairQuantities(i: StairsInput): StairQuantityResult {
         ) +
         2 * 12 * b.diameter;
       add({
-        mark: `${g.index}T${n + 1}`,
+        mark: stairBarMarks[t.key],
         label: t.label,
         strip,
         diameter: b.diameter,
@@ -265,7 +266,7 @@ export function stairQuantities(i: StairsInput): StairQuantityResult {
     const dist = i.bars.distribution;
     const nDist = Math.floor(devBottom / dist.spacing) + 1;
     add({
-      mark: `${g.index}D1`,
+      mark: stairBarMarks.distribution,
       label: "Distribution bars (bottom layer)",
       strip,
       diameter: dist.diameter,

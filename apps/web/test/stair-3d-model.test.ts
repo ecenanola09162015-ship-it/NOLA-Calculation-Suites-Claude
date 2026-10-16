@@ -17,7 +17,22 @@ describe("stair 3D model", () => {
     const m = buildStair3DModel(i);
     expect(m.solids).toHaveLength(1);
     expect(m.solids[0].z1 - m.solids[0].z0).toBeCloseTo(1.2, 9);
-    expect(m.boxes.filter((b) => b.kind === "beam")).toHaveLength(2);
+    const beams = m.boxes.filter((b) => b.kind === "beam");
+    expect(beams).toHaveLength(2);
+    // V1: beam tops flush with the finished level (bottom floor 0, top landing 10R)
+    expect(beams[0].y1).toBeCloseTo(0, 9);
+    expect(beams[1].y1).toBeCloseTo(1.75, 9);
+    expect(beams[1].y1 - beams[1].y0).toBeCloseTo(0.5, 9);
+    // V3: rebar layer for every set, bars repeated across the 1.2 m flight
+    expect(m.bars.map((b) => b.set).sort()).toEqual(
+      ["distribution", "mainBottom", "topBottom", "topKnee", "topTop"].sort(),
+    );
+    const zs = new Set(
+      m.bars
+        .find((b) => b.set === "mainBottom")!
+        .segments.map((sg) => sg[2].toFixed(3)),
+    );
+    expect(zs.size).toBe(Math.floor((1.2 - 0.04) / 0.15) + 1);
     expect(m.loads[0].kind).toBe("uniform");
     expect(m.band).toHaveLength(1);
     expect(m.band![0].z1 - m.band![0].z0).toBeCloseTo(1, 9);

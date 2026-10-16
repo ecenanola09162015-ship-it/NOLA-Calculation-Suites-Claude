@@ -272,12 +272,16 @@ export const stairsInputSchema = z
       condition: z.enum(stairBottomSupports),
       /** Bearing (seat) width along the run, mm. */
       bearing: z.number().min(100).max(1500),
+      /** Support beam depth, mm; beam top flush with the finished level (drawings only). */
+      beamDepth: z.number().min(150).max(2000).optional(),
       onGround: z.boolean(),
       footing: footingSchema,
     }),
     topSupport: z.object({
       condition: z.enum(stairEndSupports),
       bearing: z.number().min(100).max(1500),
+      /** Also used for landing-edge supports (drawings only). */
+      beamDepth: z.number().min(150).max(2000).optional(),
     }),
     bars: z.object({
       mainBottom: barSet,
@@ -358,6 +362,8 @@ export const stairsDraftSchema = z.object({
   designPolicy: designCheckPolicySchema.optional(),
   remarks: designRemarksSchema.optional(),
   reviewCompleted: z.boolean().optional(),
+  /** Quantity estimate switched on (decision V2). */
+  estimate: z.object({ enabled: z.boolean() }).optional(),
 });
 export type StairsDraft = z.infer<typeof stairsDraftSchema>;
 
@@ -385,6 +391,7 @@ export function defaultStairsInput(): StairsInput {
     bottomSupport: {
       condition: "Pinned",
       bearing: 250,
+      beamDepth: STAIR_BEAM_DEPTH,
       onGround: false,
       footing: {
         design: false,
@@ -398,7 +405,11 @@ export function defaultStairsInput(): StairsInput {
         bars: { diameter: 12, spacing: 200 },
       },
     },
-    topSupport: { condition: "Pinned", bearing: 250 },
+    topSupport: {
+      condition: "Pinned",
+      bearing: 250,
+      beamDepth: STAIR_BEAM_DEPTH,
+    },
     bars: {
       mainBottom: { diameter: 12, spacing: 150 },
       topBottom: { diameter: 12, spacing: 300, extension: 700 },
@@ -1004,6 +1015,24 @@ export interface StairStation {
   topSet: StairTopSetId | null;
 }
 export type StairTopSetId = "topBottom" | "topTop" | "topKnee";
+export type StairBarSetId = keyof StairsInput["bars"];
+/** Bar marks shared by checks, drawings, 3-D view and the bar schedule. */
+export const stairBarMarks: Record<StairBarSetId, string> = {
+  mainBottom: "B1",
+  topBottom: "T1",
+  topTop: "T2",
+  topKnee: "T3",
+  distribution: "D1",
+};
+export const stairBarLabels: Record<StairBarSetId, string> = {
+  mainBottom: "main bottom bars",
+  topBottom: "top bars · bottom support",
+  topTop: "top bars · top support",
+  topKnee: "top bars · knees / landing supports",
+  distribution: "distribution bars",
+};
+/** Default support-beam depth (decision V1: beam top flush with the landing / floor). */
+export const STAIR_BEAM_DEPTH = 500;
 export interface StairReaction {
   support: StairSupportDef;
   /** Per metre width. Vertical up +, horizontal (+x) +, moment CCW +. */
@@ -1945,39 +1974,50 @@ function stripChecks(
         detail: `εt = ${fmt(c.strain, 4)} vs εty + 0.003 = ${fmt(i.fy / i.es + 0.003, 4)}.`,
       });
     }
-    // −M
+    // −M, one check per top-bar zone (T1 bottom support, T2 top support,
+    // T3 knees / landing supports) so each set is judged on its own zone.
     const negSt = st.filter((s) => s.mNeg < -1e-3);
-    if (negSt.length) {
-      const capNeg = (s: StairStation) => {
-        if (!s.topSet)
-          return { phiMn: 0, d: 0, phi: 0, strain: 0 } as ReturnType<
-            typeof strength
-          >;
-        const set = i.bars[s.topSet];
-        return cap(stairBarArea(set), s.h, "top", set.diameter);
-      };
-      const neg = maxBy(negSt, (s) => {
-        const c = capNeg(s);
-        return c.phiMn > 0 ? -s.mNeg / c.phiMn : Infinity;
-      });
-      const s = neg.item!;
-      const c = capNeg(s);
+    const groups = new Map<StairTopSetId | "none", StairStation[]>();
+    for (const s of negSt) {
+      const key = s.topSet ?? "none";
+      groups.set(key, [...(groups.get(key) ?? []), s]);
+    }
+    for (const [set, list] of groups) {
+      if (set === "none") {
+        const s = list.reduce((a, b) => (b.mNeg < a.mNeg ? b : a));
+        out.push({
+          id: `s${g.index}:${kind}:flexure-neg:none`,
+          group: "Flexure",
+          label: `${tag}${name} · Hogging Beyond Top-Bar Zones`,
+          dcr: Infinity,
+          clause: stairClauses.flexure(),
+          invalidLabel: "Hogging Beyond Top-Bar Cut-Off",
+          detail: `Hogging Mu = ${fmt(s.mNeg)} kN·m/m at x = ${fmt(s.x / 1000)} m where no top bars are provided — extend the nearest top-bar zone.`,
+        });
+        continue;
+      }
+      const bar = i.bars[set];
+      const capOf = (s: StairStation) =>
+        cap(stairBarArea(bar), s.h, "top", bar.diameter);
+      const s = maxBy(list, (x) => {
+        const c = capOf(x);
+        return c.phiMn > 0 ? -x.mNeg / c.phiMn : Infinity;
+      }).item!;
+      const c = capOf(s);
+      const mark = `${stairBarMarks[set]} ${stairBarLabels[set]}`;
       out.push({
-        id: `s${g.index}:${kind}:flexure-neg`,
+        id: `s${g.index}:${kind}:flexure-neg:${set}`,
         group: "Flexure",
-        label: `${tag}${name} · Flexure −M (top bars)`,
+        label: `${tag}${name} · Flexure −M (${mark})`,
         dcr: c.phiMn > 0 ? -s.mNeg / c.phiMn : Infinity,
         clause: stairClauses.flexure(),
-        invalidLabel: "Hogging Beyond Top-Bar Cut-Off",
-        detail: s.topSet
-          ? `Mu = ${fmt(s.mNeg)} kN·m/m at x = ${fmt(s.x / 1000)} m vs φMn = ${fmt(c.phiMn)} kN·m/m (${s.topSet}, d ${fmt(c.d, 1)} mm, h ${s.h} mm).`
-          : `Hogging Mu = ${fmt(s.mNeg)} kN·m/m at x = ${fmt(s.x / 1000)} m where no top bars are provided — extend the top bars.`,
+        detail: `Mu = ${fmt(s.mNeg)} kN·m/m at x = ${fmt(s.x / 1000)} m vs φMn = ${fmt(c.phiMn)} kN·m/m (${stairBarMarks[set]} Ø${bar.diameter} @ ${bar.spacing}, d ${fmt(c.d, 1)} mm, h ${s.h} mm).`,
       });
-      if (s.topSet && c.strain > 0)
+      if (c.strain > 0)
         out.push({
-          id: `s${g.index}:${kind}:strain-neg`,
+          id: `s${g.index}:${kind}:strain-neg:${set}`,
           group: "Flexure",
-          label: `${tag}${name} · Tension-Controlled Strain (top)`,
+          label: `${tag}${name} · Tension-Controlled Strain (${stairBarMarks[set]})`,
           dcr: prov(i).tensionStrain(i.fy, i.es) / c.strain,
           clause: stairClauses.strain(),
           detail: `εt = ${fmt(c.strain, 4)} vs εty + 0.003 = ${fmt(i.fy / i.es + 0.003, 4)}.`,

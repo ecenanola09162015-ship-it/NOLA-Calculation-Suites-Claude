@@ -4,8 +4,11 @@
  * Engineering coordinates in metres: X along the run on plan, Y up,
  * Z across the stair (0 at the flight-1 outer edge).
  */
+import { stairBarLines } from "./stair-drawing";
 import {
+  STAIR_BEAM_DEPTH,
   stairGeometry,
+  type StairBarSetId,
   type StairLocalLoad,
   type StairStripGeometry,
   type StairsInput,
@@ -52,9 +55,18 @@ export interface Stair3DModel {
   loads: Stair3DLoad[];
   /** Design strip band (1 m strip mode): polylines along the walking line. */
   band: { z0: number; z1: number; line: Stair3DPoint[] }[] | null;
+  /** Rebar layer (V3): straight segments per bar set, metres. */
+  bars: Stair3DBarSet[];
   extent: number;
   centre: { x: number; y: number; z: number };
   widthMode: StairsInput["widthMode"];
+}
+export interface Stair3DBarSet {
+  set: StairBarSetId;
+  /** Bar radius, m. */
+  radius: number;
+  /** [x1, y1, z1, x2, y2, z2] segments, m. */
+  segments: [number, number, number, number, number, number][];
 }
 
 type Pt = { x: number; y: number };
@@ -183,17 +195,31 @@ export function buildStair3DModel(i: StairsInput): Stair3DModel {
           z1: zz.z1,
           kind: "footing",
         });
-      } else
+      } else {
+        // V1: beam top flush with the finished level (landing / floor) at the support.
+        // Strip ends take the floor level there (first / last point of the
+        // stepped top); elsewhere the landing level at the support.
+        const top =
+          (s.x <= 0.5
+            ? p.g.top[0].y
+            : s.x >= p.g.length - 0.5
+              ? p.g.top[p.g.top.length - 1].y
+              : yTop(p.g.top, s.x)) / 1000;
+        const depth =
+          ((s.role === "bottom"
+            ? i.bottomSupport.beamDepth
+            : i.topSupport.beamDepth) ?? STAIR_BEAM_DEPTH) / 1000;
         boxes.push({
-          label: `${s.label} · ${s.condition}`,
+          label: `${s.label} · ${s.condition} · beam ${s.bearing}×${Math.round(depth * 1000)}`,
           x0: x - half,
           x1: x + half,
-          y0: ys - 0.35,
-          y1: ys,
+          y0: top - depth,
+          y1: top,
           z0: zz.z0,
           z1: zz.z1,
           kind: "beam",
         });
+      }
     }
   // Loads
   const loads: Stair3DLoad[] = [];
@@ -317,6 +343,57 @@ export function buildStair3DModel(i: StairsInput): Stair3DModel {
           };
         })
       : null;
+  // Rebar layer: longitudinal bars repeated across each flight at their
+  // spacing (cover from the edges), distribution bars across the width.
+  const barSets = new Map<StairBarSetId, Stair3DBarSet>();
+  const setOf = (set: StairBarSetId) => {
+    if (!barSets.has(set))
+      barSets.set(set, {
+        set,
+        radius: i.bars[set].diameter / 2000,
+        segments: [],
+      });
+    return barSets.get(set)!;
+  };
+  const MAX_ACROSS = 40;
+  for (const p of places) {
+    const lines = stairBarLines(i, p.g);
+    const cover = i.bottomCover / 1000;
+    const across = (spacing: number) => {
+      const w = p.z1 - p.z0 - 2 * cover,
+        n = Math.min(MAX_ACROSS, Math.floor(w / (spacing / 1000)) + 1);
+      return Array.from(
+        { length: n },
+        (_, k) => p.z0 + cover + (n > 1 ? (k * w) / (n - 1) : w / 2),
+      );
+    };
+    const push = (set: StairBarSetId, poly: { x: number; y: number }[]) => {
+      const zs = across(i.bars[set].spacing);
+      const out = setOf(set).segments;
+      for (const z of zs)
+        for (let k = 0; k < poly.length - 1; k++)
+          out.push([
+            X(p, poly[k].x),
+            poly[k].y / 1000,
+            z,
+            X(p, poly[k + 1].x),
+            poly[k + 1].y / 1000,
+            z,
+          ]);
+    };
+    for (const line of lines.bottom) push("mainBottom", line);
+    for (const t of lines.top) for (const line of t.lines) push(t.set, line);
+    const dist = setOf("distribution").segments;
+    for (const d of lines.distribution)
+      dist.push([
+        X(p, d.x),
+        d.y / 1000,
+        p.z0 + cover,
+        X(p, d.x),
+        d.y / 1000,
+        p.z1 - cover,
+      ]);
+  }
   const xs = solids.flatMap((s) => s.profile.map((q) => q.x)),
     ys = solids.flatMap((s) => s.profile.map((q) => q.y));
   const zMax = i.stairType === "dog-leg" ? 2 * B + gap : B;
@@ -330,6 +407,7 @@ export function buildStair3DModel(i: StairsInput): Stair3DModel {
     boxes,
     loads,
     band,
+    bars: [...barSets.values()],
     extent,
     centre: {
       x: (Math.max(...xs) + Math.min(...xs)) / 2,

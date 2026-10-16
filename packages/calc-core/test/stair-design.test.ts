@@ -451,3 +451,51 @@ describe("stairs: code basis seam (Code Basis K3/K5)", () => {
     expect(a.checks.map((c) => c.dcr)).toEqual(b.checks.map((c) => c.dcr));
   });
 });
+
+describe("stairs: per-zone top-bar checks and marks (Suggest fix, V3)", () => {
+  it("reports −M per top-bar zone with its own mark", async () => {
+    const m = await import("../src");
+    const r = analyzeStairs({
+      ...defaultStairsInput(),
+      bottomSupport: {
+        ...defaultStairsInput().bottomSupport,
+        condition: "Fixed",
+      },
+      topSupport: { condition: "Fixed", bearing: 250 },
+    });
+    const ids = r.checks.map((c) => c.id);
+    expect(ids).toContain("s1:flight:flexure-neg:topBottom");
+    expect(ids).toContain("s1:landing:flexure-neg:topTop");
+    expect(ids.some((x) => /flexure-neg$/.test(x))).toBe(false);
+    const t2 = r.checks.find((c) => c.id === "s1:landing:flexure-neg:topTop")!;
+    expect(t2.label).toContain("T2");
+    expect(m.stairBarMarks.topKnee).toBe("T3");
+    const q = m.stairQuantities(defaultStairsInput());
+    expect(new Set(q.bars.map((b) => b.mark))).toEqual(
+      new Set(["B1", "T1", "T2", "T3", "D1"]),
+    );
+  });
+  it("draft keeps the estimate switch and beam depths", () => {
+    const d = stairsDraftSchema.parse({
+      kind: "stairs",
+      version: 1,
+      input: {
+        ...defaultStairsInput(),
+        topSupport: { condition: "Pinned", bearing: 300, beamDepth: 600 },
+      },
+      estimate: { enabled: true },
+    });
+    expect(d.estimate?.enabled).toBe(true);
+    expect(d.input.topSupport.beamDepth).toBe(600);
+    // older drafts without the new fields still open
+    const old = stairsDraftSchema.safeParse({
+      kind: "stairs",
+      version: 1,
+      input: {
+        ...defaultStairsInput(),
+        topSupport: { condition: "Pinned", bearing: 250 },
+      },
+    });
+    expect(old.success).toBe(true);
+  });
+});
