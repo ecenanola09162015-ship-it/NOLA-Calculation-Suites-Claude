@@ -69,21 +69,28 @@ def rc_beam():            # I-03: deeper rectangular beam + UDL
     return s
 
 
-def stairs():             # I-04: suspended flight + landing, beams at both ends
-    T, R, N, W = 2.4, 1.6, 6, 6.0
-    LZ = N * R; m = R / T; c = 1.5 / (T / math.hypot(T, R))
-    s = Scene((0, 0, -2.6), (21, W, LZ), margin=0.06)
-    s.contact_shadow([(0, 0), (21, 0), (21, W), (0, W)], -2.6, 0.05, 90)
-    s.box(0, 0, LZ - 1.5 - 2.4, 2.2, W, 2.4, 'concrete', 1)                 # landing beam
-    s.box(0, 0, LZ - 1.5, 6, W, 1.5, 'concrete', 2)                          # landing
-    sec = [(18, 0)]
-    for k in range(1, N + 1):
-        x = 18 - (k - 1) * T; sec.append((x, k * R))
-        if k < N: sec.append((x - T, k * R))
-    sec += [(6, (18 - 6) * m - c), (18, -c)]
+def stairs():             # I-04 rev 4: wider; top landing + flight + bottom landing, edge beams under both landings
+    """One continuous section (no seams); waist soffit parallel to the pitch, kinked into both landing soffits."""
+    T, R, N, W = 2.4, 1.6, 6, 9.0           # going, rise, risers, width
+    t, L, B, bd = 1.5, 6.0, 2.2, 2.4        # slab thickness, landing length, beam width, beam depth
+    LZ = N * R; m = R / T
+    xf = L + (N - 1) * T                    # foot of flight (first riser)
+    XE = xf + L                             # outer end of bottom landing
+    zs0 = -0.7                              # waist soffit level at x = xf
+    xk_top = xf - (LZ - t - zs0) / m        # kink: waist soffit meets top-landing soffit
+    xk_bot = xf + (zs0 + t) / m             # kink: waist soffit meets bottom-landing soffit
+    sec = [(0, LZ)]
+    for k in range(N, 0, -1):               # walk down the steps
+        xr = xf - (k - 1) * T
+        sec += [(xr, k * R), (xr, (k - 1) * R)]
+        if k > 1: sec.append((xr + T, (k - 1) * R))
+    sec += [(XE, 0), (XE, -t), (xk_bot, -t), (xk_top, LZ - t), (0, LZ - t)]
+    zb = -t - bd
+    s = Scene((0, 0, zb), (XE, W, LZ), margin=0.06)
+    s.contact_shadow([(0, 0), (XE, 0), (XE, W), (0, W)], zb, 0.05, 90)
+    s.box(0, 0, LZ - t - bd, B, W, bd, 'concrete', 1)                    # top landing edge beam
+    s.box(XE - B, 0, zb, B, W, bd, 'concrete', 30)                       # bottom landing edge beam
     s.prism_xz(sec, 0, W, 'concrete', 10)
-    s.box(16.6, 0, -2.6, 2.4, W, 2.6, 'concrete', 30)                       # support beam
-    s.box(19.0, 0, -1.2, 2.0, W, 1.2, 'concrete', 31)                        # floor slab stub
     return s
 
 
