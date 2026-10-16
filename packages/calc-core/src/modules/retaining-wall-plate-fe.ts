@@ -51,6 +51,12 @@ export interface WallPlateSolution {
   ys: number[];
   dof: number;
   at: (k: number, x: number, y: number) => PlateField;
+  /**
+   * Nodal reactions (kN) on each vertical line support, per load case, from
+   * the unconstrained stiffness (R = K·u − F on the w DOFs). ys are the node
+   * heights on the line, base node included (shared with the base edge).
+   */
+  lineReactions: { x: number; ys: number[]; force: number[][] }[];
 }
 
 function hermite(s: number, h: number, d: number): number[] {
@@ -218,6 +224,23 @@ export function solveWallPlate(
       for (const yp of supports.horizontal)
         if (Math.abs(y - yp) < eps) fixed[d] = fixed[d + 1] = 1;
     }
+  // Keep the unconstrained rows of the buttress w DOFs for the reactions.
+  const lineNodes = supports.vertical.map((b) => {
+    const i = xs.findIndex((x) => Math.abs(x - b.x) < eps);
+    const js = ys.map((y, j) => (y <= b.height + eps ? j : -1)).filter((j) => j >= 0);
+    return { x: b.x, i, js };
+  });
+  const rowCopy = new Map<number, Float64Array>();
+  for (const ln of lineNodes)
+    for (const j of ln.js) {
+      const r = node(ln.i, j),
+        row = new Float64Array(dof);
+      for (let c = Math.max(0, r - bw + 1); c < Math.min(dof, r + bw); c++)
+        row[c] = c >= r ? K[r * bw + (c - r)]! : K[c * bw + (r - c)]!;
+      rowCopy.set(r, row);
+    }
+  const loadCopy = new Map<number, number[]>();
+  for (const r of rowCopy.keys()) loadCopy.set(r, F.map((f) => f[r]!));
   for (let r = 0; r < dof; r++) {
     if (!fixed[r]) continue;
     for (let c = 0; c < bw; c++) K[r * bw + c] = 0;
@@ -290,7 +313,20 @@ export function solveWallPlate(
       qy: -(ev(2, 1) + ev(0, 3)),
     };
   };
-  return { xs, ys, dof, at };
+  const lineReactions = lineNodes.map((ln) => ({
+    x: ln.x,
+    ys: ln.js.map((j) => ys[j]!),
+    force: U.map((u, k) =>
+      ln.js.map((j) => {
+        const r = node(ln.i, j),
+          row = rowCopy.get(r)!;
+        let s = 0;
+        for (let c = Math.max(0, r - bw + 1); c < Math.min(dof, r + bw); c++) s += row[c]! * u[c]!;
+        return s - loadCopy.get(r)![k]!;
+      }),
+    ),
+  }));
+  return { xs, ys, dof, at, lineReactions };
 }
 
 /**

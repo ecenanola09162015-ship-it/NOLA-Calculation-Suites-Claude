@@ -41,6 +41,7 @@ import {
 import { solveStem, type StemSolution, type StemSupports } from "./retaining-wall-stem";
 import { retainingWallClauses as clauses } from "../code-clauses";
 import { analyseWallPlate, plateDemandLabels, type PlateDemandId, type WallPlateResult } from "./retaining-wall-plate";
+import { designCounterfort, heelBetweenCounterforts, type CounterfortResult } from "./retaining-wall-counterfort";
 
 export type LoadKind = "D" | "L" | "H" | "E" | "W";
 export interface WeightItem {
@@ -139,7 +140,7 @@ export interface StemStation {
 }
 export interface RwCheck {
   id: string;
-  group: "Stability" | "Stem" | "Footing" | "Detailing";
+  group: "Stability" | "Stem" | "Footing" | "Counterfort" | "Detailing";
   label: string;
   demand: number;
   capacity: number;
@@ -176,6 +177,8 @@ export interface RetainingWallResult {
     toe: MemberAction[];
     heel: MemberAction[];
     bearing: { combo: string; bearing: BearingResult }[];
+    /** Peak net downward factored heel load per combination, kPa. */
+    heelNet: { combo: string; q: number }[];
   } | null;
   flexure: FlexureCheck[];
   shear: ShearCheck[];
@@ -189,6 +192,9 @@ export interface RetainingWallResult {
   warnings: string[];
   /** Full-width plate analysis of the stem (analysis = "plate"). */
   plate: WallPlateResult | null;
+  /** Counterfort design (plate analysis with buttresses on a wall with a heel). */
+  counterforts: CounterfortResult[];
+  heelSpan: { q: number; mu: number; phiMn: number; case: string; combo: string } | null;
 }
 
 const kindFactor = (c: RetainingWallCombination, kind: LoadKind | PressureKind) =>
@@ -455,6 +461,7 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
   if (!basement) {
     const toe: MemberAction[] = [],
       heel: MemberAction[] = [],
+      heelNet: { combo: string; q: number }[] = [],
       bearings: { combo: string; bearing: BearingResult }[] = [];
     const xf = g.frontBase,
       xb = g.backBase,
@@ -499,10 +506,13 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
           const m = integrate((x) => net(x) * (x - xb), xb, B, brk, 16) + pv * (B - xb);
           const v = integrate(net, xb, B, brk, 16) + pv;
           heel.push({ combo: name, moment: m, shear: v });
+          let qn = 0;
+          for (let k = 0; k <= 32; k++) qn = Math.max(qn, net(xb + ((B - xb) * k) / 32));
+          heelNet.push({ combo: name, q: qn });
         }
       }
     }
-    footing = { toe, heel, bearing: bearings };
+    footing = { toe, heel, bearing: bearings, heelNet };
     const pick = (list: MemberAction[], sign: 1 | -1) =>
       list.reduce<MemberAction | null>((best, a) => (sign * a.moment > (best ? sign * best.moment : 0) ? a : best), null);
     const toeMax = pick(toe, 1), toeRev = pick(toe, -1), heelMax = pick(heel, 1), heelRev = pick(heel, -1);
@@ -678,6 +688,72 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
     flexure.unshift(...plateFlex);
     warnings.push(...plateResult.notes);
   }
+  // ---- Counterforts (Phase 3) -----------------------------------------------------
+  const counterforts: CounterfortResult[] = [];
+  let heelSpan: RetainingWallResult["heelSpan"] = null;
+  if (plateResult && plateResult.buttressReactions.length) {
+    if (basement || i.heel <= 0)
+      warnings.push("Buttresses on a wall without a heel are line supports only; buttress (pilaster) design is not covered.");
+    else {
+      const cf = i.plate.counterfort,
+        L = i.plate.length;
+      const list = i.plate.buttresses.map((b, k) => ({ ...b, k })).sort((a, b) => a.x - b.x);
+      const qHeel = footing?.heelNet.reduce<{ combo: string; q: number } | null>((m, h) => (h.q > (m?.q ?? -Infinity) ? h : m), null) ?? null;
+      let interior = 0,
+        overhang = 0;
+      list.forEach((b, n) => {
+        const prev = list[n - 1],
+          next = list[n + 1];
+        const clearLeft = prev ? b.x - prev.x - (b.width + prev.width) / 2 : i.plate.left === "free" ? Infinity : b.x - b.width / 2;
+        const clearRight = next ? next.x - b.x - (b.width + next.width) / 2 : i.plate.right === "free" ? Infinity : L - b.x - b.width / 2;
+        const tribLeft = prev ? (b.x - prev.x) / 2 : i.plate.left === "free" ? b.x : b.x / 2;
+        const tribRight = next ? (next.x - b.x) / 2 : i.plate.right === "free" ? L - b.x : (L - b.x) / 2;
+        if (next) interior = Math.max(interior, clearRight);
+        if (!prev) {
+          if (i.plate.left === "free") overhang = Math.max(overhang, b.x - b.width / 2);
+          else interior = Math.max(interior, b.x - b.width / 2);
+        }
+        if (!next) {
+          if (i.plate.right === "free") overhang = Math.max(overhang, L - b.x - b.width / 2);
+          else interior = Math.max(interior, L - b.x - b.width / 2);
+        }
+        const rx = plateResult!.buttressReactions.find((r) => Math.abs(r.x - b.x) < 1e-6)!;
+        counterforts.push(
+          designCounterfort(
+            {
+              fc: i.fc, fy: i.fy, es: i.es,
+              x: b.x, height: b.height, width: b.width,
+              stemThickness: (y) => stemThickness(i, y),
+              stemHeight: H,
+              baseReach: i.heel,
+              topReach: Math.min(cf.topReach, i.heel),
+              cover: cf.cover,
+              tension: cf.tension,
+              ties: cf.ties,
+              heelTies: cf.heelTies,
+              clearLeft, clearRight,
+              tributary: tribLeft + tribRight,
+              ys: rx.ys,
+              combos: rx.combos,
+              heelNet: qHeel,
+              footingThickness: tf,
+              footingCoverTop: i.cover.footingTop,
+            },
+            b.k,
+          ),
+        );
+      });
+      counterforts.sort((a, b) => a.index - b.index);
+      if (qHeel && qHeel.q > 0) {
+        const span = heelBetweenCounterforts(qHeel.q, interior, overhang);
+        const dist = i.bars.footingDistribution;
+        const d = tf * 1000 - i.cover.footingTop - i.bars.heelTop.diameter - dist.diameter / 2;
+        heelSpan = { q: qHeel.q, mu: span.mu, phiMn: slabFlexuralStrength(fcfy, [{ as: barAreaPerMetre(dist), d }]).phiMn, case: span.case, combo: qHeel.combo };
+      }
+      if (cf.topReach > i.heel) warnings.push("Counterfort top reach exceeds the heel; it is limited to the heel length.");
+      warnings.push("Counterforts are designed for the FE line reactions of rigid line supports; their axial shortening and flexibility are not modelled. The heel strip (cantilever) check is kept as a conservative bound.");
+    }
+  }
   const isStem = (id: string) => id.startsWith("stem") || id.startsWith("plate");
   const reactions = strength.map((combo) => ({
     combo: combo.id,
@@ -721,6 +797,20 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
     push({ id: `fl:${f.id}`, group: isStem(f.id) ? "Stem" : "Footing", label: `${f.label} · Flexure`, demand: f.mu, capacity: f.phiMn, unit: "kN·m/m", detail: `${f.combo}; ${f.location}; As ${f.as.toFixed(0)} mm²/m, d ${f.d.toFixed(0)} mm, φ ${f.phi.toFixed(3)}${f.tensionControlled ? "" : " (not tension-controlled)"}`, clause: f.id.startsWith("plate") ? clauses.plateFlexure() : f.id.startsWith("stem") ? clauses.stemFlexure() : clauses.footingFlexure() });
   for (const v of shear)
     push({ id: `sh:${v.id}`, group: isStem(v.id) ? "Stem" : "Footing", label: v.label, demand: v.vu, capacity: v.phiVc, unit: "kN/m", detail: `${v.combo}; ${v.location}; d ${v.d.toFixed(0)} mm, λs ${v.lambdaS.toFixed(3)}`, clause: v.id.startsWith("plate") ? clauses.plateShear() : v.id.startsWith("stem") ? clauses.stemShear() : clauses.footingShear() });
+  for (const c of counterforts) {
+    const n = `Counterfort B${c.index + 1}`;
+    push({ id: `cf-fl:${c.index}`, group: "Counterfort", label: `${n} · T-beam flexure, back-edge bars`, demand: c.flexure.mu, capacity: c.flexure.phiMn, unit: "kN·m", detail: `${c.flexure.combo}; y = ${c.flexure.y.toFixed(2)} m; d ${c.flexure.d.toFixed(0)} mm (normal to back edge, α ${((c.alpha * 180) / Math.PI).toFixed(1)}°), bf ${c.flexure.bf.toFixed(0)} mm, a ${c.flexure.strength.a.toFixed(0)} mm${c.flexure.strength.inFlange ? " in flange" : " into web"}, φ ${c.flexure.strength.phi.toFixed(3)}`, clause: clauses.counterfortFlexure() });
+    push({ id: `cf-sh:${c.index}`, group: "Counterfort", label: `${n} · shear (ties as stirrups)`, demand: c.shear.vuEff, capacity: c.shear.phiVn, unit: "kN", detail: `${c.shear.combo}; y = ${c.shear.y.toFixed(2)} m; Vu ${c.shear.vu.toFixed(1)} − (Mu/d)tanα → ${c.shear.vuEff.toFixed(1)} kN; φVc ${c.shear.phiVc.toFixed(1)} + φVs ${c.shear.phiVs.toFixed(1)} kN`, clause: clauses.counterfortShear() });
+    push({ id: `cf-tie:${c.index}`, group: "Counterfort", label: `${n} · horizontal ties, stem to counterfort`, demand: c.ties.demand, capacity: c.ties.capacity, unit: "kN/m", detail: `Peak reaction intensity at y = ${c.ties.y.toFixed(2)} m (${c.ties.combo}); 2 legs Ø${i.plate.counterfort.ties.diameter} @ ${i.plate.counterfort.ties.spacing}, φ = 0.90`, clause: clauses.counterfortTies() });
+    if (c.heelTies)
+      push({ id: `cf-heel:${c.index}`, group: "Counterfort", label: `${n} · vertical ties, heel to counterfort`, demand: c.heelTies.demand, capacity: c.heelTies.capacity, unit: "kN/m", detail: `Net heel load × tributary (${c.heelTies.combo}); 2 legs Ø${i.plate.counterfort.heelTies.diameter} @ ${i.plate.counterfort.heelTies.spacing}, φ = 0.90`, clause: clauses.counterfortTies() });
+    push({ id: `cf-min:${c.index}`, group: "Counterfort", label: `${n} · minimum tension steel`, demand: c.asMin.required, capacity: c.asMin.provided, unit: "mm²", detail: `min[max(0.25√f′c/fy, 1.4/fy)·bw·d = ${c.asMin.rule.toFixed(0)}, (4/3)·As,req = (4/3)·${c.asMin.analysis.toFixed(0)}] mm², bw ${c.bw.toFixed(0)} mm`, clause: clauses.counterfortMin() });
+    push({ id: `cf-av:${c.index}`, group: "Counterfort", label: `${n} · minimum shear reinforcement`, demand: c.avMin.required, capacity: c.avMin.provided, unit: "mm²", detail: `Av,min = max(0.062√f′c, 0.35)·bw·s/fyt at s = ${i.plate.counterfort.ties.spacing} mm`, clause: clauses.counterfortMin() });
+    push({ id: `cf-sp:${c.index}`, group: "Counterfort", label: `${n} · clear spacing, one layer`, demand: c.barSpacing.minimum, capacity: c.barSpacing.clear, unit: "mm", detail: `${i.plate.counterfort.tension.count} Ø${i.plate.counterfort.tension.diameter} in bw ${c.bw.toFixed(0)} mm`, clause: clauses.barSpacing() });
+    push({ id: `cf-dev:${c.index}`, group: "Counterfort", label: `${n} · tension bars, hooked into footing`, demand: c.anchorage.ldh, capacity: c.anchorage.available, unit: "mm", detail: "ldh with ψr = 1.6 (no confinement credit)", clause: clauses.hook() });
+  }
+  if (heelSpan)
+    push({ id: "cf-heelspan", group: "Counterfort", label: "Heel spanning between counterforts · distribution bars (top)", demand: heelSpan.mu, capacity: heelSpan.phiMn, unit: "kN·m/m", detail: `${heelSpan.combo}; wu ${heelSpan.q.toFixed(1)} kPa, ${heelSpan.case}`, clause: clauses.counterfortHeel() });
   // Minimum steel and spacing.
   const tBase = i.stemBase * 1000,
     rhoMin = slabMinimumSteelRatio(i.fy);
@@ -839,6 +929,8 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
     checks,
     warnings,
     plate: plateResult,
+    counterforts,
+    heelSpan,
   };
 }
 

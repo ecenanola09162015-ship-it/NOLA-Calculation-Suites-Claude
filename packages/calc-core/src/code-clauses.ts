@@ -121,6 +121,14 @@ export const retainingWallClauses = {
     ref("13.3.7.2† stem as two-way slab (Ch. 8)", "8.5.1.1", "22.2, 22.3", "φ Table 21.2.2", "Wood–Armer design moments"),
   plateShear: () =>
     ref("13.3.7.2†", "8.5.3.1.1", "Table 22.5.5.1(c)", "λs 22.5.5.1.3", "√f′c ≤ 8.3 MPa 22.5.3.1", "φ Table 21.2.1"),
+  counterfortFlexure: () =>
+    ref("13.3.7.2† counterfort as tapered T-beam", "flange 6.3.2.1", "22.2, 22.3", "φ Table 21.2.2"),
+  counterfortShear: () =>
+    ref("22.5.1.1", "Vc 22.5.5.1(a)", "Vs 22.5.8.5.3", "Vs ≤ 0.66√f′c bw d 22.5.1.2", "tapered member R9.4.3†", "φ Table 21.2.1"),
+  counterfortTies: () => ref("13.3.7.2†", "direct tension φ = 0.90 Table 21.2.1", "anchorage Ch. 25"),
+  counterfortMin: () => ref("9.6.1.2 / 9.6.1.3 (4/3 As,req)", "Av,min 9.6.3.4"),
+  counterfortHeel: () => ref("13.3.7.2† heel as continuous slab", "7.5.1.1", "22.2, 22.3"),
+  barSpacing: () => ref("25.2.1 (≥ 25 mm, db)"),
   footingFlexure: () =>
     ref("13.2.7.1† critical section at the stem face", "7.5.1.1", "22.2, 22.3", "φ Table 21.2.2"),
   footingShear: () =>

@@ -44,6 +44,8 @@ export interface WallPlateResult {
   field: (kind: PlateDemandId | "w", x: number, y: number) => number;
   /** Peak strip-equivalent base moment from the 1 m strip, for comparison. */
   notes: string[];
+  /** FE line reactions on each buttress (rigid line support), factored per strength combination. */
+  buttressReactions: { x: number; height: number; ys: number[]; combos: { combo: string; force: number[] }[] }[];
 }
 
 export interface PlateCapacity {
@@ -215,6 +217,15 @@ export function analyseWallPlate(
   if (components.some((c) => c.id === "axialD" || c.id === "axialL"))
     notes.push("The stem-top line-load eccentric moment is carried in the strip analysis only; review it for the plate.");
   if (supports.vertical.length)
-    notes.push("Buttresses act as rigid line supports; buttress design and reactions to the heel are Phase 3.");
-  return { length: L, height: H, supports, mesh: { xs: sol.xs, ys: sol.ys, dof: sol.dof }, peaks, field, notes };
+    notes.push("Buttresses act as rigid line supports; their FE line reactions load the counterfort design.");
+  const buttressReactions = sol.lineReactions.map((ln, b) => ({
+    x: ln.x,
+    height: supports.vertical[b]!.height,
+    ys: ln.ys,
+    combos: strength.map((combo) => ({
+      combo: combo.id,
+      force: ln.ys.map((_, j) => -loaded.reduce((sum, c, k) => sum + factor(combo, c.kind) * ln.force[k]![j]!, 0)),
+    })),
+  }));
+  return { length: L, height: H, supports, mesh: { xs: sol.xs, ys: sol.ys, dof: sol.dof }, peaks, field, notes, buttressReactions };
 }

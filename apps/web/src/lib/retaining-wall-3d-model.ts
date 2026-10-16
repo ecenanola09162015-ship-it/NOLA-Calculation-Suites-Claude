@@ -102,14 +102,15 @@ export function buildRetainingWall3DModel(
         { x: g.frontTop - 1, y: top + ts },
       ]);
     }
+    const xBackAt = (h: number) => g.backBase + ((g.backTop - g.backBase) * h) / i.height;
     i.plate.buttresses.forEach((b, k) => {
       const h = Math.min(b.height, i.height),
         reach = Math.max(0.3, (basement ? 1 : g.width - g.backBase) - 0.02);
       add(`buttress-${k}`, "concrete", [
         { x: g.backBase, y: tf },
         { x: g.backBase + reach, y: tf },
-        { x: g.backBase + reach * 0.15, y: tf + h },
-        { x: g.backBase, y: tf + h },
+        { x: xBackAt(h) + (basement ? reach * 0.15 : Math.min(i.plate.counterfort.topReach, reach)), y: tf + h },
+        { x: xBackAt(h), y: tf + h },
       ], b.x - b.width / 2, b.x + b.width / 2);
     });
   }

@@ -62,6 +62,16 @@ const combinationSchema = z.object({
 });
 export type RetainingWallCombination = z.infer<typeof combinationSchema>;
 
+const barRef = z.object({ diameter: z.number().min(6).max(57.5), spacing: z.number().min(50).max(600) });
+export function defaultCounterfort() {
+  return {
+    topReach: 0.3,
+    cover: 50,
+    tension: { diameter: 25, count: 4 },
+    ties: { diameter: 12, spacing: 200 },
+    heelTies: { diameter: 16, spacing: 200 },
+  };
+}
 export const retainingWallInputSchema = z
   .object({
     code: z.enum(["ACI 318-19", "NSCP 2015"]),
@@ -86,8 +96,22 @@ export const retainingWallInputSchema = z
         /** Design moments: peak elastic values or averaged over 1 m beside supports. */
         averaging: z.enum(["peak", "1m"]),
         divisions: z.number().int().min(8).max(32),
+        /** Counterfort design (Phase 3): shape and bars, common to all buttresses. */
+        counterfort: z
+          .object({
+            /** Horizontal reach of the counterfort behind the stem at its top, m (base reach = heel). */
+            topReach: z.number().min(0.1).max(5),
+            cover: z.number().min(25).max(100),
+            /** Main tension bars along the inclined back edge. */
+            tension: z.object({ diameter: z.number().min(10).max(40), count: z.number().int().min(2).max(16) }),
+            /** Horizontal ties stem → counterfort (2 legs). */
+            ties: barRef,
+            /** Vertical ties heel → counterfort (2 legs). */
+            heelTies: barRef,
+          })
+          .default(defaultCounterfort()),
       })
-      .default({ length: 10, left: "free", right: "free", top: "free", base: "fixed", buttresses: [], averaging: "peak", divisions: 16 }),
+      .default({ length: 10, left: "free", right: "free", top: "free", base: "fixed", buttresses: [], averaging: "peak", divisions: 16, counterfort: defaultCounterfort() }),
     /** Stem height above the top of the footing (retained soil at stem top). */
     height: z.number().min(0.5).max(12),
     stemTop: z.number().min(0.12).max(1.5),
@@ -344,7 +368,7 @@ export function defaultRetainingWallInput(): RetainingWallInput {
     },
     prop: { height: 3.8, rigid: true, stiffness: 50000 },
     analysis: "strip",
-    plate: { length: 10, left: "free", right: "free", top: "free", base: "fixed", buttresses: [], averaging: "peak", divisions: 16 },
+    plate: { length: 10, left: "free", right: "free", top: "free", base: "fixed", buttresses: [], averaging: "peak", divisions: 16, counterfort: defaultCounterfort() },
     basement: { top: "pinned", base: "fixed" },
     soil: {
       theory: "rankine",

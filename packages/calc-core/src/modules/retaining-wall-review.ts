@@ -31,7 +31,7 @@ export interface RetainingWallCheckSection {
 export function retainingWallCheckSections(
   r: RetainingWallResult,
 ): RetainingWallCheckSection[] {
-  const order: RwCheck["group"][] = ["Stability", "Stem", "Footing", "Detailing"];
+  const order: RwCheck["group"][] = ["Stability", "Stem", "Footing", "Counterfort", "Detailing"];
   return order
     .map((title) => {
       const checks = r.checks.filter((c) => c.group === title).map(toDesignCheck);
@@ -48,5 +48,6 @@ export const retainingWallSectionTitles: Record<RwCheck["group"], string> = {
   Stability: "Stability Checks (Service, FS)",
   Stem: "Reinforcement Checks — Stem",
   Footing: "Reinforcement Checks — Footing",
+  Counterfort: "Reinforcement Checks — Counterforts",
   Detailing: "Reinforcement Checks — Detailing",
 };

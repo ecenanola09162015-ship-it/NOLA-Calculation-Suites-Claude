@@ -33,6 +33,8 @@ import { DesignCodeFields } from "./column-materials-fields";
 import { RebarGradeSelect, RebarSizeSelect, RebarStandardSelect } from "./rebar-select";
 import { RW_BAR_MARKS, retainingWallSectionSvg, retainingWallStemSvg } from "@/lib/retaining-wall-drawing";
 import { elevationFieldLabels, retainingWallElevationSvg, type ElevationField } from "@/lib/retaining-wall-elevation";
+import { retainingWallCounterfortSvg } from "@/lib/retaining-wall-counterfort-drawing";
+import { RetainingWallDxfButton } from "./retaining-wall-dxf-button";
 import styles from "./retaining-wall-workspace.module.css";
 
 // three.js is only downloaded when the 3D tab is opened (client-only).
@@ -118,7 +120,8 @@ export function RetainingWallWorkspace({
   const [remarks, setRemarks] = useState<DesignRemarks>(restored.success ? (restored.data.remarks ?? {}) : {});
   const [title, setTitle] = useState(draft?.title ?? "Retaining Wall — RW-01");
   const [id, setId] = useState<string | undefined>(restored.success ? draft?.id : undefined);
-  const [tab, setTab] = useState<"section" | "stem" | "elevation" | "3d">("section");
+  const [tab, setTab] = useState<"section" | "stem" | "elevation" | "counterfort" | "3d">("section");
+  const [cfIndex, setCfIndex] = useState(0);
   const [elevationField, setElevationField] = useState<ElevationField>("backY");
   const [layers, setLayers] = useState({ pressures: true, bars: true, bearing: true, dimensions: true });
   const [snapshot3d, setSnapshot3d] = useState<string | null>(null);
@@ -243,6 +246,10 @@ export function RetainingWallWorkspace({
     [r, analysed, elevationField, tab],
   );
   const stemSvg = useMemo(() => (r ? retainingWallStemSvg(analysed, r) : ""), [r, analysed]);
+  const counterfortSvg = useMemo(
+    () => (r?.counterforts.length && tab === "counterfort" ? retainingWallCounterfortSvg(analysed, r, cfIndex) : ""),
+    [r, analysed, cfIndex, tab],
+  );
   const comboTable = (key: "strength" | "service", rows: RetainingWallCombination[]) => (
     <div className="slabTableWrap">
       <table className={`slabBars ${styles.bars}`} aria-label={`${key} combinations`}>
@@ -381,7 +388,7 @@ export function RetainingWallWorkspace({
         </p>
       )}
       <div className="slabGrid">
-        <aside className="slabInputs slabPanel">
+        <aside className={`slabInputs slabPanel ${styles.inputs}`}>
           <h2>01 · Wall Type & Code</h2>
           <DesignCodeFields input={input} onChange={update} engine="slab" />
           <label>
@@ -505,6 +512,22 @@ export function RetainingWallWorkspace({
               >
                 Add buttress (re-spaces evenly)
               </button>
+              {input.plate.buttresses.length > 0 && input.wallType !== "basement" && (
+                <>
+                  <h3 className={styles.subhead}>Counterfort design (all buttresses)</h3>
+                  <div className="slabFieldGrid">
+                    <Numeric label="Top reach behind stem" unit="m" value={input.plate.counterfort.topReach} onChange={(v) => patch((d) => (d.plate.counterfort.topReach = v))} />
+                    <Numeric label="Cover" unit="mm" value={input.plate.counterfort.cover} onChange={(v) => patch((d) => (d.plate.counterfort.cover = v))} />
+                    <Numeric label="Back-edge bars, number" value={input.plate.counterfort.tension.count} onChange={(v) => patch((d) => (d.plate.counterfort.tension.count = Math.round(v)))} />
+                    <Numeric label="Back-edge bar Ø" unit="mm" value={input.plate.counterfort.tension.diameter} onChange={(v) => patch((d) => (d.plate.counterfort.tension.diameter = v))} />
+                    <Numeric label="Stem ties Ø (2 legs)" unit="mm" value={input.plate.counterfort.ties.diameter} onChange={(v) => patch((d) => (d.plate.counterfort.ties.diameter = v))} />
+                    <Numeric label="Stem ties spacing" unit="mm" value={input.plate.counterfort.ties.spacing} onChange={(v) => patch((d) => (d.plate.counterfort.ties.spacing = v))} />
+                    <Numeric label="Heel ties Ø (2 legs)" unit="mm" value={input.plate.counterfort.heelTies.diameter} onChange={(v) => patch((d) => (d.plate.counterfort.heelTies.diameter = v))} />
+                    <Numeric label="Heel ties spacing" unit="mm" value={input.plate.counterfort.heelTies.spacing} onChange={(v) => patch((d) => (d.plate.counterfort.heelTies.spacing = v))} />
+                  </div>
+                  <p className="slabMuted">Base reach = heel length. Bars in one layer across the buttress thickness.</p>
+                </>
+              )}
               <p className="slabMuted">
                 The stem is analysed as an L × H plate: base {input.wallType === "basement" ? input.basement.base : input.plate.base}, ends and buttresses as line
                 supports{input.wallType === "propped" ? ", prop as a horizontal line support" : ""}. Horizontal bars ③ now carry plate moments. Footing and
@@ -859,6 +882,7 @@ export function RetainingWallWorkspace({
                 ["section", "Section view"],
                 ["stem", "Stem actions"],
                 ...(input.analysis === "plate" ? ([["elevation", "Elevation"]] as const) : []),
+                ...(r?.counterforts.length ? ([["counterfort", "Counterforts"]] as const) : []),
                 ["3d", "3D view"],
               ] as const
             ).map(([k, t]) => (
@@ -882,6 +906,7 @@ export function RetainingWallWorkspace({
               ) : (
                 <p className="slabMuted">Complete valid inputs to draw the section.</p>
               )}
+              <RetainingWallDxfButton input={analysed} result={r} title={title} />
               <p className="slabMuted">
                 True scale. Pressure diagrams act on the vertical plane through the heel (service, unfactored); bearing shows the service case
                 with the largest pressure. Bars are schematic: hook direction, laps and bar marks need detailing review.
@@ -942,6 +967,64 @@ export function RetainingWallWorkspace({
                 Strength envelope over the combinations. Mesh {r?.plate ? `${r.plate.mesh.xs.length - 1} × ${r.plate.mesh.ys.length - 1} elements (${r.plate.mesh.dof} DOF)` : ""}. Values at a free
                 corner meeting a restrained edge, or at the top of a partial-height buttress, are local peaks; consider 1 m averaging there.
               </p>
+            </section>
+          )}
+          {tab === "counterfort" && (
+            <section className="slabPanel">
+              {r?.counterforts.length ? (
+                <>
+                  <div className="slabViewButtons">
+                    {r.counterforts.map((c) => (
+                      <button key={c.index} aria-pressed={cfIndex === c.index} onClick={() => setCfIndex(c.index)}>
+                        B{c.index + 1}
+                      </button>
+                    ))}
+                  </div>
+                  <div className={styles.drawing} role="img" aria-label="Counterfort profile" dangerouslySetInnerHTML={{ __html: counterfortSvg }} />
+                  <div className="slabTableWrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Counterfort</th>
+                          <th>Reaction, kN</th>
+                          <th>Base Mu, kN·m</th>
+                          <th>Flexure DCR</th>
+                          <th>Shear DCR</th>
+                          <th>Ties DCR</th>
+                          <th>Heel ties DCR</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {r.counterforts.map((c) => (
+                          <tr key={c.index}>
+                            <th>
+                              B{c.index + 1} · x {fmt(c.x)} m · h {fmt(c.height)} m
+                            </th>
+                            <td>{fmt(c.reaction, 1)}</td>
+                            <td>{fmt(c.baseMoment, 1)}</td>
+                            <td>
+                              <DesignStatus dcr={c.flexure.phiMn > 0 ? c.flexure.mu / c.flexure.phiMn : Infinity} policy={policy} />
+                            </td>
+                            <td>
+                              <DesignStatus dcr={c.shear.vuEff / c.shear.phiVn} policy={policy} />
+                            </td>
+                            <td>
+                              <DesignStatus dcr={c.ties.demand / c.ties.capacity} policy={policy} />
+                            </td>
+                            <td>{c.heelTies ? <DesignStatus dcr={c.heelTies.demand / c.heelTies.capacity} policy={policy} /> : "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="slabMuted">
+                    Each counterfort is a tapered T-beam cantilevered from the footing (stem as flange, Table 6.3.2.1), loaded by the FE line reactions of
+                    the plate. Shear uses Vu − (Mu/d)·tanα with the horizontal ties as stirrups. {r.heelSpan ? `Heel between counterforts: ${r.heelSpan.case}.` : ""}
+                  </p>
+                </>
+              ) : (
+                <p className="slabMuted">Add buttresses to a wall with a heel (Full width analysis).</p>
+              )}
             </section>
           )}
           {tab === "3d" && r && (

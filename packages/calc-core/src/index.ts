@@ -34,3 +34,4 @@ export * from "./modules/retaining-wall-review";
 export * from "./modules/retaining-wall-quantity";
 export * from "./modules/retaining-wall-plate-fe";
 export * from "./modules/retaining-wall-plate";
+export * from "./modules/retaining-wall-counterfort";

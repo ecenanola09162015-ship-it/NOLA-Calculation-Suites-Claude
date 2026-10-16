@@ -23,6 +23,7 @@ import {
 import type { ProjectRecord } from "../projects";
 import { retainingWallSectionSvg, retainingWallStemSvg } from "../retaining-wall-drawing";
 import { elevationFieldLabels, retainingWallElevationSvg } from "../retaining-wall-elevation";
+import { retainingWallCounterfortSvg } from "../retaining-wall-counterfort-drawing";
 import { f, fcText, type Cell, type ReportData, type ReportSection } from "./data";
 
 const section = (title: string, rows: (string | Cell)[][], columns = ["Item", "Value"]): ReportSection => ({
@@ -241,6 +242,7 @@ export function retainingWallReportData(
             { title: "Elevation — Horizontal Moment, Front Face", svg: retainingWallElevationSvg(i, r, "frontX"), completeOnly: true },
           ]
         : [{ title: "Stem Moment And Shear Envelopes", svg: retainingWallStemSvg(i, r), completeOnly: true }]),
+      ...r.counterforts.map((c, k) => ({ title: `Counterfort B${c.index + 1} — Profile, Mu And Vu Along The Height`, svg: retainingWallCounterfortSvg(i, r, c.index), completeOnly: k > 0 })),
       ...(snapshot3d ? [{ title: "3D View (snapshot)", svg: "", png: snapshot3d, completeOnly: true }] : []),
     ],
     checks: section(
@@ -269,18 +271,32 @@ export function retainingWallReportData(
             ),
           ]
         : [stemRows]),
+      ...(r.counterforts.length
+        ? [
+            section(
+              `Counterforts — tapered T-beams on FE line reactions (cover ${i.plate.counterfort.cover} mm, ${i.plate.counterfort.tension.count} Ø${i.plate.counterfort.tension.diameter} back edge)`,
+              r.counterforts.map((c) => [
+                `B${c.index + 1} · x ${f(c.x)} m, h ${f(c.height)} m, bw ${f(c.bw, 0)} mm, α ${f((c.alpha * 180) / Math.PI, 1)}°`,
+                `R ${f(c.reaction, 1)} kN; Mu ${f(c.flexure.mu, 1)} / φMn ${f(c.flexure.phiMn, 1)} kN·m at y ${f(c.flexure.y)} m (d ${f(c.flexure.d, 0)}, bf ${f(c.flexure.bf, 0)} mm)`,
+                `Vu,eff ${f(c.shear.vuEff, 1)} / φVn ${f(c.shear.phiVn, 1)} kN`,
+                `ties ${f(c.ties.demand, 1)} / ${f(c.ties.capacity, 1)} kN/m${c.heelTies ? `; heel ${f(c.heelTies.demand, 1)} / ${f(c.heelTies.capacity, 1)} kN/m` : ""}`,
+              ]),
+              ["Counterfort", "Flexure", "Shear", "Ties"],
+            ),
+          ]
+        : []),
     ],
     references,
     criticalNotes: fails.map((x) => `REVISE: ${x.label} (DCR ${f(x.dcr, 3)}).`),
     limitations: [
       ...r.warnings,
-      "1 m strip analysis; full-width plate behaviour, buttresses and end restraints are not considered (Phase 2).",
+      ...(r.plate ? [] : ["1 m strip analysis; full-width plate behaviour, buttresses and end restraints are not considered (use Full width analysis)."]),
       "SCREENING PASS covers only the implemented checks and does not establish complete code compliance.",
       "Drawings are schematic; bar marks, laps, hook directions and construction joints need detailing review.",
       ...(q ? retainingWallQuantityLimitations : []),
     ],
     estimate,
     generatedAt: new Date().toISOString(),
-    scopeNote: `${typeLabel[i.wallType]} · 1 m strip · ACI 318-19 calculation basis`,
+    scopeNote: `${typeLabel[i.wallType]} · ${r.plate ? `full-width plate L ${f(r.plate.length)} m${r.counterforts.length ? `, ${r.counterforts.length} counterforts` : ""}` : "1 m strip"} · ACI 318-19 calculation basis`,
   };
 }
