@@ -99,7 +99,7 @@ export const uiCatalogue = [
     slug: "base-plate",
     name: "Base Plate",
     group: "Steel",
-    pilot: false,
+    pilot: true,
   },
   {
     slug: "purlins",

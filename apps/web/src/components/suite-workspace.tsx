@@ -13,6 +13,10 @@ const SlabWorkspace = dynamic(
   () => import("./slab-workspace").then((m) => m.SlabWorkspace),
   { loading: () => <p>Opening slab workspace…</p> },
 );
+const BasePlateWorkspace = dynamic(
+  () => import("./base-plate-workspace").then((m) => m.BasePlateWorkspace),
+  { loading: () => <p>Opening base plate workspace…</p> },
+);
 import { ProjectContext, ProjectEditor } from "./project-context";
 import { ProjectExplorer, type RenameResult } from "./project-explorer";
 import { ThemeSwitcher, useLauncherTheme } from "./launcher-theme";
@@ -466,6 +470,19 @@ export function SuiteWorkspace({
             />
           ) : module.slug === "slab" ? (
             <SlabWorkspace
+              key={`${projectId}:${workspaceSession}`}
+              project={project}
+              draft={selectedDraft}
+              cloudReady={cloudReady}
+              onSaved={(item) =>
+                setDrafts((previous) => [
+                  item,
+                  ...previous.filter((d) => d.id !== item.id),
+                ])
+              }
+            />
+          ) : module.slug === "base-plate" ? (
+            <BasePlateWorkspace
               key={`${projectId}:${workspaceSession}`}
               project={project}
               draft={selectedDraft}

@@ -4278,3 +4278,160 @@ input.rcDerived {
   background: #eef2f6;
   outline: none;
 }
+
+/* ===== Base Plate module (claude/baseplate-*): scoped .bp* classes only ===== */
+.bpWorkspace .slabInputs h2 {
+  margin-top: 18px;
+}
+.bpWorkspace .bpWide {
+  grid-column: 1 / -1;
+  max-width: none;
+}
+.bpWorkspace .bpWide select,
+.bpWorkspace .bpWide input {
+  max-width: none;
+}
+.bpShapePicker {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  margin: 8px 0;
+}
+.bpShapePicker input {
+  font-size: 14px;
+  padding: 6px 8px;
+}
+.bpChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.bpChips button {
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+.bpChips button[aria-pressed="true"] {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+.bpShapeList {
+  position: absolute;
+  z-index: 30;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgb(16 24 40 / 16%);
+}
+.bpShapeList li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 8px;
+  padding: 5px 8px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--line);
+}
+.bpShapeList li.isActive {
+  background: #eef0fb;
+}
+.bpShapeList .bpMetric {
+  color: var(--muted);
+  justify-self: end;
+}
+.bpShapeList .bpDims {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 11px;
+}
+.bpShapeList .bpShapeNote {
+  display: block;
+  color: var(--muted);
+  cursor: default;
+}
+.bpStrength {
+  font-size: 12px;
+  background: #f1f5f9;
+  border-left: 3px solid var(--teal);
+  padding: 6px 8px;
+  margin: 6px 0;
+}
+.bpCheck {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+}
+.bpChecks {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0;
+}
+.bpProduct {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px;
+  margin: 8px 0;
+}
+.bpProduct legend {
+  font-size: 12px;
+  font-weight: 600;
+}
+.bpComboBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.bpDrawings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 10px;
+}
+.bpDrawing svg {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+.bpLoads input[type="number"] {
+  width: 80px;
+}
+.bpLoads input:not([type]) {
+  width: 70px;
+}
+.bpResults tr {
+  cursor: pointer;
+}
+.bpResults tr.isActive td {
+  background: #eef0fb;
+}
+.bpSteps td {
+  vertical-align: top;
+  font-size: 12px;
+}
+.bpSteps td:nth-child(3) {
+  color: var(--muted);
+  font-size: 11px;
+}
+.bpPaste textarea {
+  width: 100%;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}

@@ -165,7 +165,7 @@ class SimpleOverflow extends Error {}
 export class ReportTooLongError extends Error {
   constructor(module: string, limit: 2 | 3 = 2) {
     super(
-      `The ${module === "Slab Design" ? "Slab" : "Column"} Simple Report Exceeds ${limit === 3 ? "Three" : "Two"} Pages. Shorten Project Descriptions / Remarks Or Select Complete Report.`,
+      `The ${module === "Slab Design" ? "Slab" : module === "Base Plate" ? "Base Plate" : "Column"} Simple Report Exceeds ${limit === 3 ? "Three" : "Two"} Pages. Shorten Project Descriptions / Remarks Or Select Complete Report.`,
     );
     this.name = "ReportTooLongError";
   }
