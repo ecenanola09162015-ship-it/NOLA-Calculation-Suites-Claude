@@ -19,6 +19,12 @@ export * from "./modules/column-transverse";
 
 export * from "./modules/slab-quantity";
 
+export * from "./modules/stair-frame";
+export * from "./modules/stair-design";
+export * from "./modules/stair-review";
+export * from "./modules/stair-quantity";
+export * from "./modules/stair-optimize";
+
 export * from "./design-review";
 export * from "./rebar-catalogue";
 export * from "./concrete-units";

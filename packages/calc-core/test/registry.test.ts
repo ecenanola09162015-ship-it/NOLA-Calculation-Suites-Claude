@@ -3,10 +3,11 @@ import { describe, expect, it } from "vitest";
 import { getModule, getPilotModules, moduleRegistry } from "../src";
 
 describe("module registry", () => {
-  it("contains the approved pilot modules including slab", () => {
+  it("contains the approved pilot modules including slab and stairs", () => {
     expect(getPilotModules().map((module) => module.slug)).toEqual([
       "slab",
       "rc-column",
+      "stairs",
       "steel-column",
       "base-plate",
       "seismic-loads",

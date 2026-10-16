@@ -6,6 +6,9 @@ import {
   basePlateDraftSchema,
   analyzeBasePlate,
   basePlateDesignChecks,
+  stairsDraftSchema,
+  analyzeStairs,
+  stairsDesignChecks,
   getModule,
   analyzeRectangularColumn,
   analyzeSlab,
@@ -106,6 +109,18 @@ export async function POST(request: Request) {
       );
     body.payload = parsed.data;
   }
+  if (body.moduleSlug === "stairs") {
+    const parsed = stairsDraftSchema.safeParse(body.payload);
+    if (!parsed.success)
+      return NextResponse.json(
+        {
+          error:
+            "Invalid stair inputs. Check geometry, landings, supports, reinforcement and unique load labels.",
+        },
+        { status: 400 },
+      );
+    body.payload = parsed.data;
+  }
   try {
     if (body.payload.reviewCompleted) {
       const policy = body.payload.designPolicy ?? defaultDesignCheckPolicy;
@@ -123,7 +138,9 @@ export async function POST(request: Request) {
                   body.payload.input,
                   analyzeBasePlate(body.payload.input),
                 )
-              : [];
+              : body.moduleSlug === "stairs"
+                ? stairsDesignChecks(analyzeStairs(body.payload.input))
+                : [];
       if (missingJudgmentRemarks(checks, policy, remarks).length)
         return NextResponse.json(
           { error: "Add Remarks For Each Amber Design Check Before Saving." },
