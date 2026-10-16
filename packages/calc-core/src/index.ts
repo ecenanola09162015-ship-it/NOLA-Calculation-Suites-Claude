@@ -31,3 +31,4 @@ export * from "./modules/retaining-wall-pressure";
 export * from "./modules/retaining-wall-stem";
 export * from "./modules/retaining-wall-design";
 export * from "./modules/retaining-wall-review";
+export * from "./modules/retaining-wall-quantity";

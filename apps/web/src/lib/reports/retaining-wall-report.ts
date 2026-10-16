@@ -10,6 +10,9 @@ import {
   retainingWallDesignChecks,
   retainingWallStatus,
   barAreaPerMetre,
+  estimateRetainingWallQuantity,
+  retainingWallQuantityLimitations,
+  type RetainingWallQuantityInput,
   type DesignCheckPolicy,
   type DesignRemarks,
   type RetainingWallInput,
@@ -55,6 +58,7 @@ export function retainingWallReportData(
   policy: DesignCheckPolicy,
   remarks: DesignRemarks,
   snapshot3d?: string | null,
+  quantity?: RetainingWallQuantityInput,
 ): ReportData {
   const std = i.rebarStandard ?? "PNS49";
   const basement = i.wallType === "basement";
@@ -202,6 +206,19 @@ export function retainingWallReportData(
     ["Load Combinations", `${i.combinationSet === "NSCP 2015" ? "NSCP 2015 Sec. 203.3 / 203.4" : "ASCE 7-16 2.3 / 2.4"}; H per ACI 318-19 5.3.8`],
     ["Stability / Seismic", "NSCP 2015 Sec. 307, IBC 1807.2.3; ASCE 7-16 11.8.3; NSCP 2015 Sec. 208"],
   ]);
+  const q = quantity?.enabled ? estimateRetainingWallQuantity(i, quantity) : null;
+  const estimate = q
+    ? section(
+        `Quantity Estimate — ${f(q.length, 1)} m Of Wall`,
+        [
+          ["", "Concrete", "", "", "", `${f(q.concrete.total)} m³`],
+          ["", "Formwork", "", "", "", `${f(q.formwork.total, 1)} m²`],
+          ...q.bars.map((b) => [String(b.mark), b.label, `${rebarDesignation(std, b.diameter)} @ ${b.spacing}`, String(b.count), f(b.length), `${f(b.weight, 1)} kg`]),
+          ["", "Reinforcement total", "", "", "", `${f(q.steel, 0)} kg (${f(q.ratio, 0)} kg/m³)`],
+        ],
+        ["Mark", "Item", "Size @ Spacing", "No.", "Length m", "Quantity"],
+      )
+    : undefined;
   const fails = r.checks.filter((x) => (x.dcr ?? 0) > i.dcrLimit);
   return {
     module: "Concrete Retaining Wall",
@@ -230,7 +247,9 @@ export function retainingWallReportData(
       "1 m strip analysis; full-width plate behaviour, buttresses and end restraints are not considered (Phase 2).",
       "SCREENING PASS covers only the implemented checks and does not establish complete code compliance.",
       "Drawings are schematic; bar marks, laps, hook directions and construction joints need detailing review.",
+      ...(q ? retainingWallQuantityLimitations : []),
     ],
+    estimate,
     generatedAt: new Date().toISOString(),
     scopeNote: `${typeLabel[i.wallType]} · 1 m strip · ACI 318-19 calculation basis`,
   };

@@ -5,7 +5,10 @@ import {
   barAreaPerMetre,
   defaultDesignCheckPolicy,
   defaultRetainingWallInput,
+  defaultRetainingWallQuantity,
   designRetainingWall,
+  estimateRetainingWallQuantity,
+  retainingWallQuantityLimitations,
   missingJudgmentRemarks,
   rebarDesignation,
   retainingWallCombinationPreset,
@@ -17,6 +20,7 @@ import {
   type DesignRemarks,
   type RetainingWallCombination,
   type RetainingWallInput,
+  type RetainingWallQuantityInput,
 } from "@nola/calc-core";
 import type { ProjectRecord, CalculationDraftRecord } from "@/lib/projects";
 import { DesignReviewPanel, DesignStatus } from "./design-review-panel";
@@ -105,6 +109,9 @@ export function RetainingWallWorkspace({
   );
   const policy =
     project?.designCheckPolicy ?? (restored.success ? restored.data.designPolicy : undefined) ?? defaultDesignCheckPolicy;
+  const [quantity, setQuantity] = useState<RetainingWallQuantityInput>(() =>
+    restored.success ? (restored.data.quantity ?? defaultRetainingWallQuantity()) : defaultRetainingWallQuantity(),
+  );
   const [remarks, setRemarks] = useState<DesignRemarks>(restored.success ? (restored.data.remarks ?? {}) : {});
   const [title, setTitle] = useState(draft?.title ?? "Retaining Wall — RW-01");
   const [id, setId] = useState<string | undefined>(restored.success ? draft?.id : undefined);
@@ -173,6 +180,7 @@ export function RetainingWallWorkspace({
         kind: "retaining-wall",
         version: 1,
         input,
+        quantity,
         designPolicy: policy,
         remarks,
         reviewCompleted: !!r,
@@ -218,6 +226,14 @@ export function RetainingWallWorkspace({
     () => (r ? retainingWallSectionSvg(analysed, r, layers) : ""),
     [r, analysed, layers],
   );
+  const estimate = useMemo(() => {
+    if (!quantity.enabled || !r) return null;
+    try {
+      return estimateRetainingWallQuantity(analysed, quantity);
+    } catch {
+      return null;
+    }
+  }, [quantity, r, analysed]);
   const stemSvg = useMemo(() => (r ? retainingWallStemSvg(analysed, r) : ""), [r, analysed]);
   const comboTable = (key: "strength" | "service", rows: RetainingWallCombination[]) => (
     <div className="slabTableWrap">
@@ -331,7 +347,7 @@ export function RetainingWallWorkspace({
             if (!r) throw Error("Complete Valid Wall Inputs First.");
             if (missing) throw Error("Record Engineering Judgment Remarks Before Exporting.");
             const { retainingWallReportData } = await import("../lib/reports/retaining-wall-report");
-            return retainingWallReportData(project, title, analysed, r, policy, remarks, snapshot3d);
+            return retainingWallReportData(project, title, analysed, r, policy, remarks, snapshot3d, quantity);
           }}
         />
       </div>
@@ -890,6 +906,104 @@ export function RetainingWallWorkspace({
             {basement ? "base slab" : "footing"}; straight ld {fmt(r.development.ld, 0)} mm; Class B lap above the base{" "}
             {fmt(r.development.lap, 0)} mm ({rebarDesignation(std, input.bars.stemBack.diameter)}).
           </p>
+        </section>
+      )}
+      {r && (
+        <section className="slabPanel slabCalc" aria-label="Quantity estimate">
+          <h2>Quantity Estimate</h2>
+          <Check
+            label="Enable quantity estimate"
+            value={quantity.enabled}
+            onChange={(v) => {
+              editVersion.current++;
+              setSaved(false);
+              setQuantity({ ...quantity, enabled: v });
+            }}
+          />
+          {quantity.enabled && (
+            <>
+              <div className="slabFieldGrid">
+                <Numeric
+                  label="Wall length"
+                  unit="m"
+                  value={quantity.length}
+                  onChange={(v) => {
+                    editVersion.current++;
+                    setSaved(false);
+                    setQuantity({ ...quantity, length: v });
+                  }}
+                />
+                <Check
+                  label="End formwork at both ends"
+                  value={quantity.endForms}
+                  onChange={(v) => {
+                    editVersion.current++;
+                    setSaved(false);
+                    setQuantity({ ...quantity, endForms: v });
+                  }}
+                />
+              </div>
+              {estimate ? (
+                <>
+                  <dl className={styles.totals}>
+                    <div>
+                      <dt>Concrete</dt>
+                      <dd>
+                        {fmt(estimate.concrete.total)} m³ (stem {fmt(estimate.concrete.stem)}
+                        {basement ? "" : `, footing ${fmt(estimate.concrete.footing)}`}
+                        {estimate.concrete.key > 0 ? `, key ${fmt(estimate.concrete.key)}` : ""})
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Formwork</dt>
+                      <dd>{fmt(estimate.formwork.total, 1)} m²</dd>
+                    </div>
+                    <div>
+                      <dt>Reinforcement</dt>
+                      <dd>
+                        {fmt(estimate.steel, 0)} kg ({fmt(estimate.ratio, 0)} kg/m³)
+                      </dd>
+                    </div>
+                  </dl>
+                  <div className="slabTableWrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Mark</th>
+                          <th>Bars</th>
+                          <th>Size @ spacing</th>
+                          <th>No.</th>
+                          <th>Length m</th>
+                          <th>Weight kg</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {estimate.bars.map((b) => (
+                          <tr key={b.label}>
+                            <td>{b.mark}</td>
+                            <th>{b.label}</th>
+                            <td>
+                              {rebarDesignation(std, b.diameter)} @ {b.spacing}
+                            </td>
+                            <td>{b.count}</td>
+                            <td>{fmt(b.length)}</td>
+                            <td>{fmt(b.weight, 1)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <ul className="slabWarnings">
+                    {retainingWallQuantityLimitations.map((m) => (
+                      <li key={m}>{m}</li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <p className="slabMuted">Enter a valid wall length.</p>
+              )}
+            </>
+          )}
         </section>
       )}
       {r ? (

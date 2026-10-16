@@ -20,3 +20,17 @@
 .factor {
   width: 4.2em;
 }
+.totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.5rem 1rem;
+  margin: 0.5rem 0 0.75rem;
+}
+.totals dt {
+  font-size: 0.8rem;
+  opacity: 0.75;
+}
+.totals dd {
+  margin: 0;
+  font-weight: 600;
+}

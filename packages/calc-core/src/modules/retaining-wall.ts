@@ -14,6 +14,7 @@
 import { z } from "zod";
 
 import { designCheckPolicySchema, designRemarksSchema } from "../design-review";
+import { retainingWallQuantitySchema } from "./retaining-wall-quantity";
 import {
   FC_ENGINE_MAX,
   FC_ENGINE_MIN,
@@ -206,6 +207,7 @@ export const retainingWallDraftSchema = z.object({
   kind: z.literal("retaining-wall"),
   version: z.literal(1),
   input: retainingWallInputSchema,
+  quantity: retainingWallQuantitySchema.optional(),
   designPolicy: designCheckPolicySchema.optional(),
   remarks: designRemarksSchema.optional(),
   reviewCompleted: z.boolean().optional(),

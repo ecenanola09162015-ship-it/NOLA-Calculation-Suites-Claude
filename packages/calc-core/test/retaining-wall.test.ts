@@ -273,3 +273,23 @@ describe("virtual plane pressure", () => {
     close(r.plane.pressure("soil", 4.1), 0, 1e-9);
   });
 });
+
+import { estimateRetainingWallQuantity } from "../src";
+describe("quantity estimate (Phase 1b)", () => {
+  it("RW-01 over 10 m: concrete, formwork and bar weights by hand", () => {
+    const i = defaultRetainingWallInput();
+    const q = estimateRetainingWallQuantity(i, { enabled: true, length: 10, endForms: true });
+    // Stem 0.30 × 3.8 = 1.14 m², footing 2.7 × 0.3 = 0.81 m² → 19.5 m³.
+    close(q.concrete.total, (1.14 + 0.81) * 10, 1e-9);
+    close(q.formwork.stemFront, 38, 1e-9);
+    close(q.formwork.total, 38 + 38 + 6 + 2 * 1.95, 1e-9);
+    // Back bars D16 @ 100 over 9.9 m: 100 bars.
+    const back = q.bars.find((b) => b.mark === 1)!;
+    expect(back.count).toBe(100);
+    // length = H − 0.05 + (tf − 0.075 − 0.016 − 0.012) + 12 db = 3.75 + 0.197 + 0.192
+    close(back.length, 3.75 + 0.197 + 0.192, 1e-9);
+    close(back.weight, 100 * ((Math.PI * 256) / 4) * back.length * 0.00785, 1e-9);
+    expect(q.ratio).toBeGreaterThan(40);
+    expect(q.ratio).toBeLessThan(200);
+  });
+});

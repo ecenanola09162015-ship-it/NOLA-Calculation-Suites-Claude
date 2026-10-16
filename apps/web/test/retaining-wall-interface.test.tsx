@@ -105,3 +105,50 @@ describe("retaining wall drawings, 3D model and report", () => {
     expect(JSON.stringify(d)).not.toContain("NaN");
   });
 });
+
+describe("retaining wall quantity estimate", () => {
+  it("restores the estimate from a draft and adds it to the report", () => {
+    const input = defaultRetainingWallInput();
+    const html = renderToStaticMarkup(
+      <RetainingWallWorkspace
+        cloudReady={false}
+        onSaved={() => {}}
+        draft={{
+          id: "00000000-0000-4000-8000-000000000003",
+          projectId: "00000000-0000-4000-8000-000000000002",
+          moduleSlug: "retaining-wall",
+          title: "RW-Q",
+          payload: { kind: "retaining-wall", version: 1, input, quantity: { enabled: true, length: 10, endForms: true } },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        } as never}
+      />,
+    );
+    expect(html).toContain("Quantity Estimate");
+    expect(html).toContain("19.50 m³");
+    const d = retainingWallReportData(undefined, "RW-Q", input, designRetainingWall(input), defaultDesignCheckPolicy, {}, null, {
+      enabled: true,
+      length: 10,
+      endForms: true,
+    });
+    expect(d.estimate?.title).toContain("10.0 m");
+  });
+});
+
+describe("retaining wall PDF", () => {
+  const png =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==";
+  it.each(["simple", "complete"] as const)("generates the %s report", async (type) => {
+    const { generateCalculationPdf } = await import("../src/lib/reports/pdf");
+    const input = defaultRetainingWallInput();
+    const d = retainingWallReportData(undefined, "RW-01", input, designRetainingWall(input), defaultDesignCheckPolicy, {}, png, {
+      enabled: true,
+      length: 10,
+      endForms: true,
+    });
+    for (const fig of d.figures) fig.png = png;
+    const out = await generateCalculationPdf(d, { type, paper: "A4", nolaLogo: png });
+    expect(out.pageCount).toBeGreaterThan(0);
+    if (type === "simple") expect(out.pageCount).toBeLessThanOrEqual(2);
+  });
+});
