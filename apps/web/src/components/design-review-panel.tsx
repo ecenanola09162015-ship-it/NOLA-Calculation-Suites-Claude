@@ -54,7 +54,7 @@ export function DesignReviewPanel({
   /** Panel use (05/06): omit the workflow note and policy footer. */
   compact?: boolean;
   /** Picks the tickable reason list. */
-  module?: "column" | "slab";
+  module?: "column" | "slab" | "base-plate";
 }) {
   const isPrimary = (c: DesignCheck) =>
     !primaryPrefixes || primaryPrefixes.some((p) => c.id.startsWith(p));
@@ -206,7 +206,7 @@ function JudgmentReasons({
   siblings,
 }: {
   check: DesignCheck;
-  module: "column" | "slab";
+  module: "column" | "slab" | "base-plate";
   remarks: DesignRemarks;
   onChange: (r: DesignRemarks) => void;
   /** Other amber checks of the same group (for "apply to all"). */

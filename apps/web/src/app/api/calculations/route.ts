@@ -3,6 +3,9 @@ import { NextResponse } from "next/server";
 import {
   columnDraftSchema,
   slabDraftSchema,
+  basePlateDraftSchema,
+  analyzeBasePlate,
+  basePlateDesignChecks,
   stairsDraftSchema,
   analyzeStairs,
   stairsDesignChecks,
@@ -94,6 +97,18 @@ export async function POST(request: Request) {
       );
     body.payload = parsed.data;
   }
+  if (body.moduleSlug === "base-plate") {
+    const parsed = basePlateDraftSchema.safeParse(body.payload);
+    if (!parsed.success)
+      return NextResponse.json(
+        {
+          error:
+            "Invalid base plate inputs. Check column, plate, pedestal, anchor rods and unique load combination labels.",
+        },
+        { status: 400 },
+      );
+    body.payload = parsed.data;
+  }
   if (body.moduleSlug === "stairs") {
     const parsed = stairsDraftSchema.safeParse(body.payload);
     if (!parsed.success)
@@ -118,9 +133,14 @@ export async function POST(request: Request) {
                 body.payload.input,
                 analyzeSlab(body.payload.input, false),
               )
-            : body.moduleSlug === "stairs"
-              ? stairsDesignChecks(analyzeStairs(body.payload.input))
-              : [];
+            : body.moduleSlug === "base-plate"
+              ? basePlateDesignChecks(
+                  body.payload.input,
+                  analyzeBasePlate(body.payload.input),
+                )
+              : body.moduleSlug === "stairs"
+                ? stairsDesignChecks(analyzeStairs(body.payload.input))
+                : [];
       if (missingJudgmentRemarks(checks, policy, remarks).length)
         return NextResponse.json(
           { error: "Add Remarks For Each Amber Design Check Before Saving." },

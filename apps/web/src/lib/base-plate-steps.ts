@@ -1,0 +1,183 @@
+/**
+ * Step-by-step calculation of one load combination: item, equation with
+ * substituted values and result, and the clause. Shared by the Calculations
+ * tab and the Complete PDF so both print identical numbers.
+ */
+import {
+  basePlateClauses,
+  futaUsed,
+  heavyHexBearingArea,
+  type BasePlateInput,
+  type BasePlateResult,
+  type ComboResult,
+} from "@nola/calc-core";
+
+export type Step = [item: string, equation: string, clause: string];
+const f = (v: number | null | undefined, d = 2) =>
+  v == null || !Number.isFinite(v) ? "—" : v.toFixed(d);
+const kN = (n: number) => f(n / 1e3, 1);
+
+export function basePlateSteps(
+  i: BasePlateInput,
+  r: BasePlateResult,
+  c: ComboResult,
+): Step[] {
+  const s: Step[] = [];
+  const lrfd = i.designMethod === "LRFD";
+  const fac = (phi: number, omega: number) =>
+    lrfd ? `φ ${phi}` : `1/Ω (Ω = ${omega})`;
+  const alpha = r.method.anchorDemandFactor;
+  const b = r.bearing;
+  const L = c.load;
+  s.push([
+    "Load combination",
+    `${L.id}: Pu = ${f(L.pu, 1)} kN, Mx = ${f(L.mx, 1)} kN·m, My = ${f(L.my, 1)} kN·m, Vx = ${f(L.vx, 1)} kN, Vy = ${f(L.vy, 1)} kN${c.seismicApplies ? " (earthquake, SDC " + i.seismic.sdc + ")" : ""}`,
+    "Input",
+  ]);
+  s.push([
+    "Bearing strength",
+    `A1 = ${f(i.plate.bx, 0)} × ${f(i.plate.by, 0)} = ${f(b.a1, 0)} mm²; A2 = ${f(b.a2, 0)} mm² (geometrically similar); ${lrfd ? "φc fp,max" : "fp,max/Ωc"} = ${fac(0.65, 2.31)} × 0.85 × ${f(i.pedestal.fc, 1)} × min(√(A2/A1), 2) = ${f(b.fpMax, 3)} MPa (${i.designMethod})`,
+    basePlateClauses.bearing(),
+  ]);
+  s.push(["Method", c.method, basePlateClauses.bearing()]);
+  for (const a of c.axes) {
+    const ax = a.axis === "y" ? "Y (Mx, plate N = By)" : "X (My, plate N = Bx)";
+    if (c.case === "uplift") {
+      s.push([
+        `Axis ${ax}`,
+        `Net uplift: rod tensions Ti = −Pu/n − Mx·yi/Σy² − My·xi/Σx² (≥ 0); plate cantilever x = ${f(a.x, 1)} mm, beff by 45° spread`,
+        basePlateClauses.plate(),
+      ]);
+      continue;
+    }
+    s.push([
+      `Cantilevers ${ax}`,
+      `m = (N − k·dcol)/2 = ${f(a.m, 1)} mm; n = (B − k·bcol)/2 = ${f(a.nCant, 1)} mm${a.case === "axial" ? `; λn′ = ${f(c.lambdaNp, 1)} mm` : ""}`,
+      basePlateClauses.plate(),
+    ]);
+    if (a.case === "axial")
+      s.push([
+        "Bearing (axial)",
+        `fp = Pu/(B·N) = ${f(L.pu * 1e3, 0)}/(${f(a.b, 0)} × ${f(a.n, 0)}) = ${f(a.fp, 3)} MPa ≤ ${f(b.fpMax, 3)} → DCR ${f(a.bearingDcr, 3)}`,
+        basePlateClauses.bearing(),
+      ]);
+    else if (a.case === "small" || a.case === "biaxial-small")
+      s.push([
+        `Bearing ${ax}`,
+        `e = M/P = ${f(a.e, 1)} mm ≤ ecrit = N/2 − Pu/(2qmax) = ${f(a.ecrit, 1)} mm; Y = N − 2e = ${f(a.y, 1)} mm; fp = ${f(a.fp, 3)} MPa → DCR ${f(a.fp / b.fpMax, 3)}`,
+        basePlateClauses.bearing(),
+      ]);
+    else if (a.case === "large")
+      s.push([
+        `Bearing ${ax}`,
+        `e = ${f(a.e, 1)} > ecrit = ${f(a.ecrit, 1)} mm; qmax = fp,max·B = ${f(b.fpMax * a.b, 0)} N/mm; f = ${f(a.f, 1)} mm; Y = (f + N/2) − √((f + N/2)² − 2Pu(e + f)/qmax) = ${f(a.y, 1)} mm; Tu = qmax·Y − Pu = ${kN(a.tu)} kN on ${a.tensionRods.join(", ")}`,
+        basePlateClauses.bearing(),
+      ]);
+    else
+      s.push([
+        `Bearing ${ax}`,
+        `(f + N/2)² < 2Pu(e + f)/qmax: no real solution — increase the plate or the rod lever arm.`,
+        basePlateClauses.bearing(),
+      ]);
+    if (Number.isFinite(a.tpBearing))
+      s.push([
+        `Plate, bearing interface ${ax}`,
+        a.case === "axial"
+          ? `tp,req = ℓ√(2P/(${lrfd ? "0.90 Fy" : "Fy/1.67"} B N)), ℓ = max(m, n, λn′) = ${f(Math.max(a.m, a.nCant, c.lambdaNp), 1)} mm → ${f(a.tpBearing, 2)} mm`
+          : `ℓ = max(m, n) = ${f(Math.max(a.m, a.nCant), 1)} mm; Mpl = ${a.y >= Math.max(a.m, a.nCant) ? "fp ℓ²/2" : "fp Y (ℓ − Y/2)"}; tp,req = √(4Mpl/(${lrfd ? "0.90 Fy" : "Fy/1.67"})) = ${f(a.tpBearing, 2)} mm`,
+        basePlateClauses.plate(),
+      ]);
+    if (a.tpTension > 0)
+      s.push([
+        `Plate, tension interface ${ax}`,
+        `x = f − dcol/2 + tf/2 = ${f(a.x, 1)} mm; beff = ${f(a.beff, 0)} mm (45° from each rod); tp,req = √(4 T x/(${lrfd ? "0.90 Fy" : "Fy/1.67"} beff)) = ${f(a.tpTension, 2)} mm`,
+        basePlateClauses.plate(),
+      ]);
+  }
+  s.push([
+    "Plate thickness",
+    `tp,req = ${f(c.tpRequired, 2)} mm vs tp = ${f(i.plate.tp, 1)} mm (Fy ${f(i.plate.fy, 0)} MPa) → DCR ${f(c.tpRequired / i.plate.tp, 3)}`,
+    basePlateClauses.plate(),
+  ]);
+  const a = i.anchors,
+    an = c.anchor;
+  const futa = futaUsed(a.fy, a.fu);
+  s.push([
+    "Rod steel tension",
+    `Ase = ${f(a.ase, 1)} mm²; futa = min(${f(a.fu, 1)}, 1.9 × ${f(a.fy, 1)}, 860) = ${f(futa, 1)} MPa; φNsa = ${a.ductile ? "0.75" : "0.65"} × Ase × futa = ${kN(an.phiNsa)} kN; Nua = ${alpha !== 1 ? `${alpha} × Ta = ` : ""}${kN(an.nuaMax)} kN → DCR ${f(an.steelTensionDcr, 3)}`,
+    basePlateClauses.steelTension(),
+  ]);
+  if (i.shear.method === "anchors")
+    s.push([
+      "Rod steel shear",
+      `Vsa = 0.6 Ase futa${i.grout.thickness > 0 ? " × 0.80 (grout pad)" : ""}; φVsa = ${kN(an.phiVsa)} kN; Vua = V/${c.shearRods.length} = ${kN(an.vuaMax)} kN → DCR ${f(an.steelShearDcr, 3)}`,
+      basePlateClauses.steelShear(),
+    ]);
+  if (an.breakout) {
+    const k = an.breakout;
+    s.push([
+      "Concrete breakout, tension",
+      `h′ef = ${f(k.hefUsed, 1)} mm${k.reducedForEdges ? " (17.6.2.1.2, ≥ 3 near edges)" : ""}; Nb = ${kN(k.nb)} kN; ANc = ${f(k.anc, 0)}, ANco = 9h′ef² = ${f(k.anco, 0)} mm²; ψec ${f(k.psiEc, 3)} ψed ${f(k.psiEd, 3)} ψc ${f(k.psiC, 2)} ψcp ${f(k.psiCp, 2)}; Ncbg = ${kN(k.ncbg)} kN; φ ${k.phi}${k.seismicFactor < 1 ? " × 0.75" : ""} → Nua ${kN(k.nua)} kN, DCR ${f(k.dcr, 3)}`,
+      basePlateClauses.breakoutTension(),
+    ]);
+  }
+  if (an.pullout)
+    s.push([
+      "Pullout",
+      `${an.pullout.basis}; Abrg = ${f(a.abrg > 0 ? a.abrg : heavyHexBearingArea(a.da), 0)} mm²; φNpn = ${kN(an.pullout.phiNpn)} kN vs Nua ${kN(an.pullout.nua)} kN → DCR ${f(an.pullout.dcr, 3)}`,
+      basePlateClauses.pullout(),
+    ]);
+  for (const sf of an.sideFace)
+    s.push([
+      "Side-face blowout",
+      `${sf.edge} edge, ca1 = ${f(sf.ca1, 0)} mm < hef/2.5: φNsbg = ${kN(sf.phiNsbg)} kN vs ${kN(sf.nua)} kN → DCR ${f(sf.dcr, 3)}`,
+      basePlateClauses.sideFace(),
+    ]);
+  if (an.bond)
+    s.push([
+      "Adhesive bond",
+      `τ = ${f(an.bond.tau, 2)} MPa; cNa = 10da√(τuncr/7.6) = ${f(an.bond.cna, 0)} mm; Nba = λa τ π da hef = ${kN(an.bond.nba)} kN; Nag = ${kN(an.bond.nag)} kN; φ ${an.bond.phi} → DCR ${f(an.bond.dcr, 3)}; sustained DCR ${f(an.bond.sustainedDcr, 3)}`,
+      basePlateClauses.bond(),
+    ]);
+  for (const sb of an.shearBreakout)
+    s.push([
+      `Concrete breakout, shear → ${sb.edge}`,
+      `${sb.row === "back" ? "farthest" : "front"} row, ca1 = ${f(sb.ca1Used, 0)} mm; Vb = min(0.6(le/da)^0.2√da λa√f′c ca1^1.5, 3.7λa√f′c ca1^1.5) = ${kN(sb.vb)} kN; AVc/AVco = ${f(sb.avc / sb.avco, 3)}; ψed ${f(sb.psiEd, 3)} ψc ${f(sb.psiC, 2)} ψh ${f(sb.psiH, 3)}; φVcbg = ${kN(sb.phi * sb.vcbg)} kN vs ${kN(sb.vua)} kN → DCR ${f(sb.dcr, 3)}`,
+      basePlateClauses.breakoutShear(),
+    ]);
+  if (an.pryout)
+    s.push([
+      "Pryout",
+      `Vcpg = kcp Ncpg, kcp = ${an.pryout.kcp}; φVcpg = ${kN(an.pryout.phiVcpg)} kN vs ${kN(an.pryout.vua)} kN → DCR ${f(an.pryout.dcr, 3)}`,
+      basePlateClauses.pryout(),
+    ]);
+  s.push([
+    "Interaction",
+    `${an.interaction.rule}: tension ${f(an.tensionRatio, 3)}, shear ${f(an.shearRatio, 3)} → ${f(an.interaction.ratio, 3)}`,
+    basePlateClauses.interaction(),
+  ]);
+  if (c.friction)
+    s.push([
+      "Friction",
+      `${lrfd ? "φμPu" : "μPa/Ω"} = ${fac(0.75, 2.0)} × ${i.shear.mu} × ${f(Math.max(L.pu, 0), 1)} = ${kN(c.friction.capacity)} kN vs V = ${kN(c.vResultant)} kN → DCR ${f(c.friction.dcr, 3)}`,
+      basePlateClauses.friction(),
+    ]);
+  if (c.lug)
+    s.push([
+      "Shear lug",
+      `${c.lug.direction.toUpperCase()}: φVbrg = 0.65 × 1.7f′c Aef ψbrg (${f(c.lug.psiBrg, 2)}) = ${kN(c.lug.phiVbrg)} kN; φVcb = ${kN(c.lug.phiVcb)} kN (ca1 ${f(c.lug.ca1, 0)} mm); φMn = ${f(c.lug.phiMn / 1e6, 2)} kN·m vs Mu ${f(c.lug.mu / 1e6, 2)} kN·m`,
+      `${basePlateClauses.lugBearing()}; ${basePlateClauses.lugFlexure()}`,
+    ]);
+  s.push([
+    "Column weld",
+    `fN = −Pu/Lw + Mx·ymax/Ix + My·xmax/Iy = ${f(c.weld.fN, 0)} N/mm; fV = V/Lw = ${f(c.weld.fV, 0)} N/mm; f = ${f(c.weld.f, 0)} N/mm vs ${lrfd ? "φRn" : "Rn/Ω"} = ${fac(0.75, 2.0)} × 0.6 × ${i.weld.fexx} × 0.707 × ${i.weld.size} = ${f(c.weld.capacity, 0)} N/mm → DCR ${f(c.weld.dcr, 3)}`,
+    basePlateClauses.weld(),
+  ]);
+  if (an.ductility)
+    s.push([
+      "Seismic ductility (17.10.5.3(a))",
+      an.ductility.detail,
+      basePlateClauses.seismic(),
+    ]);
+  return s;
+}

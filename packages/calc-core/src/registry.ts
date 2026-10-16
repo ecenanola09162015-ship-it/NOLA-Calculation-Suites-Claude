@@ -44,6 +44,22 @@ export const moduleRegistry = [
     initialCodes: ["AISC 360", "NSCP"],
   },
   {
+    slug: "base-plate",
+    name: "Base Plate",
+    discipline: "Steel",
+    summary:
+      "Column base plate bearing, plate thickness, weld and anchor rods (cast-in, adhesive, mechanical).",
+    releasePhase: "Pilot",
+    priority: "P0",
+    verificationStatus: "verification-required",
+    initialCodes: [
+      "AISC 360-22",
+      "AISC DG1 3rd Ed.",
+      "ACI 318-19",
+      "NSCP 2015 project / AISC-ACI basis",
+    ],
+  },
+  {
     slug: "seismic-loads",
     name: "Seismic Loads",
     discipline: "Loads",
