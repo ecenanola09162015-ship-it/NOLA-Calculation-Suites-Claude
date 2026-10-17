@@ -132,6 +132,12 @@ export const uiCatalogue = [
     pilot: false,
   },
   {
+    slug: "borehole-logs",
+    name: "Borehole Logs and Data",
+    group: "Geotechnical",
+    pilot: false,
+  },
+  {
     slug: "soil-bearing-capacity",
     name: "Soil Bearing Capacity",
     group: "Geotechnical",

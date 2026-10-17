@@ -454,6 +454,68 @@ def load_combinations():  # I-18 rev 3: Σ followed by a stylised L, same 3D sty
 
 
 # ------------------------------------------------------------------ GEOTECHNICAL
+BH_LAYERS = [(-12, -8.5, 'gravel'), (-8.5, -5, 'sand'), (-5, -2, 'clay'), (-2, 0, 'topsoil')]
+
+def borehole_logs():         # I-29: core sample + drilling rig, SPT N-depth plot (3 boreholes) beside it
+    """Borehole core (strata) under a ground pad, drilling rig above, SPT N-depth graph beside it."""
+    cx, cy, rc = 3.0, 3.0, 1.7
+    s = Scene((0, 0, -12.6), (6, 6, 7.4), margin=0.05, extra=[(14, -2, -6)])
+    s.contact_shadow([(cx - 2, cy - 2), (cx + 2, cy - 2), (cx + 2, cy + 2), (cx - 2, cy + 2)], -12, 0.1, 100)
+    # SPT N-depth graph: flat card to the right of the core, depth rows aligned with the core
+    W = s.W; ax = (77, 84, 94, 255); grid = (214, 220, 228, 255); org = (236, 108, 30, 255)
+    top_px = s.P((cx + rc, cy - rc, 0)); bot_px = s.P((cx + rc, cy - rc, -12))
+    gx0 = top_px[0] + W * 0.07; gx1 = gx0 + W * 0.30
+    gy0, gy1 = top_px[1], bot_px[1]
+    data = [(-1.0, 4), (-2.5, 6), (-4.0, 9), (-5.5, 14), (-7.0, 19), (-8.5, 26), (-10.0, 33), (-11.5, 42)]
+    def gp(z, n): return (gx0 + n / 50 * (gx1 - gx0), gy0 + (-z) / 12 * (gy1 - gy0))
+    def draw(d):
+        from PIL import ImageFont
+        pad = W * 0.03
+        d.rounded_rectangle([gx0 - pad + 3, gy0 - pad * 1.9 + 6, gx1 + pad * 1.8 + 3, gy1 + pad + 6], radius=pad, fill=(0, 0, 0, 40))
+        d.rounded_rectangle([gx0 - pad, gy0 - pad * 1.9, gx1 + pad * 1.8, gy1 + pad], radius=pad, fill=(255, 255, 255, 252), outline=(226, 229, 234, 255), width=2)
+        for k in range(1, 5):                                  # full grid behind the data
+            x = gx0 + k * (gx1 - gx0) / 5; d.line([(x, gy0), (x, gy1)], fill=grid, width=2)
+        for k in range(1, 12):
+            y = gy0 + k * (gy1 - gy0) / 12; d.line([(gx0, y), (gx1, y)], fill=grid, width=2)
+        d.rectangle([gx0, gy0, gx1, gy1], outline=(150, 158, 168, 255), width=2)
+        series = [((40, 120, 205, 255), 'o', [(-1, 6), (-2, 4), (-3, 8), (-4, 7), (-5, 13), (-6, 11), (-7, 18), (-8, 24), (-9, 21), (-10, 30), (-11, 36)]),
+                  ((236, 108, 30, 255), 'd', [(-1, 3), (-2, 5), (-3, 4), (-4, 10), (-5, 9), (-6, 15), (-7, 14), (-8, 19), (-9, 27), (-10, 25), (-11, 33)]),
+                  ((40, 160, 90, 255), '^', [(-1, 9), (-2, 7), (-3, 12), (-4, 10), (-5, 17), (-6, 22), (-7, 20), (-8, 29), (-9, 34), (-10, 40), (-11, 44)])]
+        r = W / 120
+        for col, mk, pts in series:
+            P = [gp(z, n) for z, n in pts]
+            d.line(P, fill=col, width=int(W / 210), joint='curve')
+            for x, y in P:
+                if mk == 'o': d.ellipse([x - r, y - r, x + r, y + r], fill=(255, 255, 255, 255), outline=col, width=int(W / 300) + 1)
+                elif mk == 'd': d.polygon([(x, y - r * 1.25), (x + r * 1.1, y), (x, y + r * 1.25), (x - r * 1.1, y)], fill=(255, 255, 255, 255), outline=col, width=int(W / 300) + 1)
+                else: d.polygon([(x, y - r * 1.2), (x + r * 1.1, y + r * 0.8), (x - r * 1.1, y + r * 0.8)], fill=(255, 255, 255, 255), outline=col, width=int(W / 300) + 1)
+        d.line([(gx0, gy0), (gx0, gy1)], fill=ax, width=int(W / 200))
+        d.line([(gx0, gy0), (gx1, gy0)], fill=ax, width=int(W / 200))
+        fs = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', int(W * 0.022))
+        for n in (0, 25, 50):
+            d.text((gx0 + n / 50 * (gx1 - gx0), gy0 - W * 0.008), str(n), fill=ax, font=fs, anchor='mb')
+        fb = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', int(W * 0.03))
+        d.text((gx1 + pad * 0.9, gy0 - W * 0.008), "N", fill=ax, font=fb, anchor='lb')
+    # core sample (strata), below a ground pad
+    for k, (z0, z1, m) in enumerate(BH_LAYERS):
+        s.cyl(cx, cy, z0, rc, z1 - z0, m, 20 + k, top=False)
+    zw = -4.0                                                              # groundwater mark on the core
+    s.polyline([(cx + rc * math.cos(t), cy + rc * math.sin(t), zw) for t in np.linspace(-math.pi / 4, 3 * math.pi / 4, 30)], (0.18, 0.48, 0.78), width=s.W / 170)
+    s.cyl(cx, cy, 0, 2.9, 0.5, 'topsoil', 30)                               # ground disc (core cut below it)
+    # drilling rig: tripod, winch head, drill rod into the hole
+    top = 0.5; apex = (cx, cy, top + 6.6)
+    s.face([(cx + 0.5 * math.cos(t), cy + 0.5 * math.sin(t), top + 0.01) for t in np.linspace(0, 2 * math.pi, 24)[:-1]], (0, 0, 1), 'steel_dark', 31, shade=0.35)
+    feet = [(cx - 1.7, cy - 1.7, top), (cx + 2.2, cy - 0.5, top), (cx - 0.5, cy + 2.2, top)]
+    s.bar(feet[0], apex, 0.2, (0.30, 0.33, 0.37), ribs=0)
+    s.bar((cx, cy, top), (cx, cy, top + 6.0), 0.14, (0.66, 0.67, 0.69), ribs=0)
+    s.box(cx + 0.3, cy - 0.5, top + 2.2, 1.3, 1.0, 1.0, 'orange', 32)                       # winch/engine
+    s.bar(feet[1], apex, 0.2, (0.30, 0.33, 0.37), ribs=0)
+    s.bar(feet[2], apex, 0.2, (0.30, 0.33, 0.37), ribs=0)
+    s.cyl(cx, cy, apex[2] - 0.45, 0.42, 0.75, 'brass', 33)                                     # sheave head
+    s._layer(draw)
+    return s
+
+
 def soil_bearing():       # I-19: footing embedded, realistic soil, pressure bulbs on section
     yc = 6.0
     s = Scene((0, 0, -10), (14, yc + 1.8, 10), margin=0.05)
@@ -649,7 +711,7 @@ ICONS = {
     'pile-cap': pile_cap, 'driven-pile': driven_pile, 'bored-pile': bored_pile, 'steel-column': steel_column,
     'steel-beam': steel_beam, 'base-plate': base_plate, 'purlins': purlins, 'beam-column-connection': beam_column_connection,
     'beam-beam-connection': beam_beam_connection, 'sheet-pile-wall': sheet_pile_wall, 'gravity-loads': gravity_loads, 'seismic-loads': seismic_loads,
-    'wind-loads': wind_loads, 'load-combinations': load_combinations, 'soil-bearing-capacity': soil_bearing,
+    'wind-loads': wind_loads, 'load-combinations': load_combinations, 'borehole-logs': borehole_logs, 'soil-bearing-capacity': soil_bearing,
     'pile-bearing-capacity': pile_bearing, 'settlement': settlement, 'slope-stability': slope_stability,
     'liquefaction': liquefaction, 'riprap': riprap,
 }

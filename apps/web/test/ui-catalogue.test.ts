@@ -27,6 +27,12 @@ describe("launcher catalogue", () => {
     ]);
   });
 
+  it("puts Borehole Logs and Data first under Geotechnical", () => {
+    expect(
+      uiCatalogue.find((m) => m.group === "Geotechnical")?.slug,
+    ).toBe("borehole-logs");
+  });
+
   it("uses unique slugs", () => {
     const slugs = uiCatalogue.map((m) => m.slug);
     expect(new Set(slugs).size).toBe(slugs.length);
