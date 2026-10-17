@@ -377,9 +377,34 @@ export function basePlatePlanSvg(
     `Pedestal ${n1(p.py)}`,
     1,
   );
-  const xs = [...new Set(rods.map((r) => r.x))].sort((u, v) => u - v),
-    ys = [...new Set(rods.map((r) => r.y))].sort((u, v) => u - v);
-  if (xs.length > 1)
+  // Distinct rod lines (custom points within 0.5 mm share a line).
+  const lines = (v: number[]) =>
+    [...v]
+      .sort((u, w) => u - w)
+      .filter((u, k, arr) => k === 0 || u - arr[k - 1]! > 0.5);
+  const xs = lines(rods.map((r) => r.x)),
+    ys = lines(rods.map((r) => r.y));
+  const custom = a.layout === "custom";
+  if (custom) {
+    // Chain of actual distances between rod lines.
+    for (let k = 1; k < xs.length; k++)
+      b += dim(
+        X(xs[k - 1]!),
+        bottom,
+        X(xs[k]!),
+        bottom,
+        n1(xs[k]! - xs[k - 1]!),
+        1,
+      );
+    for (let k = 1; k < ys.length; k++)
+      b += dim(
+        X(-p.px / 2) - 12,
+        Y(ys[k - 1]!),
+        X(-p.px / 2) - 12,
+        Y(ys[k]!),
+        n1(ys[k]! - ys[k - 1]!),
+      );
+  } else if (xs.length > 1)
     b += dim(X(xs[0]!), bottom, X(xs[1]!), bottom, `sx ${n1(a.sx)}`, 1);
   b += dim(
     X(-p.px / 2),
@@ -389,7 +414,7 @@ export function basePlatePlanSvg(
     `c ${n1(p.px / 2 + xs[0]!)}`,
     1,
   );
-  if (ys.length > 1)
+  if (!custom && ys.length > 1)
     b += dim(
       X(-p.px / 2) - 12,
       Y(ys[0]!),

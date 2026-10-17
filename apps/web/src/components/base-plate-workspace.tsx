@@ -12,6 +12,7 @@ import {
   anchorKinds,
   basePlateDesignChecks,
   basePlateDraftSchema,
+  basePlateRods,
   defaultBasePlateInput,
   defaultDesignCheckPolicy,
   futaUsed,
@@ -55,6 +56,7 @@ import { BasePlateColumnFields } from "./base-plate-column-fields";
 import { BasePlateStiffenerFields } from "./base-plate-stiffener-fields";
 import { BasePlateLoadTable } from "./base-plate-load-table";
 import { BasePlateSeismicFields } from "./base-plate-seismic-fields";
+import { BasePlateRodPoints } from "./base-plate-rod-points";
 
 // three.js is only downloaded when the 3D tab is opened (client-only).
 const BasePlate3DView = dynamic(() => import("./base-plate-3d-view"), {
@@ -338,6 +340,12 @@ export function BasePlateWorkspace({
         ? null
         : (anchors.product ?? defaultProduct(kind)),
     });
+  }
+  /** Rods of the nx × ny grid (Grid layout) as editable points. */
+  function gridPoints() {
+    return basePlateRods({
+      anchors: { ...anchors, layout: "grid" },
+    }).map((r) => ({ id: r.id, x: r.x, y: r.y }));
   }
   function autoSpacing() {
     const clear = 25;
@@ -804,53 +812,73 @@ export function BasePlateWorkspace({
               <span>Layout</span>
               <select
                 value={anchors.layout}
-                onChange={(e) =>
+                onChange={(e) => {
+                  const layout = e.target
+                    .value as BasePlateInput["anchors"]["layout"];
+                  // Custom starts from the grid when no points are stored;
+                  // stored points are kept when switching back (C2).
                   set("anchors", {
-                    layout: e.target.value as "grid" | "perimeter",
-                  })
-                }
+                    layout,
+                    ...(layout === "custom" && !anchors.points.length
+                      ? { points: gridPoints() }
+                      : {}),
+                  });
+                }}
               >
                 <option value="grid">Grid nx × ny</option>
                 <option value="perimeter">Perimeter only</option>
+                <option value="custom">Custom coordinates</option>
               </select>
             </label>
-            <Numeric
-              label="nx"
-              unit=""
-              step="1"
-              value={anchors.nx}
-              onChange={(v) => set("anchors", { nx: Math.round(v) })}
-            />
-            <Numeric
-              label="ny"
-              unit=""
-              step="1"
-              value={anchors.ny}
-              onChange={(v) => set("anchors", { ny: Math.round(v) })}
-            />
-            <Numeric
-              label="Spacing sx"
-              value={anchors.sx}
-              onChange={(v) => set("anchors", { sx: v })}
-            />
-            <Numeric
-              label="Spacing sy"
-              value={anchors.sy}
-              onChange={(v) => set("anchors", { sy: v })}
-            />
+            {anchors.layout !== "custom" && (
+              <>
+                <Numeric
+                  label="nx"
+                  unit=""
+                  step="1"
+                  value={anchors.nx}
+                  onChange={(v) => set("anchors", { nx: Math.round(v) })}
+                />
+                <Numeric
+                  label="ny"
+                  unit=""
+                  step="1"
+                  value={anchors.ny}
+                  onChange={(v) => set("anchors", { ny: Math.round(v) })}
+                />
+                <Numeric
+                  label="Spacing sx"
+                  value={anchors.sx}
+                  onChange={(v) => set("anchors", { sx: v })}
+                />
+                <Numeric
+                  label="Spacing sy"
+                  value={anchors.sy}
+                  onChange={(v) => set("anchors", { sy: v })}
+                />
+              </>
+            )}
             <Numeric
               label="Embedment hef"
               value={anchors.hef}
               onChange={(v) => set("anchors", { hef: v })}
             />
           </div>
-          <button
-            className="suiteSecondary"
-            onClick={autoSpacing}
-            title="Outer rods at hole/2 + 25 mm clear from the plate edges"
-          >
-            Spread rods to the plate edges
-          </button>
+          {anchors.layout === "custom" ? (
+            <BasePlateRodPoints
+              points={anchors.points}
+              onChange={(points) => set("anchors", { points })}
+              onFromGrid={() => set("anchors", { points: gridPoints() })}
+            />
+          ) : (
+            <button
+              className="suiteSecondary"
+              onClick={autoSpacing}
+              title="Outer rods at hole/2 + 25 mm clear from the plate edges"
+            >
+              Spread rods to the plate edges
+            </button>
+          )}
           <div className="slabFieldGrid">
             <label className="slabNumeric">
               <span>Hole</span>

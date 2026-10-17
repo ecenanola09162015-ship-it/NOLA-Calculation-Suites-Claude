@@ -503,7 +503,93 @@ describe("drawing style and seismic note", () => {
         }}
       />,
     );
-    expect(html).toContain("AISC 341-22 D2.6 required strengths are not calculated");
+    expect(html).toContain(
+      "AISC 341-22 D2.6 required strengths are not calculated",
+    );
     expect(html).toContain("Blueprint (screen only)");
+  });
+});
+
+describe("custom anchor rod coordinates (engine 0.6.0)", () => {
+  const custom = () => {
+    const i = defaultBasePlateInput();
+    i.anchors = {
+      ...i.anchors,
+      layout: "custom",
+      points: [
+        { id: "R1", x: -170, y: -195 },
+        { id: "R2", x: 170, y: -195 },
+        { id: "R3", x: 0, y: -195 },
+        { id: "R4", x: -170, y: 195 },
+        { id: "R5", x: 170, y: 195 },
+      ],
+    };
+    return i;
+  };
+  it("shows the coordinate table and hides nx / ny / sx / sy", () => {
+    const i = custom();
+    const html = renderToStaticMarkup(
+      <BasePlateWorkspace
+        cloudReady={false}
+        onSaved={() => {}}
+        draft={
+          {
+            id: "d1",
+            projectId: "p1",
+            moduleSlug: "base-plate",
+            title: "BP custom",
+            payload: { kind: "base-plate", version: 1, input: i },
+            createdAt: "",
+            updatedAt: "",
+          } as never
+        }
+      />,
+    );
+    expect(html).toContain("Anchor rod coordinates");
+    expect(html).toContain("Start from current grid");
+    expect(html).toContain("Paste from Excel");
+    expect(html).not.toContain("Spacing sx");
+    expect(html).not.toContain("NaN");
+  });
+  it("plots the points with actual chained dimensions", () => {
+    const i = custom();
+    const r = analyzeBasePlate(i);
+    const plan = basePlatePlanSvg(i, r.combos[0]);
+    for (const id of ["R1", "R3", "R5"]) expect(plan).toContain(`>${id}<`);
+    expect(plan).not.toContain("sx ");
+    expect(plan.match(/>170<\/text>/g)!.length).toBeGreaterThanOrEqual(2);
+    expect(plan).toContain(">390<");
+    expect(buildBasePlate3DModel(i, r.combos[0]!).rods).toHaveLength(5);
+  });
+  it("lists the coordinates in the report", () => {
+    const i = custom();
+    const data = basePlateReportData(
+      undefined,
+      "BP-C",
+      i,
+      analyzeBasePlate(i),
+      defaultDesignCheckPolicy,
+      {},
+      null,
+    );
+    expect(JSON.stringify(data)).toContain("R3 0, -195");
+  });
+});
+
+describe("pasting rod coordinates", () => {
+  it("reads ID x y rows from Excel and skips the header", async () => {
+    const { parseRodPoints } =
+      await import("../src/components/base-plate-rod-points");
+    expect(parseRodPoints("ID\tx\ty\nA1\t-170\t-195\nA2\t170\t-195\n")).toEqual(
+      [
+        { id: "A1", x: -170, y: -195 },
+        { id: "A2", x: 170, y: -195 },
+      ],
+    );
+    expect(parseRodPoints("-10, 20\n30, 40")).toEqual([
+      { id: "A1", x: -10, y: 20 },
+      { id: "A2", x: 30, y: 40 },
+    ]);
+    expect(parseRodPoints("x y")).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
 /**
- * Steel column base plate & anchor rod design (engine base-plate-0.5.0).
+ * Steel column base plate & anchor rod design (engine base-plate-0.6.0).
  *
  * Basis: AISC 360-22 J8 (bearing), J2 (welds), J9 (anchor rods → ACI 318);
  * AISC Design Guide 1, 3rd Ed. (2024) Ch. 4 exposed base plates (uniform
@@ -81,7 +81,7 @@ import {
   type TensionGroup,
 } from "./base-plate-stiffeners";
 
-export const BASE_PLATE_ENGINE = "base-plate-0.5.0";
+export const BASE_PLATE_ENGINE = "base-plate-0.6.0";
 
 export const columnFamilies = ["I", "HSS-RECT", "HSS-ROUND"] as const;
 /** User-defined column sections and the engine family each maps to. */
@@ -281,7 +281,21 @@ const basePlateInputObject = z
       fy: pos,
       fu: pos,
       ductile: z.boolean(),
-      layout: z.enum(["grid", "perimeter"]),
+      layout: z.enum(["grid", "perimeter", "custom"]),
+      /**
+       * Custom layout: rod centres from the column centroid (x east, y
+       * north), mm. Kept when switching back to a grid.
+       */
+      points: z
+        .array(
+          z.object({
+            id: z.string().trim().min(1).max(12),
+            x: z.number().finite(),
+            y: z.number().finite(),
+          }),
+        )
+        .max(64)
+        .default([]),
       nx: z.number().int().min(2).max(8),
       ny: z.number().int().min(2).max(8),
       sx: pos,
@@ -393,9 +407,29 @@ const basePlateInputObject = z
   )
   .refine(
     (i) =>
-      (i.anchors.nx - 1) * i.anchors.sx < i.plate.bx &&
-      (i.anchors.ny - 1) * i.anchors.sy < i.plate.by,
+      i.anchors.layout === "custom" ||
+      ((i.anchors.nx - 1) * i.anchors.sx < i.plate.bx &&
+        (i.anchors.ny - 1) * i.anchors.sy < i.plate.by),
     "The anchor grid must lie inside the base plate.",
+  )
+  .refine(
+    (i) => i.anchors.layout !== "custom" || i.anchors.points.length >= 2,
+    "Custom anchor layout: enter at least 2 rods.",
+  )
+  .refine(
+    (i) =>
+      i.anchors.layout !== "custom" ||
+      new Set(i.anchors.points.map((p) => p.id)).size ===
+        i.anchors.points.length,
+    "Custom anchor layout: rod IDs must be unique.",
+  )
+  .refine(
+    (i) =>
+      i.anchors.layout !== "custom" ||
+      i.anchors.points.every(
+        (p) => Math.abs(p.x) < i.plate.bx / 2 && Math.abs(p.y) < i.plate.by / 2,
+      ),
+    "Custom anchor layout: every rod must lie inside the base plate.",
   )
   .refine(
     (i) => isCastIn(i.anchors.kind) || i.anchors.product !== null,
@@ -599,6 +633,7 @@ export function defaultBasePlateInput(): BasePlateInput {
       fu: 399.9,
       ductile: true,
       layout: "grid",
+      points: [],
       nx: 2,
       ny: 2,
       sx: 340,
@@ -695,9 +730,14 @@ export interface Rod extends AnchorPoint {
   i: number;
   j: number;
 }
+/** Rods within 5 mm of the outermost row count as the same tension row. */
+const ROW_TOL = 5;
+
 export function basePlateRods(i: Pick<BasePlateInput, "anchors">): Rod[] {
   const a = i.anchors;
   const out: Rod[] = [];
+  if (a.layout === "custom")
+    return a.points.map((p, k) => ({ id: p.id, i: k, j: 0, x: p.x, y: p.y }));
   for (let j = 0; j < a.ny; j++)
     for (let k = 0; k < a.nx; k++) {
       if (
@@ -891,7 +931,7 @@ export function dg1Axis(
   // Tension line: outermost rods on the side opposite the resultant.
   const ext =
     sign > 0 ? Math.min(...rods.map(coord)) : Math.max(...rods.map(coord));
-  const line = rods.filter((r) => Math.abs(coord(r) - ext) < 1e-6);
+  const line = rods.filter((r) => Math.abs(coord(r) - ext) < ROW_TOL);
   const f = Math.abs(ext);
   const qmax = cap.fpMax * b;
   const P = pu * 1e3,
@@ -1598,7 +1638,14 @@ export function basePlateGeometry(
   const minPedestalEdge = Math.min(
     ...rods.flatMap((r) => Object.values(edgeDistances(r, b))),
   );
-  const minSpacing = Math.min(a.sx, a.sy);
+  // Smallest centre-to-centre distance of any two rods.
+  let minSpacing = Infinity;
+  for (let p = 0; p < rods.length; p++)
+    for (let q = p + 1; q < rods.length; q++)
+      minSpacing = Math.min(
+        minSpacing,
+        Math.hypot(rods[p]!.x - rods[q]!.x, rods[p]!.y - rods[q]!.y),
+      );
   const limits = minimumGeometry(
     a.kind,
     a.da,
@@ -1805,7 +1852,7 @@ function plateState(env: Env, pu: number, mx: number, my: number): PlateState {
         const ext =
           side > 0 ? Math.max(...rods.map(c)) : Math.min(...rods.map(c));
         const idx = rods
-          .map((r, k) => (Math.abs(c(r) - ext) < 1e-6 ? k : -1))
+          .map((r, k) => (Math.abs(c(r) - ext) < ROW_TOL ? k : -1))
           .filter((k) => k >= 0);
         // Column-face lever of this line (DG1 Eq. 4-61 on its own side).
         const f = Math.abs(ext);
@@ -3199,8 +3246,8 @@ function designChecksOf(i: BasePlateInput, r: BasePlateResult): DesignCheck[] {
     const o = i.shear.lug.orientation;
     const a = i.anchors;
     const csl = Math.max(
-      o !== "y" ? ((a.nx - 1) * a.sx) / 2 : 0,
-      o !== "x" ? ((a.ny - 1) * a.sy) / 2 : 0,
+      o !== "y" ? Math.max(...r.rods.map((q) => Math.abs(q.x))) : 0,
+      o !== "x" ? Math.max(...r.rods.map((q) => Math.abs(q.y))) : 0,
     );
     const need = 2.5 * Math.max(i.shear.lug.depth, csl);
     push({
