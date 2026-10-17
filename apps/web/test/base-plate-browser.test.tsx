@@ -22,25 +22,40 @@ async function shotOf(page: Page, selector: string, path: string) {
   await page.screenshot({ path, fullPage: true, clip: r });
 }
 
+/** Explicit Run calculation (results are out of date after edits). */
+const runCalculation = (page: Page) =>
+  page
+    .getByRole("group", { name: "Calculation: save and run" })
+    .getByRole("button", { name: "Run calculation" })
+    .click();
+/** Workspace bundle; CSS modules (calc-actions) come out as a CSS file. */
+async function bundle() {
+  const out = await build({
+    entryPoints: [
+      new URL("./browser/base-plate-entry.tsx", import.meta.url).pathname,
+    ],
+    bundle: true,
+    write: false,
+    outdir: "/tmp/base-plate-browser-test",
+    format: "iife",
+    jsx: "automatic",
+    define: { "process.env.NODE_ENV": '"production"' },
+    alias: { "@": new URL("../src", import.meta.url).pathname },
+    logLevel: "silent",
+  });
+  return {
+    js: out.outputFiles.find((f) => f.path.endsWith(".js"))!.text,
+    css: out.outputFiles.find((f) => f.path.endsWith(".css"))?.text ?? "",
+  };
+}
+
 describe.skipIf(!CHROME)("base plate workspace in a real browser", () => {
   it("picks a shape, switches anchor type, draws 2D and 3D without errors", async () => {
-    const out = await build({
-      entryPoints: [
-        new URL("./browser/base-plate-entry.tsx", import.meta.url).pathname,
-      ],
-      bundle: true,
-      write: false,
-      format: "iife",
-      jsx: "automatic",
-      define: { "process.env.NODE_ENV": '"production"' },
-      alias: { "@": new URL("../src", import.meta.url).pathname },
-      logLevel: "silent",
-    });
-    const js = out.outputFiles[0]!.text;
-    const css = readFileSync(
-      new URL("../src/app/globals.css", import.meta.url),
-      "utf8",
-    );
+    const out = await bundle();
+    const js = out.js;
+    const css =
+      readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8") +
+      out.css;
     const browser = await chromium.launch({
       executablePath: CHROME,
       args: [
@@ -122,6 +137,7 @@ describe.skipIf(!CHROME)("base plate workspace in a real browser", () => {
       await page
         .getByRole("button", { name: "Start from ASD rows × 1.6" })
         .click();
+      await runCalculation(page);
       await page.waitForFunction(() =>
         document.body.textContent?.includes("(LRFD Combinations)"),
       );
@@ -174,6 +190,7 @@ describe.skipIf(!CHROME)("base plate workspace in a real browser", () => {
         await page.getByText("A 3D snapshot will be included").count(),
       ).toBe(1);
       await page.getByRole("tab", { name: "Calculations & loads" }).click();
+      await runCalculation(page);
       expect(await page.getByText("Step-by-Step").count()).toBe(1);
       await page.getByRole("button", { name: /Suggest anchor rods/ }).click();
       await page.waitForFunction(() =>
@@ -191,22 +208,10 @@ describe.skipIf(!CHROME)("base plate workspace in a real browser", () => {
   }, 120000);
 
   it("adds stiffeners: plan, sections, 3D and calculations", async () => {
-    const out = await build({
-      entryPoints: [
-        new URL("./browser/base-plate-entry.tsx", import.meta.url).pathname,
-      ],
-      bundle: true,
-      write: false,
-      format: "iife",
-      jsx: "automatic",
-      define: { "process.env.NODE_ENV": '"production"' },
-      alias: { "@": new URL("../src", import.meta.url).pathname },
-      logLevel: "silent",
-    });
-    const css = readFileSync(
-      new URL("../src/app/globals.css", import.meta.url),
-      "utf8",
-    );
+    const out = await bundle();
+    const css =
+      readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8") +
+      out.css;
     const browser = await chromium.launch({
       executablePath: CHROME,
       args: [
@@ -226,7 +231,7 @@ describe.skipIf(!CHROME)("base plate workspace in a real browser", () => {
       await page.setContent(
         `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body><div id="root"></div></body></html>`,
       );
-      await page.addScriptTag({ content: out.outputFiles[0]!.text });
+      await page.addScriptTag({ content: out.js });
       await page.waitForSelector(".bpDrawing svg");
       const group = page.getByRole("radiogroup", { name: "Stiffener layout" });
       expect(await group.getByRole("radio").count()).toBe(5);
@@ -260,6 +265,7 @@ describe.skipIf(!CHROME)("base plate workspace in a real browser", () => {
           fullPage: true,
         });
       await page.getByRole("tab", { name: "Calculations & loads" }).click();
+      await runCalculation(page);
       expect(await page.getByText("Stiffened plate").count()).toBeGreaterThan(
         0,
       );

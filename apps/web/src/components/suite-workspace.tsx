@@ -517,6 +517,7 @@ export function SuiteWorkspace({
               project={project}
               draft={selectedDraft}
               cloudReady={cloudReady}
+              onDirtyChange={onDirtyChange}
               onSaved={(item) =>
                 setDrafts((previous) => [
                   item,
