@@ -426,8 +426,8 @@ def slope_stability():    # I-22: more soil layers, soil-coloured face, prominen
     return s
 
 
-def liquefaction():       # I-23: seismic badge + granular saturated sand
-    s = Scene((0, 0, -9), (14, 12, 8), margin=0.06)
+def liquefaction():       # I-23 rev 2: granular saturated sand; seismic sign (option A) below the soil block
+    s = Scene((0, 0, -9), (14, 12, 8), margin=0.06, extra=[(14, 12, -16.5)])
     s.layered(0, 0, 14, 12, [(-9, -6, 'dsand'), (-6, -1.4, 'satsand'), (-1.4, 0, 'topsoil')], 0)
     for z0 in (-4.6, -2.8):
         a = [(x, 12.02, z0 + 0.3 * math.sin(x * 1.6)) for x in np.linspace(0.2, 13.8, 50)]
@@ -436,7 +436,7 @@ def liquefaction():       # I-23: seismic badge + granular saturated sand
     for x, y in [(3, 9), (11.5, 3.5)]:
         s.cone_down(x, y, 0.6, 0.9, -0.0001, 'sand', 9)
     s.tilted_box(5, 4, 0, 4.2, 4.2, 7.5, math.radians(9), 'concrete', 3, lines=[('e1', 2.5, .05)])
-    s.badge_seismic()
+    seismic_sign_below(s, (0, 12, -9), (14, 0, -9), (14, 12, -9))
     return s
 
 
