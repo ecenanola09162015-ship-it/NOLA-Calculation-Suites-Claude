@@ -82,8 +82,15 @@ describe.skipIf(!CHROME)("bundled bars in a real browser", () => {
       await page.addScriptTag({ content: out.outputFiles.find((f) => f.path.endsWith(".js"))!.text, type: "module" });
       await page.getByText("Bundled Bars").waitFor();
       // Start from a generated layout (bars exactly at cover + tie + db/2).
-      await page.getByText("Generate A Uniform Perimeter Layout").click();
+      // Generator is always visible; replacing edited bars asks first.
+      const asked: string[] = [];
+      page.on("dialog", (d) => {
+        asked.push(d.message());
+        void d.accept();
+      });
       await page.getByRole("button", { name: "Replace bar layout" }).click();
+      await page.waitForFunction(() => document.body.textContent?.includes("Edit individual bars · 12 bars"));
+      expect(asked[0]).toMatch(/^Replace the current \d+ bars with a uniform 4 × 4 layout\?/);
       const n0 = await page.locator('svg [role="button"]').count();
       // Pick two bars by clicking them in the section picture.
       await page.getByRole("button", { name: "Bar 1", exact: true }).click();
