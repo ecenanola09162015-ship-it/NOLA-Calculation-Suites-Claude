@@ -99,6 +99,7 @@ export function basePlateReportData(
     ],
     ["Shear Transfer", (id) => /friction|lug/.test(id)],
     ["Stiffeners", (id) => id.startsWith("stiffener-")],
+    ["Seismic", (id) => id.startsWith("seismic-")],
     ["Geometry", (id) => id.startsWith("geo-")],
   ];
   const summary = [
@@ -131,6 +132,21 @@ export function basePlateReportData(
             ] as (string | Cell)[],
           ]
         : []),
+    ]),
+    section("Seismic Design", [
+      [
+        "Status",
+        i.seismic.active
+          ? `Active, SDC ${i.seismic.sdc}; ${
+              {
+                general: "ACI 318-19 17.10 only (not part of the SFRS / R = 3)",
+                braced: "braced-frame strong base (DG1 6.5)",
+                strong: `moment-frame strong base, M = 1.1 Ry Fy Z / αs (Ry ${i.seismic.ry}, ${i.seismic.columnGrade})`,
+                weak: `moment-frame weak base, UT rods dreduced ${f(i.seismic.ut.dReduced, 1)} mm, Lstretch ${f(i.seismic.ut.lStretch, 0)} mm, Rt ${i.seismic.ut.rt}`,
+              }[i.seismic.baseType]
+            }${i.seismic.exempt20 ? "; ACI 17.10.3 exemption declared" : ""}`
+          : "Not activated: no SDC, earthquake flags, ACI 17.10 or AISC 341 checks applied",
+      ],
     ]),
     section("Anchor Rods", [
       [

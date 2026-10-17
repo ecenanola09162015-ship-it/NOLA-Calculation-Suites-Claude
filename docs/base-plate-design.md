@@ -1,6 +1,6 @@
 # Steel column base plate & anchor rod design pilot
 
-The Base Plate launcher card (Steel) opens a live workspace inside the project explorer. The engine lives in `packages/calc-core` (`modules/base-plate.ts`, `modules/base-plate-anchors.ts`, `anchor-rods.ts`, shared `steel-shapes/`); the web workspace, PDF report and save endpoint consume the same versioned inputs (`kind: "base-plate"`, `version: 1`). Saved base plates are `verification-required`. Engine `base-plate-0.4.0`.
+The Base Plate launcher card (Steel) opens a live workspace inside the project explorer. The engine lives in `packages/calc-core` (`modules/base-plate.ts`, `modules/base-plate-anchors.ts`, `anchor-rods.ts`, shared `steel-shapes/`); the web workspace, PDF report and save endpoint consume the same versioned inputs (`kind: "base-plate"`, `version: 1`). Saved base plates are `verification-required`. Engine `base-plate-0.5.0`.
 
 ## Basis
 
@@ -15,6 +15,15 @@ The Base Plate launcher card (Steel) opens a live workspace inside the project e
 Two primary codes: **Concrete** (ACI 318-19, or NSCP 2015 project on the ACI 318-19 basis) and **Steel** (AISC 360-22 + DG1, or NSCP 2015 project on the AISC 360-22 basis); other editions are listed as Future Development. Drafts saved with one `code` open with both codes set from it.
 
 **LRFD / ASD** (shared `steel-design-method.ts`, reused by later steel modules): LRFD applies φ (bearing 0.65, plate 0.90, weld 0.75, friction 0.75) to factored combinations; ASD applies 1/Ω (2.31, 1.67, 2.00, 2.00) to service combinations (AISC 360-22 B3.2). ACI 318-19 has no ASD, so under ASD the anchor checks (Ch. 17, incl. lug bearing/breakout) use α × ASD demand against φRn, α = 1.6 by default (editable 1.4–2.0, printed in the report).
+
+## Seismic design (engine 0.5.0)
+
+Off by default: panel 04 shows **Activate seismic design**, which first lists what will be applied. While off, no SDC, E flags (the E column is hidden), ACI 318-19 17.10 or AISC 341 checks apply. Drafts saved before 0.5.0 with SDC C–F open active. Decisions S1–S5 at defaults (17 Oct 2026): pinned base deferred; ASD allowed with the seismic and ACI checks on the LRFD combinations (required); ACI 17.10.3 "E ≤ 20 %" checkbox; E column hidden when off.
+
+- **Base type (AISC 341-22 D2.6):** not part of the SFRS / R = 3 (ACI 17.10 only, option (a) or (d)); braced frame (strong base, DG1 6.5); moment-frame strong base — each E combination is also run with M = 1.1 Ry Fy Z / αs about the axis of its larger moment (Ry from Table A3.2 grades; Z from the shapes database or the section dimensions; ACI 17.10.5.3(c)); moment-frame weak base (D2.6c(b), DG1 6.4.2, ACI 17.10.5.3(a)).
+- **Weak base checks (DG1 Ex. 6.4-1):** large moment and uniaxial (else flagged); Tu ≤ n φt Fy Ared (φt 0.90) with the minimum dreduced; Treduced = Fu Ared ≤ 0.75 Fu Ase; Lstretch ≥ f; concrete limit states with each tension rod at Rt Treduced and the 0.75 factor (17.10.5.4); tension-side plate for n Rt Treduced (Eq. 4-62) — the bearing side is reported, not checked, for weak-base E combinations; shear lug required.
+- **Drawings:** UT reduced shank over Lstretch and a leveling nut in the sections. The PDF has a Seismic Design section and a Seismic group in the governing results.
+- **Benchmark:** `test/base-plate-seismic.test.ts` — DG1 Ex. 6.4-1 (dreduced ≥ 0.687 in with the lug moment, Treduced 33.1 kips ≤ 34.1 kips, Rt Treduced 39.7 kips, 119 vs 130 kips breakout, tp 1.05 in), strong-base capacity combination, activation and draft migration.
 
 ## DG1 3rd Ed. alignment (engine 0.4.0)
 

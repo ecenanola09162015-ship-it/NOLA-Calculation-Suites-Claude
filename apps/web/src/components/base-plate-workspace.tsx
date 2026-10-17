@@ -53,6 +53,7 @@ import { BasePlateCodeFields } from "./base-plate-code-fields";
 import { BasePlateColumnFields } from "./base-plate-column-fields";
 import { BasePlateStiffenerFields } from "./base-plate-stiffener-fields";
 import { BasePlateLoadTable } from "./base-plate-load-table";
+import { BasePlateSeismicFields } from "./base-plate-seismic-fields";
 
 // three.js is only downloaded when the 3D tab is opened (client-only).
 const BasePlate3DView = dynamic(() => import("./base-plate-3d-view"), {
@@ -1185,54 +1186,12 @@ export function BasePlateWorkspace({
               value={input.weld.fexx}
               onChange={(v) => set("weld", { fexx: v })}
             />
-            <label className="slabNumeric">
-              <span>Seismic design category</span>
-              <select
-                value={input.seismic.sdc}
-                onChange={(e) =>
-                  set("seismic", {
-                    sdc: e.target.value as BasePlateInput["seismic"]["sdc"],
-                  })
-                }
-              >
-                {(["A", "B", "C", "D", "E", "F"] as const).map((s) => (
-                  <option key={s}>{s}</option>
-                ))}
-              </select>
-            </label>
-            {["C", "D", "E", "F"].includes(input.seismic.sdc) && (
-              <>
-                <label className="slabNumeric bpWide">
-                  <span>ACI 17.10.5.3 option</span>
-                  <select
-                    value={input.seismic.option}
-                    onChange={(e) =>
-                      set("seismic", { option: e.target.value as "a" | "d" })
-                    }
-                  >
-                    <option value="d">(d) E combinations include Ω0</option>
-                    <option value="a">(a) Ductile steel governs</option>
-                  </select>
-                </label>
-                {input.seismic.option === "a" && (
-                  <Numeric
-                    label="Stretch length"
-                    value={input.seismic.stretchLength}
-                    onChange={(v) => set("seismic", { stretchLength: v })}
-                    title="≥ 8da (17.10.5.3(a))"
-                  />
-                )}
-              </>
-            )}
           </div>
-          {["C", "D", "E", "F"].includes(input.seismic.sdc) && (
-            <p className="rcAlert">
-              Seismic (SDC {input.seismic.sdc}): ACI 318-19 17.10 is applied to
-              E combinations. AISC 341-22 D2.6 column-base required strengths
-              are not calculated — enter base reactions that already satisfy
-              AISC 341 (Ω0 or expected-strength demands).
-            </p>
-          )}
+          <h3 className="rcSubhead">Seismic Design</h3>
+          <BasePlateSeismicFields
+            input={input}
+            onChange={(next) => update(next)}
+          />
         </aside>
 
         <div className="slabCenter">
@@ -1385,7 +1344,7 @@ export function BasePlateWorkspace({
                     <th>My kN·m</th>
                     <th>Vx kN</th>
                     <th>Vy kN</th>
-                    <th>E</th>
+                    {input.seismic.active && <th>E</th>}
                     <th></th>
                   </tr>
                 </thead>
@@ -1427,16 +1386,18 @@ export function BasePlateWorkspace({
                           />
                         </td>
                       ))}
-                      <td>
-                        <input
-                          type="checkbox"
-                          aria-label={`${l.id} includes earthquake`}
-                          checked={l.seismic}
-                          onChange={(e) =>
-                            editLoad(k, { seismic: e.target.checked })
-                          }
-                        />
-                      </td>
+                      {input.seismic.active && (
+                        <td>
+                          <input
+                            type="checkbox"
+                            aria-label={`${l.id} includes earthquake`}
+                            checked={l.seismic}
+                            onChange={(e) =>
+                              editLoad(k, { seismic: e.target.checked })
+                            }
+                          />
+                        </td>
+                      )}
                       <td>
                         <button
                           className="suiteSecondary"
@@ -1466,8 +1427,9 @@ export function BasePlateWorkspace({
             <details className="bpPaste">
               <summary>Paste from Excel / ETABS</summary>
               <p className="slabMuted">
-                Headers: ID, Pu, Mx, My, Vx, Vy and optional Seismic (Y/N). Tab
-                or comma separated; kN and kN·m.
+                Headers: ID, Pu, Mx, My, Vx, Vy and optional Seismic (Y/N; used
+                when seismic design is active). Tab or comma separated; kN and
+                kN·m.
               </p>
               <textarea
                 rows={4}
@@ -1506,6 +1468,7 @@ export function BasePlateWorkspace({
                     practice). Steel checks use the ASD combinations above.
                   </p>
                   <BasePlateLoadTable
+                    showE={input.seismic.active}
                     caption="LRFD combinations for ACI 318 checks"
                     loads={input.lrfdLoads}
                     onChange={(lrfdLoads) => update({ ...input, lrfdLoads })}

@@ -1,5 +1,5 @@
 /**
- * Steel column base plate & anchor rod design (engine base-plate-0.4.0).
+ * Steel column base plate & anchor rod design (engine base-plate-0.5.0).
  *
  * Basis: AISC 360-22 J8 (bearing), J2 (welds), J9 (anchor rods → ACI 318);
  * AISC Design Guide 1, 3rd Ed. (2024) Ch. 4 exposed base plates (uniform
@@ -81,7 +81,7 @@ import {
   type TensionGroup,
 } from "./base-plate-stiffeners";
 
-export const BASE_PLATE_ENGINE = "base-plate-0.4.0";
+export const BASE_PLATE_ENGINE = "base-plate-0.5.0";
 
 export const columnFamilies = ["I", "HSS-RECT", "HSS-ROUND"] as const;
 /** User-defined column sections and the engine family each maps to. */
@@ -164,6 +164,9 @@ export const basePlateColumnSchema = z.object({
   /** AISC database shape or a user-defined (custom) section. */
   sectionSource: z.enum(["database", "custom"]).default("database"),
   customType: z.enum(customColumnTypes).nullable().default(null),
+  /** Plastic moduli from the shapes database (mm³); null = from dimensions. */
+  zx: z.number().finite().positive().nullable().default(null),
+  zy: z.number().finite().positive().nullable().default(null),
 });
 
 export const basePlateProductSchema = z.object({
@@ -199,8 +202,20 @@ export const steelDesignCodes = ["AISC 360-22", "NSCP 2015"] as const;
 /** Drafts saved before engine 0.2.0 carry one `code`: map it to both codes. */
 function migrateBasePlateInput(raw: unknown) {
   if (!raw || typeof raw !== "object") return raw;
-  const r = raw as Record<string, unknown>;
-  if (!("code" in r) || "concreteCode" in r) return raw;
+  const r0 = raw as Record<string, unknown>;
+  // Engine 0.5.0: seismic design needs activation; SDC C–F drafts open active.
+  const sz = r0.seismic as Record<string, unknown> | undefined;
+  const r =
+    sz && typeof sz === "object" && !("active" in sz)
+      ? {
+          ...r0,
+          seismic: {
+            ...sz,
+            active: ["C", "D", "E", "F"].includes(String(sz.sdc)),
+          },
+        }
+      : r0;
+  if (!("code" in r) || "concreteCode" in r) return r;
   const { code, ...rest } = r;
   return {
     ...rest,
@@ -302,9 +317,35 @@ const basePlateInputObject = z
     /** Plate stiffeners (engine 0.3.0); older drafts open unstiffened. */
     stiffeners: basePlateStiffenerSchema.default(defaultStiffenerInput),
     seismic: z.object({
+      /**
+       * Seismic design must be activated (engine 0.5.0). Off: no SDC, E
+       * flags, ACI 17.10 or AISC 341 checks. Older drafts with SDC C–F open
+       * active.
+       */
+      active: z.boolean().default(false),
       sdc: z.enum(["A", "B", "C", "D", "E", "F"]),
-      option: z.enum(["a", "d"]),
+      /** ACI 17.10.5.3 option: (a) ductile steel, (c) nonyielding attachment, (d) Ω0. */
+      option: z.enum(["a", "c", "d"]),
       stretchLength: nonneg,
+      /**
+       * AISC 341 D2.6 / DG1 Ch. 6 base type: general (ACI 17.10 only),
+       * braced frame, moment-frame strong base (D2.6c(a)) or weak base
+       * (D2.6c(b), DG1 6.4.2).
+       */
+      baseType: z.enum(["general", "braced", "strong", "weak"]).default("general"),
+      /** Column Ry (AISC 341 Table A3.2) and grade label. */
+      ry: z.number().finite().min(1).max(2).default(1.1),
+      columnGrade: z.string().max(40).default("ASTM A992"),
+      /** ACI 17.10.3: E ≤ 20 % of the anchor force — 17.10 not applied. */
+      exempt20: z.boolean().default(false),
+      /** Weak base: upset-thread (UT) rods (DG1 Fig. 6-1). */
+      ut: z
+        .object({
+          dReduced: pos,
+          lStretch: pos,
+          rt: z.number().finite().min(1).max(1.5),
+        })
+        .default({ dReduced: 19.05, lStretch: 203.2, rt: 1.2 }),
     }),
     loads: z.array(basePlateLoadSchema).min(1).max(100),
   })
@@ -361,6 +402,13 @@ const basePlateInputObject = z
   .refine(
     (i) => new Set(i.lrfdLoads.map((l) => l.id)).size === i.lrfdLoads.length,
     "LRFD combination labels must be unique.",
+  )
+  .refine(
+    (i) =>
+      !i.seismic.active ||
+      i.designMethod !== "ASD" ||
+      i.asdAnchorBasis === "lrfd",
+    "Seismic design with ASD: the seismic and ACI 318 checks need the LRFD combinations (DG1 Ch. 6 is LRFD only).",
   );
 export const basePlateInputSchema = z.preprocess(
   migrateBasePlateInput,
@@ -408,6 +456,8 @@ export function basePlateCustomColumn(
     source: "Custom (user input)",
     sectionSource: "custom",
     customType: type,
+    zx: null,
+    zy: null,
   };
 }
 /** Gross section properties of the column (mm², mm⁴, kg/m; steel 7850 kg/m³). */
@@ -455,6 +505,8 @@ export function basePlateColumnFromShape(
     source: "AISC Shapes Database v16.0",
     sectionSource: "database" as const,
     customType: null,
+    zx: Number.isFinite(n("Zx")) && n("Zx") > 0 ? n("Zx") : null,
+    zy: Number.isFinite(n("Zy")) && n("Zy") > 0 ? n("Zy") : null,
   };
   if (rec.group === "I")
     return {
@@ -511,6 +563,8 @@ export function defaultBasePlateInput(): BasePlateInput {
       source: "AISC Shapes Database v16.0",
       sectionSource: "database",
       customType: null,
+      zx: 934062.648,
+      zy: 275302.6752,
     },
     rotation: 0,
     plate: { bx: 450, by: 500, tp: 40, fy: 248 },
@@ -566,7 +620,17 @@ export function defaultBasePlateInput(): BasePlateInput {
     },
     weld: { size: 8, fexx: 482 },
     stiffeners: defaultStiffenerInput(),
-    seismic: { sdc: "A", option: "d", stretchLength: 0 },
+    seismic: {
+      active: false,
+      sdc: "D",
+      option: "d",
+      stretchLength: 0,
+      baseType: "general",
+      ry: 1.1,
+      columnGrade: "ASTM A992",
+      exempt20: false,
+      ut: { dReduced: 19.05, lStretch: 203.2, rt: 1.2 },
+    },
     loads: [
       {
         id: "LC1",
@@ -981,6 +1045,10 @@ export interface ComboResult {
   } | null;
   lug: LugCheck | null;
   seismicApplies: boolean;
+  /** E combination with seismic design active (ACI 17.10 may be exempt). */
+  earthquake: boolean;
+  /** Weak-base anchor-yielding checks (DG1 6.4.2, Ex. 6.4-1). */
+  weakBase: WeakBaseResult | null;
   /** Moment from the shear-lug eccentricity added to the base (DG1 Ex. 4.7-5). */
   lugMoment: { mx: number; my: number; e: number } | null;
   /** AISC 360-22 J3.8 rod check with bending (DG1 Eq. 4-26 to 4-28). */
@@ -1233,7 +1301,13 @@ function anchorChecks(
   );
   // 17.10.5.3(a): ductile steel must govern in E combinations (SDC ≥ C).
   let ductility: AnchorChecks["ductility"] = null;
-  if (seismic && i.seismic.option === "a" && tensioned.length && breakout) {
+  if (
+    seismic &&
+    seismicAciOption(i) === "a" &&
+    i.seismic.baseType !== "weak" &&
+    tensioned.length &&
+    breakout
+  ) {
     const nsaGroup = nsa * tensioned.length;
     const concrete = Math.min(
       0.75 * breakout.ncbg,
@@ -2121,6 +2195,219 @@ function columnWeld(
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* Seismic design (engine 0.5.0): AISC 341-22 D2.6, DG1 3rd Ed. Ch. 6   */
+/* ------------------------------------------------------------------ */
+
+/** AISC 341-22 Table A3.2 Ry values offered in the workspace. */
+export const columnRyGrades = [
+  { label: "ASTM A992", ry: 1.1 },
+  { label: "ASTM A572 Gr 50", ry: 1.1 },
+  { label: "ASTM A36", ry: 1.5 },
+  { label: "ASTM A500 Gr C", ry: 1.3 },
+  { label: "ASTM A500 Gr B", ry: 1.4 },
+  { label: "ASTM A1085", ry: 1.25 },
+  { label: "ASTM A53", ry: 1.6 },
+] as const;
+
+/** ACI 17.10.5.3 option used: weak base (a) with UT rods, strong base (c). */
+export function seismicAciOption(i: Pick<BasePlateInput, "seismic">) {
+  return i.seismic.baseType === "weak"
+    ? "a"
+    : i.seismic.baseType === "strong"
+      ? "c"
+      : i.seismic.option;
+}
+
+/**
+ * Column plastic modulus for bending about plate axis X (moment Mx) or Y,
+ * mm³: shapes-database Zx / Zy when stored, else from the dimensions.
+ */
+export function basePlateColumnZ(
+  i: Pick<BasePlateInput, "column" | "rotation">,
+  about: "x" | "y",
+) {
+  const c = i.column;
+  // Section strong axis is bending about plate X at 0° (d along Y).
+  const strong = (about === "x") === (i.rotation !== 90);
+  if (c.family === "I") {
+    if (strong && c.zx) return c.zx;
+    if (!strong && c.zy) return c.zy;
+    const hw = c.d - 2 * c.tf;
+    return strong
+      ? c.bf * c.tf * (c.d - c.tf) + (c.tw * hw * hw) / 4
+      : (c.tf * c.bf * c.bf) / 2 + (hw * c.tw * c.tw) / 4;
+  }
+  if (c.family === "HSS-RECT") {
+    if (strong && c.zx) return c.zx;
+    if (!strong && c.zy) return c.zy;
+    const [h, b] = strong ? [c.d, c.bf] : [c.bf, c.d];
+    const t = c.tf;
+    const hi = Math.max(0, h - 2 * t),
+      bi = Math.max(0, b - 2 * t);
+    return (b * h * h) / 4 - (bi * hi * hi) / 4;
+  }
+  if (c.zx) return c.zx;
+  return (c.d ** 3 - Math.max(0, c.d - 2 * c.tf) ** 3) / 6;
+}
+
+/**
+ * Included combinations, plus — for a moment-frame strong base — one
+ * capacity combination per E combination with M = 1.1 Ry Fy Z / αs about
+ * the axis of its larger moment (AISC 341-22 D2.6c(a); αs = 1.0 LRFD,
+ * 1.5 ASD).
+ */
+export function seismicLoads(i: BasePlateInput): BasePlateLoad[] {
+  const base = i.loads.filter((l) => l.included);
+  const on = i.seismic.active && ["C", "D", "E", "F"].includes(i.seismic.sdc);
+  if (!on || i.seismic.baseType !== "strong") return base;
+  const as = i.designMethod === "LRFD" ? 1 : 1.5;
+  const extra: BasePlateLoad[] = [];
+  for (const l of base) {
+    if (!l.seismic) continue;
+    const about: "x" | "y" = Math.abs(l.my) > Math.abs(l.mx) ? "y" : "x";
+    const mp =
+      (1.1 * i.seismic.ry * i.column.fy * basePlateColumnZ(i, about)) /
+      as /
+      1e6;
+    const m0 = about === "x" ? l.mx : l.my;
+    const sgn = m0 < 0 ? -1 : 1;
+    extra.push({
+      ...l,
+      id: `${l.id}·Mp`.slice(0, 30),
+      mx: about === "x" ? sgn * mp : l.mx,
+      my: about === "y" ? sgn * mp : l.my,
+    });
+  }
+  return [...base, ...extra];
+}
+
+export interface WeakBaseResult {
+  /** Large-moment, uniaxial combination: the DG1 6.4.2 method applies. */
+  applies: boolean;
+  scope: string;
+  n: number;
+  f: number;
+  tu: number;
+  aReduced: number;
+  /** n φt Fy Ared, φt = 0.90 (DG1 Ex. 6.4-1), N. */
+  yieldCap: number;
+  yieldDcr: number;
+  /** Minimum reduced diameter for Tu, mm. */
+  dReq: number;
+  /** Treduced = Fu Ared vs threaded 0.75 Fu Ase, N. */
+  tReduced: number;
+  threadCap: number;
+  threadDcr: number;
+  stretchDcr: number;
+  /** Rt Treduced per rod, N; concrete limit states with ACI 17.10.5.4. */
+  rtT: number;
+  concreteDcr: number;
+  concreteDetail: string;
+  /** Plate: tension side for n Rt Treduced (Eq. 4-62); bearing reported. */
+  tpTension: number;
+  tpBearing: number;
+}
+
+/** DG1 6.4.2 / Ex. 6.4-1 checks for one E combination. */
+function weakBaseCheck(env: Env, ps: PlateState, alpha: number): WeakBaseResult {
+  const { i, rods } = env;
+  const a = i.anchors,
+    u = i.seismic.ut;
+  const large = ps.axes.filter((x) => x.case === "large");
+  const applies = ps.kase === "large" && large.length === 1 && ps.axes.length === 1;
+  const ax = large[0];
+  const n = ax ? ax.tensionRods.length : 0;
+  const f = ax ? ax.f : 0;
+  const tu = ax ? ax.tu : 0;
+  const ared = (Math.PI * u.dReduced ** 2) / 4;
+  const yieldCap = n * 0.9 * a.fy * ared;
+  const tReduced = a.fu * ared;
+  const threadCap = 0.75 * a.fu * a.ase;
+  const rtT = u.rt * tReduced;
+  // Concrete limit states with every tension rod at Rt Treduced (0.75 factor).
+  let concreteDcr = 0,
+    concreteDetail = "No tension line.";
+  let tpTension = 0;
+  if (ax && n > 0) {
+    const t = rods.map((r) => (ax.tensionRods.includes(r.id) ? rtT : 0));
+    const an = anchorChecks(i, rods, t, 0, 0, 0, 0, [], true);
+    concreteDcr = Math.max(
+      an.breakout?.dcr ?? 0,
+      an.pullout?.dcr ?? 0,
+      an.bond?.dcr ?? 0,
+      ...an.sideFace.map((x) => x.dcr),
+    );
+    concreteDetail = `breakout ${an.breakout ? `${(an.breakout.nua / 1e3).toFixed(1)} vs ${((an.breakout.phi * 0.75 * an.breakout.ncbg) / 1e3).toFixed(1)} kN` : "—"}; pullout ${an.pullout ? `${(an.pullout.nua / 1e3).toFixed(1)} vs ${(an.pullout.phiNpn / 1e3).toFixed(1)} kN` : "—"}`;
+    const idx = ax.tensionRods.map((id) => rods.findIndex((r) => r.id === id));
+    tpTension = tensionLine(
+      env.supports,
+      ax.axis,
+      idx.map((k) => ({ ...rods[k]!, t: rtT })),
+      ax.x,
+      ax.b,
+      i.plate.fy,
+      env.fb,
+    ).tp;
+  }
+  void alpha;
+  return {
+    applies,
+    scope: applies
+      ? "large moment, uniaxial"
+      : ps.axes.length > 1
+        ? "biaxial: outside DG1 Ch. 6 (uniaxial only)"
+        : "no large moment: no inelastic action in the base (DG1 6.4.2 item 3)",
+    n,
+    f,
+    tu,
+    aReduced: ared,
+    yieldCap,
+    yieldDcr: yieldCap > 0 ? tu / yieldCap : Infinity,
+    dReq: n > 0 ? Math.sqrt((4 * tu) / (n * 0.9 * a.fy * Math.PI)) : NaN,
+    tReduced,
+    threadCap,
+    threadDcr: tReduced / threadCap,
+    stretchDcr: f / u.lStretch,
+    rtT,
+    concreteDcr,
+    concreteDetail,
+    tpTension,
+    tpBearing: Math.max(0, ...ps.axes.map((x) => x.tpBearing)),
+  };
+}
+
+function seismicNotes(i: BasePlateInput, on: boolean): string[] {
+  if (!i.seismic.active)
+    return [
+      "Seismic design is not activated: SDC, earthquake flags, ACI 318-19 17.10 and AISC 341-22 are not applied.",
+    ];
+  if (!on)
+    return [
+      `Seismic design activated with SDC ${i.seismic.sdc}: ACI 17.10 and AISC 341 base provisions apply to SDC C–F only.`,
+    ];
+  const out: string[] = [];
+  const t = i.seismic.baseType;
+  out.push(
+    t === "strong"
+      ? `Moment-frame strong base (AISC 341-22 D2.6c(a)): each E combination also checked with M = 1.1 Ry Fy Z / αs (Ry ${i.seismic.ry}, ${i.seismic.columnGrade}); anchors per ACI 17.10.5.3(c). Column-to-plate welds are demand critical (CJP at the flanges).`
+      : t === "weak"
+        ? `Moment-frame weak base (AISC 341-22 D2.6c(b), DG1 6.4.2): E combinations must include Ω0. Upset-thread rods (dreduced ${i.seismic.ut.dReduced.toFixed(1)} mm, Lstretch ${i.seismic.ut.lStretch.toFixed(0)} mm, Rt ${i.seismic.ut.rt}) yield; concrete and the tension-side plate are designed for Rt Treduced; a shear lug is required; leveling nut and polyethylene tape on the stretch length; welds demand critical. Rotation capacity ≈ 0.04 rad expected (DG1 6.2).`
+        : t === "braced"
+          ? "Braced-frame base (DG1 6.5): strong base, Chapter 4 force-based design with the E combinations (enter AISC 341 required strengths)."
+          : "Seismic: ACI 318-19 17.10 applied to E combinations; AISC 341-22 D2.6 required strengths are not calculated — enter base reactions that already satisfy AISC 341.",
+  );
+  if (seismicAciOption(i) === "d")
+    out.push(
+      "ACI 17.10.5.3(d) / 17.10.6.3(c): E combinations must include the overstrength factor Ω0 (designer-declared).",
+    );
+  if (i.seismic.exempt20)
+    out.push(
+      "ACI 17.10.3 exemption declared: earthquake share ≤ 20 % of the factored anchor forces, so 17.10.5 / 17.10.6 are not applied (designer to confirm).",
+    );
+  return out;
+}
+
 /** Full analysis of all included combinations. */
 export function analyzeBasePlate(
   raw: BasePlateInput,
@@ -2148,7 +2435,9 @@ export function analyzeBasePlate(
   // ACI 318 has no ASD: anchor checks use α × ASD demand vs φRn (with the
   // LRFD-table option the ACI checks come from `anchorRun` instead).
   const alpha = i.designMethod === "ASD" ? i.asdAlpha : 1;
-  const seismicSdc = ["C", "D", "E", "F"].includes(i.seismic.sdc);
+  // Seismic design only when activated (engine 0.5.0) and SDC C–F.
+  const seismicSdc =
+    i.seismic.active && ["C", "D", "E", "F"].includes(i.seismic.sdc);
   const env: Env = {
     i,
     rods,
@@ -2161,10 +2450,12 @@ export function analyzeBasePlate(
   };
   const sctx = basePlateStiffenerContext(i);
   const combos: ComboResult[] = [];
-  for (const load of i.loads.filter((l) => l.included)) {
+  for (const load of seismicLoads(i)) {
     const P = load.pu;
     const vRes = Math.hypot(load.vx, load.vy) * 1e3;
-    const seismicApplies = seismicSdc && load.seismic;
+    // E combination with seismic design active; ACI 17.10 unless exempt (17.10.3).
+    const earthquake = seismicSdc && load.seismic;
+    const seismicApplies = earthquake && !i.seismic.exempt20;
     // Shear lug: V·e (e = tgrout + hsl/2) adds to the base moment (DG1
     // Ex. 4.7-5; +Vx compresses the +X edge → +My).
     let lugMoment: ComboResult["lugMoment"] = null;
@@ -2229,7 +2520,7 @@ export function analyzeBasePlate(
               );
       const capLimit = 0.75 * Math.min(0.2 * i.pedestal.fc, 5.5) * ac;
       const capF =
-        P > 0 && !seismicApplies
+        P > 0 && !earthquake
           ? Math.min(
               aiscFactors.friction.phi * i.shear.mu * alpha * P * 1e3,
               capLimit,
@@ -2321,6 +2612,11 @@ export function analyzeBasePlate(
         ),
         unstiffenedTp: ps.unstiffenedTp,
       };
+    // Weak base (AISC 341 D2.6c(b), DG1 6.4.2): ductile UT anchor rods.
+    const weakBase =
+      earthquake && i.seismic.baseType === "weak"
+        ? weakBaseCheck(env, ps, alpha)
+        : null;
     combos.push({
       load,
       case: ps.kase,
@@ -2331,7 +2627,9 @@ export function analyzeBasePlate(
       bearingDcr: ps.bearingDcr,
       fp: ps.fp,
       lambdaNp: ps.lambdaNp,
-      tpRequired: ps.tp,
+      // DG1 6.4.2: weak-base E combinations check the plate on the tension
+      // side for the fully yielded rods; the bearing side is reported.
+      tpRequired: weakBase?.applies ? weakBase.tpTension : ps.tp,
       rodTension: tension,
       rodShear,
       shearRods: shearRodIds,
@@ -2341,6 +2639,8 @@ export function analyzeBasePlate(
       friction,
       lug,
       seismicApplies,
+      earthquake,
+      weakBase,
       lugMoment,
       rodAisc,
       biaxial,
@@ -2361,17 +2661,10 @@ export function analyzeBasePlate(
     notes.push(
       "Fewer than 4 anchor rods: OSHA 29 CFR 1926.755 requires at least 4 for erection.",
     );
-  if (seismicSdc && i.seismic.option === "d")
-    notes.push(
-      "ACI 17.10.5.3(d) / 17.10.6.3(c): E combinations must include the overstrength factor Ω0 (designer-declared).",
-    );
-  if (seismicSdc)
-    notes.push(
-      "SDC C–F: AISC 341-22 D2.6 column-base required strengths are not calculated; enter base reactions that already satisfy AISC 341 (e.g. Ω0 or expected-strength demands). ACI 318-19 17.10 is applied to E combinations.",
-    );
+  for (const n of seismicNotes(i, seismicSdc)) notes.push(n);
   if (
     (i.shear.method === "friction" || i.shear.method === "friction-anchors") &&
-    combos.some((c) => c.seismicApplies)
+    combos.some((c) => c.earthquake)
   )
     notes.push(
       "Friction is not relied on in earthquake combinations (DG1 4.3.5, ASCE 7 Ch. 13/15); use anchor rods or a shear lug.",
@@ -2497,6 +2790,11 @@ export const basePlateAciCheckIds = new Set([
   "friction",
   "lug-bearing",
   "lug-breakout",
+  "seismic-weak-scope",
+  "seismic-weak-yield",
+  "seismic-weak-thread",
+  "seismic-weak-stretch",
+  "seismic-weak-concrete",
 ]);
 /**
  * One row per check (governing combination), with the clause basis. Under
@@ -2971,6 +3269,88 @@ function designChecksOf(i: BasePlateInput, r: BasePlateResult): DesignCheck[] {
         clause: "Geometry (engine rule: washer/2 + weld size)",
         detail: `${cl.rod}: ${cl.min.toFixed(1)} mm from the stiffener face vs ${cl.required.toFixed(1)} mm (washer ${i.anchors.washer.size.toFixed(0)}/2 + weld ${s.weldPlate} mm). Check wrench clearance.`,
       });
+  }
+  // Weak base (AISC 341 D2.6c(b), DG1 6.4.2 / Ex. 6.4-1).
+  if (r.combos.some((c) => c.weakBase)) {
+    const wb = <T>(pick: (w: WeakBaseResult) => T, dcr: (t: T) => number) =>
+      governing(
+        cs,
+        (c) => (c.weakBase ? pick(c.weakBase) : null),
+        dcr,
+      );
+    const u = i.seismic.ut;
+    const sc = wb(
+      (w) => w,
+      (w) => (w.applies ? 0 : Infinity),
+    );
+    if (sc)
+      push({
+        id: "seismic-weak-scope",
+        label: "Weak Base – Method Applies",
+        dcr: sc.dcr,
+        invalidLabel: "Outside DG1 6.4.2",
+        clause: basePlateClauses.weakBase(),
+        detail: `${sc.c.load.id}: ${sc.t.scope}.`,
+      });
+    const y = wb(
+      (w) => w,
+      (w) => w.yieldDcr,
+    );
+    if (y)
+      push({
+        id: "seismic-weak-yield",
+        label: "Weak Base – Rod Reduced Section Yields",
+        dcr: y.dcr,
+        clause: basePlateClauses.weakBase(),
+        detail: `${y.c.load.id}: Tu ${kN(y.t.tu)} kN ≤ n φt Fy Ared = ${y.t.n} × 0.90 × ${i.anchors.fy.toFixed(0)} × ${y.t.aReduced.toFixed(0)} = ${kN(y.t.yieldCap)} kN; dreduced ≥ ${y.t.dReq.toFixed(1)} mm (${u.dReduced.toFixed(1)} mm provided).`,
+      });
+    const th = wb(
+      (w) => w,
+      (w) => w.threadDcr,
+    );
+    if (th)
+      push({
+        id: "seismic-weak-thread",
+        label: "Weak Base – Threads Stronger Than Reduced Section",
+        dcr: th.dcr,
+        clause: basePlateClauses.weakBase(),
+        detail: `Treduced = Fu Ared = ${kN(th.t.tReduced)} kN ≤ 0.75 Fu Ase = ${kN(th.t.threadCap)} kN (threaded rod design strength).`,
+      });
+    const sl = wb(
+      (w) => w,
+      (w) => w.stretchDcr,
+    );
+    if (sl)
+      push({
+        id: "seismic-weak-stretch",
+        label: "Weak Base – Stretch Length ≥ f",
+        dcr: sl.dcr,
+        clause: basePlateClauses.weakBase(),
+        detail: `Lstretch ${u.lStretch.toFixed(0)} mm vs f ${sl.t.f.toFixed(0)} mm.`,
+      });
+    const co = wb(
+      (w) => w,
+      (w) => w.concreteDcr,
+    );
+    if (co)
+      push({
+        id: "seismic-weak-concrete",
+        label: "Weak Base – Concrete for Yielded Rods",
+        dcr: co.dcr,
+        clause: basePlateClauses.weakBase(),
+        detail: `${co.c.load.id}: each tension rod at Rt Treduced = ${u.rt} × ${kN(co.t.tReduced)} = ${kN(co.t.rtT)} kN with the 0.75 factor (17.10.5.4): ${co.t.concreteDetail}.`,
+      });
+    push({
+      id: "seismic-weak-lug",
+      label: "Weak Base – Shear Lug Provided",
+      dcr: i.shear.method === "lug" ? 0 : Infinity,
+      invalidLabel: "Shear lug required",
+      clause: basePlateClauses.weakBase(),
+      detail:
+        i.shear.method === "lug"
+          ? "Shear by the lug; the rods are not used for shear (DG1 6.4.2)."
+          : "A weak base needs a shear lug: shear through the rods or friction may strain the yielding rods (DG1 6.4.2).",
+    });
   }
   // Geometry
   push({
