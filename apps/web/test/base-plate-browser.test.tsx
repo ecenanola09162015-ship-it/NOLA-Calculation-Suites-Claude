@@ -1,13 +1,26 @@
 import { describe, expect, it } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { build } from "esbuild";
-import { chromium } from "playwright-core";
+import { chromium, type Page } from "playwright-core";
 
 const CHROME = [
   process.env.CHROMIUM_PATH,
   "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
 ].find((p): p is string => !!p && existsSync(p));
 const shots = process.env.BP_SCREENSHOTS;
+/** Full-page screenshot clipped to an element (sticky panels never settle). */
+async function shotOf(page: Page, selector: string, path: string) {
+  const r = await page.evaluate((sel) => {
+    const b = document.querySelector(sel)!.getBoundingClientRect();
+    return {
+      x: b.x + scrollX,
+      y: b.y + scrollY,
+      width: b.width,
+      height: b.height,
+    };
+  }, selector);
+  await page.screenshot({ path, fullPage: true, clip: r });
+}
 
 describe.skipIf(!CHROME)("base plate workspace in a real browser", () => {
   it("picks a shape, switches anchor type, draws 2D and 3D without errors", async () => {
@@ -54,9 +67,17 @@ describe.skipIf(!CHROME)("base plate workspace in a real browser", () => {
           path: `${shots}/bp-layout.png`,
           fullPage: true,
         });
-      await page.getByRole("button", { name: "Blueprint (screen only)" }).click();
-      if (shots) await page.screenshot({ path: `${shots}/bp-blueprint.png`, fullPage: true });
-      await page.getByRole("button", { name: "Engineering", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Blueprint (screen only)" })
+        .click();
+      if (shots)
+        await page.screenshot({
+          path: `${shots}/bp-blueprint.png`,
+          fullPage: true,
+        });
+      await page
+        .getByRole("button", { name: "Engineering", exact: true })
+        .click();
       // Shape picker: type-ahead and keyboard selection.
       const box = page.getByRole("combobox", { name: "Column shape" });
       await box.fill("hss8x8");
@@ -146,6 +167,110 @@ describe.skipIf(!CHROME)("base plate workspace in a real browser", () => {
           path: `${shots}/bp-calcs.png`,
           fullPage: true,
         });
+      expect(errors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  }, 120000);
+
+  it("adds stiffeners: plan, sections, 3D and calculations", async () => {
+    const out = await build({
+      entryPoints: [
+        new URL("./browser/base-plate-entry.tsx", import.meta.url).pathname,
+      ],
+      bundle: true,
+      write: false,
+      format: "iife",
+      jsx: "automatic",
+      define: { "process.env.NODE_ENV": '"production"' },
+      alias: { "@": new URL("../src", import.meta.url).pathname },
+      logLevel: "silent",
+    });
+    const css = readFileSync(
+      new URL("../src/app/globals.css", import.meta.url),
+      "utf8",
+    );
+    const browser = await chromium.launch({
+      executablePath: CHROME,
+      args: [
+        "--no-sandbox",
+        "--use-gl=angle",
+        "--use-angle=swiftshader",
+        "--enable-unsafe-swiftshader",
+      ],
+    });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 1440, height: 1000 },
+      });
+      const errors: string[] = [];
+      page.on("pageerror", (e) => errors.push(e.message));
+      page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
+      await page.setContent(
+        `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+      );
+      await page.addScriptTag({ content: out.outputFiles[0]!.text });
+      await page.waitForSelector(".bpDrawing svg");
+      const group = page.getByRole("radiogroup", { name: "Stiffener layout" });
+      expect(await group.getByRole("radio").count()).toBe(5);
+      await group
+        .getByRole("radio", { name: /Cross — web-line \+ web-side/ })
+        .click();
+      await page.waitForFunction(() =>
+        document.querySelector(".bpDrawing")?.textContent?.includes("S4"),
+      );
+      await page.getByLabel("Height at column hc").fill("220");
+      await page.waitForFunction(() =>
+        document.body.textContent?.includes("S1 16 × 220/100"),
+      );
+      if (shots) {
+        await shotOf(page, ".bpStiffeners", `${shots}/bp-stiff-inputs.png`);
+        await page.screenshot({
+          path: `${shots}/bp-stiff-layout.png`,
+          fullPage: true,
+        });
+      }
+      await page.getByRole("tab", { name: "3D view with loads" }).click();
+      await page.waitForSelector(".slab3dCanvas canvas", { timeout: 20000 });
+      await page.waitForTimeout(600);
+      await page
+        .getByRole("button", { name: "Isometric", exact: true })
+        .click();
+      await page.waitForTimeout(300);
+      if (shots)
+        await page.screenshot({
+          path: `${shots}/bp-stiff-3d.png`,
+          fullPage: true,
+        });
+      await page.getByRole("tab", { name: "Calculations & loads" }).click();
+      expect(await page.getByText("Stiffened plate").count()).toBeGreaterThan(
+        0,
+      );
+      expect(
+        await page.getByText("Stiffener-to-Column Weld").count(),
+      ).toBeGreaterThan(0);
+      if (shots)
+        await page.screenshot({
+          path: `${shots}/bp-stiff-calcs.png`,
+          fullPage: true,
+        });
+      await page.getByRole("tab", { name: "Plan & sections" }).click();
+      // Switching to an HSS column resets the layout to none.
+      const box = page.getByRole("combobox", { name: "Column shape" });
+      await box.fill("hss8x8");
+      await page.waitForSelector('[role="option"]');
+      await box.press("Enter");
+      await page.waitForFunction(() =>
+        document.querySelector(".bpDrawing")?.textContent?.includes("HSS8X8"),
+      );
+      expect(
+        await group.getByRole("radio", { checked: true }).textContent(),
+      ).toContain("None");
+      await group.getByRole("radio", { name: /Mid-side/ }).click();
+      await page.waitForFunction(() =>
+        document.querySelector(".bpDrawing")?.textContent?.includes("S4"),
+      );
+      if (shots) await shotOf(page, ".bpDrawings", `${shots}/bp-stiff-hss.png`);
       expect(errors).toEqual([]);
     } finally {
       await browser.close();

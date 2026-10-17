@@ -5,6 +5,7 @@
 import {
   basePlateColumnDims,
   basePlateRods,
+  basePlateStiffening,
   heavyHexAcrossFlats,
   isCastIn,
   type BasePlateInput,
@@ -62,6 +63,14 @@ export interface BasePlate3DModel {
   nuts: { x: number; y: number; z0: number; z1: number; f: number }[];
   rods: Rod3[];
   lug: Box3[];
+  /** Stiffener plates: profile (signed along u, height z) extruded by t. */
+  stiffeners: {
+    id: string;
+    axis: "x" | "y";
+    pos: number;
+    t: number;
+    profile: [number, number][];
+  }[];
   cones: {
     x0: number;
     x1: number;
@@ -148,7 +157,11 @@ export function buildBasePlate3DModel(
   const zPlate0 = mm(g),
     zPlate1 = mm(g + i.plate.tp);
   const dims = basePlateColumnDims(i);
-  const stub = Math.min(Math.max(1.2 * Math.max(dims.x, dims.y), 350), 700);
+  const st = basePlateStiffening(i);
+  const stub = Math.max(
+    Math.min(Math.max(1.2 * Math.max(dims.x, dims.y), 350), 700),
+    st ? i.stiffeners.hc + 120 : 0,
+  );
   const F = heavyHexAcrossFlats(a.da);
   const nutH = 0.9 * a.da;
   const head: Rod3["head"] =
@@ -252,6 +265,28 @@ export function buildBasePlate3DModel(
       });
   }
   const outline = columnOutline(i);
+  const stiffeners = (st?.plates ?? []).map((pl) => {
+    const s = i.stiffeners;
+    const u = (v: number) => mm(pl.side * v);
+    const pts: [number, number][] = [
+      [u(pl.root + s.clip), zPlate1],
+      [u(pl.tip), zPlate1],
+      [u(pl.tip), zPlate1 + mm(s.he)],
+      [u(pl.root), zPlate1 + mm(s.hc)],
+      [u(pl.root), zPlate1 + mm(s.clip)],
+    ];
+    return {
+      id: pl.id,
+      axis: pl.axis,
+      pos: mm(pl.pos),
+      t: mm(s.t),
+      profile: pts.filter(
+        (q, k) =>
+          k === 0 ||
+          Math.hypot(q[0] - pts[k - 1]![0], q[1] - pts[k - 1]![1]) > 1e-6,
+      ),
+    };
+  });
   return {
     extent: ext,
     pedestal: {
@@ -327,6 +362,7 @@ export function buildBasePlate3DModel(
       hook: mm(a.eh),
     })),
     lug,
+    stiffeners,
     cones,
     arrows,
     moments,

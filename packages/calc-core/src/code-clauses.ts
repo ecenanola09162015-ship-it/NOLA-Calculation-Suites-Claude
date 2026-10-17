@@ -214,4 +214,15 @@ export const basePlateClauses = {
     `${aisc("F11 plastic moment of plate, φb = 0.90 / Ωb = 1.67")}; ${dg1("4.5 shear lug")}`,
   holes: () =>
     "AISC Manual 16th Ed. Table 14-2; AISC FAQ 7.2.3 (½ in clear to plate edge)",
+  stiffenedPlate: () =>
+    `Yield-line / strip panels on the ${dg1("4.3 critical lines")} (stiffened bases outside DG1 scope, Sec. 3.1); ${dg1("Ex. 4.7-7 tension, 45°")}; ${aisc("φb = 0.90 / Ωb = 1.67")}`,
+  stiffenerFlexure: () =>
+    aisc("F11 rectangular bar (LTB, Cb 1.0) or F9 tee", "φb = 0.90 / Ωb = 1.67"),
+  stiffenerShear: () => aisc("J4.2(a) shear yielding, φ = 1.00 / Ω = 1.50"),
+  stiffenerSlenderness: () =>
+    aisc("Table B4.1a case 1 limit 0.56√(E/Fy) applied to hc/ts (engine rule)"),
+  stiffenerWeld: () =>
+    `${aisc("J2.4, kds Eq. J2-5")}; ${dg1("Ex. 4.7-7")}`,
+  stiffenerColumn: () =>
+    aisc("J10.2 web local yielding, J10.3 web crippling (member end)"),
 } as const;

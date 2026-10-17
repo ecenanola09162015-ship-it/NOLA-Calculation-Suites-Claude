@@ -7,6 +7,7 @@ import {
   basePlateColumnDims,
   basePlateColumnRects,
   basePlateRods,
+  basePlateStiffening,
   heavyHexAcrossFlats,
   isCastIn,
   type BasePlateInput,
@@ -74,6 +75,7 @@ export function applyDrawingStyle(svg: string, style: BasePlateDrawingStyle) {
 const W = { heavy: 1.6, medium: 1.0, light: 0.6 };
 const esc = (s: string) =>
   s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+const nn = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1));
 const n1 = (v: number) => (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1));
 const T = (
   x: number,
@@ -288,6 +290,32 @@ export function basePlatePlanSvg(
         C.weld,
         1.2,
       );
+  // Stiffeners (top view: ts × length, fillets both sides).
+  const st = basePlateStiffening(i);
+  for (const pl of st?.plates ?? []) {
+    const t = i.stiffeners.t;
+    const [x0, x1, y0, y1] =
+      pl.axis === "x"
+        ? [pl.side * pl.root, pl.side * pl.tip, pl.pos - t / 2, pl.pos + t / 2]
+        : [pl.pos - t / 2, pl.pos + t / 2, pl.side * pl.root, pl.side * pl.tip];
+    b += R(
+      X(Math.min(x0, x1)),
+      Y(Math.max(y0, y1)),
+      Math.abs(x1 - x0) * s,
+      Math.abs(y1 - y0) * s,
+      C.steel,
+      C.weld,
+      1.2,
+    );
+    const lx = pl.axis === "x" ? (x0 + x1) / 2 : x1,
+      ly = pl.axis === "x" ? y1 : (y0 + y1) / 2;
+    b += T(X(lx) + (pl.axis === "y" ? 3 : 0), Y(ly) - 3, pl.id, {
+      size: 7,
+      anchor: pl.axis === "y" ? "start" : "middle",
+      fill: C.steel,
+      bold: true,
+    });
+  }
   // Rods, holes, washers.
   rods.forEach((r, k) => {
     const t = combo?.rodTension[k] ?? 0;
@@ -409,7 +437,11 @@ export function basePlateSectionSvg(
   const P = along === "y" ? p.py : p.px;
   const dims = basePlateColumnDims(i);
   const colW = along === "y" ? dims.y : dims.x;
-  const stub = Math.min(Math.max(colW * 0.9, 220), 450);
+  const st = basePlateStiffening(i);
+  const stub = Math.max(
+    Math.min(Math.max(colW * 0.9, 220), 450),
+    st ? i.stiffeners.hc + 60 : 0,
+  );
   const below = Math.min(a.hef + 120, p.height);
   const totalH =
     stub + a.washer.thickness + i.plate.tp + i.grout.thickness + below;
@@ -512,6 +544,27 @@ export function basePlateSectionSvg(
     b +=
       R(X(-colW / 2), top, t * s, stub * s, C.steel) +
       R(X(colW / 2 - t), top, t * s, stub * s, C.steel);
+  }
+  // Stiffeners in the plane of the section (cut: hatched) or beyond it.
+  for (const pl of st?.plates ?? []) {
+    if (pl.axis !== along) continue;
+    const sf = i.stiffeners;
+    const u = (v: number) => X(pl.side * v);
+    const z = (hgt: number) => zPlateTop - hgt * s;
+    const cutHere = Math.abs(pl.pos) <= sf.t / 2 + 1e-6;
+    b += `<path d="M${u(pl.root + sf.clip).toFixed(1)},${z(0).toFixed(1)} L${u(pl.tip).toFixed(1)},${z(0).toFixed(1)} L${u(pl.tip).toFixed(1)},${z(sf.he).toFixed(1)} L${u(pl.root).toFixed(1)},${z(sf.hc).toFixed(1)} L${u(pl.root).toFixed(1)},${z(sf.clip).toFixed(1)} Z" fill="${cutHere ? "url(#bpSteelCut)" : C.hssFace}" stroke="${C.steel}" stroke-width="${cutHere ? W.heavy : W.light}"${cutHere ? "" : ' stroke-dasharray="3 2"'}/>`;
+    if (cutHere && pl.side > 0)
+      b += T(
+        u(pl.tip) + 3,
+        z(sf.he) - 5,
+        `${pl.id} ${nn(sf.t)} × ${nn(sf.hc)}/${nn(sf.he)}`,
+        {
+          size: 7.5,
+          anchor: "start",
+          fill: C.steel,
+          bold: true,
+        },
+      );
   }
   const wl = Math.max(i.weld.size * s, 2);
   b += `<path d="M${X(-colW / 2)},${zPlateTop} l${-wl},0 l${wl},${-wl} z M${X(colW / 2)},${zPlateTop} l${wl},0 l${-wl},${-wl} z" fill="${C.weld}"/>`;

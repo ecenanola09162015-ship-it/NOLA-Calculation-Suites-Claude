@@ -24,6 +24,11 @@ export const aiscFactors = {
   weld: { phi: 0.75, omega: 2.0, source: "AISC 360-22 J2.4" },
   /** Friction between plate and grout (DG1 4.5). */
   friction: { phi: 0.75, omega: 2.0, source: "AISC DG1 3rd Ed. 4.5" },
+  /** Shear yielding of connecting elements (stiffeners, lugs). */
+  elementShear: { phi: 1.0, omega: 1.5, source: "AISC 360-22 J4.2(a)" },
+  /** Web local yielding / crippling under concentrated forces. */
+  webYielding: { phi: 1.0, omega: 1.5, source: "AISC 360-22 J10.2" },
+  webCrippling: { phi: 0.75, omega: 2.0, source: "AISC 360-22 J10.3" },
   /** Shear yielding (G2.1) — for later modules. */
   shearYield: { phi: 1.0, omega: 1.5, source: "AISC 360-22 G2.1(a)" },
   /** Compression / flexure members (E1, F1) — for later modules. */

@@ -8,6 +8,7 @@ import {
   designCheckStatus,
   futaUsed,
   getRodSpec,
+  stiffenerLayoutInfo,
   suggestPlateThickness,
   type BasePlateInput,
   type BasePlateResult,
@@ -57,7 +58,7 @@ const kindLabel: Record<string, string> = {
 };
 
 export const basePlateLimitations = [
-  "Exposed base plate with a rigid-plate, uniform bearing stress block (AISC DG1 3rd Ed. Ch. 4). Embedded and blockout bases, stiffened plates and plate flexibility are not covered.",
+  "Exposed base plate with a rigid-plate, uniform bearing stress block (AISC DG1 3rd Ed. Ch. 4). Embedded and blockout bases and plate flexibility are not covered. Stiffened plates (engine 0.3.0) are outside the DG1 scope: yield-line or strip panels on the DG1 critical lines, DG1 Ex. 4.7-7 tension side, stiffener checked as a cantilever bracket; HSS-wall and flange-tip local checks are not calculated.",
   "Biaxial large-moment cases use DG1 per-axis analysis with full Pu and superposed rod tension (conservative); verify against the DG1 3rd Ed. biaxial procedure.",
   "Concrete breakout in shear parallel to an edge (17.7.2.1(c)) and edge-reinforcement ψc,V = 1.2 are not evaluated.",
   "Pedestal reinforcement, column stability and erection loads are not designed. Supplementary reinforcement is an input (Condition A/B), not detailed.",
@@ -95,6 +96,7 @@ export function basePlateReportData(
         ),
     ],
     ["Shear Transfer", (id) => /friction|lug/.test(id)],
+    ["Stiffeners", (id) => id.startsWith("stiffener-")],
     ["Geometry", (id) => id.startsWith("geo-")],
   ];
   const summary = [
@@ -119,6 +121,14 @@ export function basePlateReportData(
         "Weld",
         `${f(i.weld.size, 0)} mm fillet all around, FEXX ${f(i.weld.fexx, 0)} MPa`,
       ],
+      ...(i.stiffeners.layout !== "none"
+        ? [
+            [
+              "Stiffeners",
+              `${stiffenerLayoutInfo[i.stiffeners.layout].label}; ${f(i.stiffeners.t, 0)} mm thick, hc ${f(i.stiffeners.hc, 0)} / he ${f(i.stiffeners.he, 0)} mm, snip ${f(i.stiffeners.clip, 0)} mm, Fy ${f(i.stiffeners.fy, 0)} MPa; fillets ${f(i.stiffeners.weldColumn, 0)} mm to column, ${f(i.stiffeners.weldPlate, 0)} mm to plate (both sides); ${i.stiffeners.section === "tee" ? "tee section" : "stiffener alone"}; plate panels by ${i.stiffeners.plateMethod === "strip" ? "strip method" : "yield-line"}`,
+            ] as (string | Cell)[],
+          ]
+        : []),
     ]),
     section("Anchor Rods", [
       [

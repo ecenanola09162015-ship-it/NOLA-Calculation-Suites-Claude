@@ -32,6 +32,7 @@ import {
   type BasePlateInput,
   type BasePlateLoad,
   type DesignRemarks,
+  stiffenerLayoutInfo,
 } from "@nola/calc-core";
 import type { CalculationDraftRecord, ProjectRecord } from "@/lib/projects";
 import {
@@ -50,6 +51,7 @@ import {
 import { ConcreteStrengthFields } from "./concrete-strength-fields";
 import { BasePlateCodeFields } from "./base-plate-code-fields";
 import { BasePlateColumnFields } from "./base-plate-column-fields";
+import { BasePlateStiffenerFields } from "./base-plate-stiffener-fields";
 
 // three.js is only downloaded when the 3D tab is opened (client-only).
 const BasePlate3DView = dynamic(() => import("./base-plate-3d-view"), {
@@ -557,7 +559,18 @@ export function BasePlateWorkspace({
           <h3 className="rcSubhead">Column Section</h3>
           <BasePlateColumnFields
             column={input.column}
-            onChange={(column) => update({ ...input, column })}
+            onChange={(column) =>
+              update({
+                ...input,
+                column,
+                // A layout that does not suit the new family resets to none.
+                stiffeners: stiffenerLayoutInfo[
+                  input.stiffeners.layout
+                ].families.includes(column.family)
+                  ? input.stiffeners
+                  : { ...input.stiffeners, layout: "none" },
+              })
+            }
           />
           <div className="slabFieldGrid">
             <label className="slabNumeric">
@@ -632,6 +645,11 @@ export function BasePlateWorkspace({
               onChange={(v) => set("grout", { thickness: v })}
             />
           </div>
+          <h3 className="rcSubhead">Stiffeners</h3>
+          <BasePlateStiffenerFields
+            input={input}
+            onChange={(stiffeners) => update({ ...input, stiffeners })}
+          />
           <h3 className="rcSubhead">Pedestal (concentric with the plate)</h3>
           <div className="slabFieldGrid">
             <Numeric

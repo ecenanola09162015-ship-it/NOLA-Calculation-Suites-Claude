@@ -79,7 +79,13 @@ export function basePlateSteps(
         `(f + N/2)² < 2Pu(e + f)/qmax: no real solution — increase the plate or the rod lever arm.`,
         basePlateClauses.bearing(),
       ]);
-    if (Number.isFinite(a.tpBearing))
+    if (Number.isFinite(a.tpBearing) && c.stiffener)
+      s.push([
+        `Plate, bearing interface ${ax}`,
+        `Stiffened: max(DG1 cantilever of the unstiffened zones${a.case === "axial" ? " and λn′" : ""}, stiffened panels below) → tp,req = ${f(a.tpBearing, 2)} mm`,
+        basePlateClauses.stiffenedPlate(),
+      ]);
+    else if (Number.isFinite(a.tpBearing))
       s.push([
         `Plate, bearing interface ${ax}`,
         a.case === "axial"
@@ -87,11 +93,36 @@ export function basePlateSteps(
           : `ℓ = max(m, n) = ${f(Math.max(a.m, a.nCant), 1)} mm; Mpl = ${a.y >= Math.max(a.m, a.nCant) ? "fp ℓ²/2" : "fp Y (ℓ − Y/2)"}; tp,req = √(4Mpl/(${lrfd ? "0.90 Fy" : "Fy/1.67"})) = ${f(a.tpBearing, 2)} mm`,
         basePlateClauses.plate(),
       ]);
-    if (a.tpTension > 0)
+    if (a.tpTension > 0 && !c.stiffener)
       s.push([
         `Plate, tension interface ${ax}`,
         `x = f − dcol/2 + tf/2 = ${f(a.x, 1)} mm; beff = ${f(a.beff, 0)} mm (45° from each rod); tp,req = √(4 T x/(${lrfd ? "0.90 Fy" : "Fy/1.67"} beff)) = ${f(a.tpTension, 2)} mm`,
         basePlateClauses.plate(),
+      ]);
+  }
+  const sc = c.stiffener;
+  const fb = lrfd ? "0.90 Fy" : "Fy/1.67";
+  if (sc) {
+    const sf = i.stiffeners;
+    s.push([
+      "Stiffened plate",
+      `${sf.plateMethod === "strip" ? "Hillerborg strip method (45° to the nearest support)" : `Yield-line panels (fixed supports m′ = m) × ${1.1} corner allowance, ≤ unstiffened cantilever`}; unstiffened zones${c.case === "axial" ? " and λn′" : ""}: tp,req = ${f(sc.unstiffenedTp, 2)} mm`,
+      basePlateClauses.stiffenedPlate(),
+    ]);
+    const panels = [...sc.panels].sort((p, q) => q.tpReq - p.tpReq).slice(0, 4);
+    for (const p of panels)
+      s.push([
+        `Panel ${p.id} (${p.type})`,
+        `a = ${f(p.a, 1)}, b = ${f(p.b, 1)} mm, fp = ${f(p.fp, 3)} MPa; ${p.mechanism}; m = ${f(p.mReq, 0)} N·mm/mm; tp,req = √(4m/(${fb})) = ${f(p.tpReq, 2)} mm`,
+        basePlateClauses.stiffenedPlate(),
+      ]);
+    for (const g of [...sc.tension]
+      .sort((p, q) => q.tpReq - p.tpReq)
+      .slice(0, 4))
+      s.push([
+        `Plate at rods ${g.rods.join(", ")} → ${g.support === "column" ? "column face" : g.support}`,
+        `a = ${g.levers.map((v) => f(v, 1)).join(", ")} mm; beff = ${f(g.beff, 0)} mm (45°, clipped to the support); m = ΣT·a/beff = ${f(g.m, 0)} N·mm/mm; tp,req = ${f(g.tpReq, 2)} mm`,
+        basePlateClauses.stiffenedPlate(),
       ]);
   }
   s.push([
@@ -173,6 +204,40 @@ export function basePlateSteps(
     `fN = −Pu/Lw + Mx·ymax/Ix + My·xmax/Iy = ${f(c.weld.fN, 0)} N/mm; fV = V/Lw = ${f(c.weld.fV, 0)} N/mm; f = ${f(c.weld.f, 0)} N/mm vs ${lrfd ? "φRn" : "Rn/Ω"} = ${fac(0.75, 2.0)} × 0.6 × ${i.weld.fexx} × 0.707 × ${i.weld.size} = ${f(c.weld.capacity, 0)} N/mm → DCR ${f(c.weld.dcr, 3)}`,
     basePlateClauses.weld(),
   ]);
+  if (sc) {
+    const groups = new Map<string, (typeof sc.members)[number]>();
+    for (const m of sc.members) {
+      const worst = (x: typeof m) =>
+        Math.max(
+          x.flexure.dcr,
+          x.shear.dcr,
+          x.weldColumn.dcr,
+          x.weldPlate.dcr,
+          x.column?.dcr ?? 0,
+        );
+      const g = groups.get(m.group);
+      if (!g || worst(m) > worst(g)) groups.set(m.group, m);
+    }
+    const sf = i.stiffeners;
+    for (const m of groups.values()) {
+      s.push([
+        `Stiffener ${m.id} (${m.group})`,
+        `${sf.t} × ${sf.hc}/${sf.he} mm, Fy ${sf.fy}; ${m.kind} at the root: V = ${kN(m.vRoot)} kN, M = ${f(m.mRoot / 1e6, 2)} kN·m; flexure at ${f(m.flexure.xi, 0)} mm (h ${f(m.flexure.h, 0)}): Mu ${f(m.flexure.mu / 1e6, 2)} vs ${f(m.flexure.phiMn / 1e6, 2)} kN·m (${m.flexure.basis || "—"}) → DCR ${f(m.flexure.dcr, 3)}; shear ${kN(m.shear.vu)} vs ${kN(m.shear.phiVn)} kN → DCR ${f(m.shear.dcr, 3)}`,
+        `${basePlateClauses.stiffenerFlexure()}; ${basePlateClauses.stiffenerShear()}`,
+      ]);
+      s.push([
+        `Stiffener ${m.id} welds`,
+        `To column: √((V/2Lw)² + (6M/2Lw²)²) = ${f(m.weldColumn.f, 0)} vs ${f(m.weldColumn.capacity, 0)} N/mm (Lw ${f(m.weldColumn.length, 0)}) → DCR ${f(m.weldColumn.dcr, 3)}; to plate: ${f(m.weldPlate.f, 0)} vs ${f(m.weldPlate.capacity, 0)} N/mm → DCR ${f(m.weldPlate.dcr, 3)}`,
+        basePlateClauses.stiffenerWeld(),
+      ]);
+      if (m.column)
+        s.push([
+          `Column web at ${m.id}`,
+          `H = 1.5M/Lw = ${kN(m.column.h)} kN, lb = ${f(m.column.lb, 0)} mm; web yielding ${kN(m.column.phiRnWly)} kN, crippling ${kN(m.column.phiRnWcr)} kN → DCR ${f(m.column.dcr, 3)}`,
+          basePlateClauses.stiffenerColumn(),
+        ]);
+    }
+  }
   if (an.ductility)
     s.push([
       "Seismic ductility (17.10.5.3(a))",

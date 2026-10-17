@@ -1,5 +1,5 @@
 /**
- * Steel column base plate & anchor rod design (engine base-plate-0.1.0).
+ * Steel column base plate & anchor rod design (engine base-plate-0.3.0).
  *
  * Basis: AISC 360-22 J8 (bearing), J2 (welds), J9 (anchor rods → ACI 318);
  * AISC Design Guide 1, 3rd Ed. (2024) Ch. 4 exposed base plates (uniform
@@ -61,8 +61,26 @@ import {
   type PostInstalledProduct,
   type ShearBreakout,
 } from "./base-plate-anchors";
+import {
+  basePlateStiffenerSchema,
+  buildStiffening,
+  defaultStiffenerInput,
+  memberCheck,
+  panelBearing,
+  stiffenerBearingLoad,
+  stiffenerLayoutInfo,
+  stiffenerRodClearance,
+  stiffenerSlenderness,
+  tensionLine,
+  type PanelResult,
+  type PlateRect,
+  type StiffenerContext,
+  type StiffenerMemberResult,
+  type Stiffening,
+  type TensionGroup,
+} from "./base-plate-stiffeners";
 
-export const BASE_PLATE_ENGINE = "base-plate-0.2.0";
+export const BASE_PLATE_ENGINE = "base-plate-0.3.0";
 
 export const columnFamilies = ["I", "HSS-RECT", "HSS-ROUND"] as const;
 /** User-defined column sections and the engine family each maps to. */
@@ -265,6 +283,8 @@ const basePlateInputObject = z
       }),
     }),
     weld: z.object({ size: pos, fexx: pos }),
+    /** Plate stiffeners (engine 0.3.0); older drafts open unstiffened. */
+    stiffeners: basePlateStiffenerSchema.default(defaultStiffenerInput),
     seismic: z.object({
       sdc: z.enum(["A", "B", "C", "D", "E", "F"]),
       option: z.enum(["a", "d"]),
@@ -289,6 +309,13 @@ const basePlateInputObject = z
         );
     } else if (!(2 * c.tf < c.d))
       bad("Column: wall thickness t must be less than OD/2.");
+    const lay = i.stiffeners.layout;
+    if (!stiffenerLayoutInfo[lay].families.includes(c.family))
+      ctx.addIssue({
+        code: "custom",
+        path: ["stiffeners", "layout"],
+        message: `Stiffener layout "${stiffenerLayoutInfo[lay].label}" does not suit a ${c.family} column.`,
+      });
   })
   .refine(
     (i) => new Set(i.loads.map((l) => l.id)).size === i.loads.length,
@@ -507,6 +534,7 @@ export function defaultBasePlateInput(): BasePlateInput {
       },
     },
     weld: { size: 8, fexx: 482 },
+    stiffeners: defaultStiffenerInput(),
     seismic: { sdc: "A", option: "d", stretchLength: 0 },
     loads: [
       {
@@ -633,6 +661,37 @@ export function basePlateColumnRects(
       : R(c.bf, c.tf, 0, s * (c.d / 2 - c.tf / 2));
   const web = rot ? R(c.d - 2 * c.tf, c.tw) : R(c.tw, c.d - 2 * c.tf);
   return [flange(-1), flange(1), web];
+}
+
+/** Geometry and materials passed to the stiffener engine. */
+export function basePlateStiffenerContext(i: BasePlateInput): StiffenerContext {
+  const dims = basePlateColumnDims(i);
+  const c = i.column;
+  return {
+    bx: i.plate.bx,
+    by: i.plate.by,
+    tp: i.plate.tp,
+    plateFy: i.plate.fy,
+    family: c.family,
+    d: c.d,
+    bf: c.bf,
+    tf: c.tf,
+    tw: c.tw,
+    columnFy: c.fy,
+    flangesFaceY: dims.flangesFaceY,
+    colX: dims.x,
+    colY: dims.y,
+    kx: dims.kx,
+    ky: dims.ky,
+    method: i.designMethod,
+    fexx: i.weld.fexx,
+    washer: i.anchors.washer.size,
+  };
+}
+/** Stiffener plates, zones and panels (null when unstiffened). */
+export function basePlateStiffening(i: BasePlateInput): Stiffening | null {
+  if (i.stiffeners.layout === "none") return null;
+  return buildStiffening(basePlateStiffenerContext(i), i.stiffeners);
 }
 
 /* ------------------------------------------------------------------ */
@@ -890,6 +949,15 @@ export interface ComboResult {
   friction: { capacity: number; dcr: number } | null;
   lug: LugCheck | null;
   seismicApplies: boolean;
+  /** Stiffened plate: panels, tension supports and stiffener members. */
+  stiffener: ComboStiffener | null;
+}
+export interface ComboStiffener {
+  panels: PanelResult[];
+  tension: TensionGroup[];
+  members: StiffenerMemberResult[];
+  /** DG1 cantilever requirement of the unstiffened zones (and λn′), mm. */
+  unstiffenedTp: number;
 }
 
 export interface AnchorChecks {
@@ -1246,6 +1314,8 @@ export interface BasePlateResult {
   };
   rods: Rod[];
   bearing: BearingCapacity;
+  /** Stiffener geometry (null when unstiffened). */
+  stiffening: Stiffening | null;
   combos: ComboResult[];
   geometry: GeometryResult;
   governing: {
@@ -1338,6 +1408,29 @@ export function basePlateGeometry(
   };
 }
 
+/** Uniform bearing block of one DG1 axis analysis (plate coordinates). */
+function bearingRegion(i: BasePlateInput, a: AxisAnalysis): PlateRect {
+  const hx = i.plate.bx / 2,
+    hy = i.plate.by / 2;
+  const full = { x0: -hx, x1: hx, y0: -hy, y1: hy };
+  if (a.case === "axial" || !(a.y > 0)) return full;
+  const y = Math.min(a.y, a.n);
+  if (a.axis === "y")
+    return a.sign > 0 ? { ...full, y0: hy - y } : { ...full, y1: -hy + y };
+  return a.sign > 0 ? { ...full, x0: hx - y } : { ...full, x1: -hx + y };
+}
+/** Biaxial small eccentricity: (Bx − 2|ex|)(By − 2|ey|) at the resultant. */
+function meyerhofRect(i: BasePlateInput, ex: number, ey: number): PlateRect {
+  const hx = i.plate.bx / 2,
+    hy = i.plate.by / 2;
+  return {
+    x0: ex >= 0 ? 2 * ex - hx : -hx,
+    x1: ex >= 0 ? hx : hx + 2 * ex,
+    y0: ey >= 0 ? 2 * ey - hy : -hy,
+    y1: ey >= 0 ? hy : hy + 2 * ey,
+  };
+}
+
 /** Full analysis of all included combinations. */
 export function analyzeBasePlate(
   raw: BasePlateInput,
@@ -1346,6 +1439,7 @@ export function analyzeBasePlate(
   const i = basePlateInputSchema.parse(raw);
   const rods = basePlateRods(i);
   const cap = basePlateBearing(i);
+  const st = basePlateStiffening(i);
   const notes: string[] = [];
   const nRods = rods.length;
   const sumX2 = rods.reduce((s, r) => s + r.x * r.x, 0),
@@ -1378,6 +1472,7 @@ export function analyzeBasePlate(
     const lam = dg1LambdaNp(i, P, cap);
     const ex = P > 0 ? (load.my * 1e6) / (P * 1e3) : 0;
     const ey = P > 0 ? (load.mx * 1e6) / (P * 1e3) : 0;
+    const stiffTension: TensionGroup[] = [];
     if (P <= 0) {
       kase = "uplift";
       method =
@@ -1411,8 +1506,26 @@ export function analyzeBasePlate(
             .map((r, k) => (Math.abs(coord(r) - ext) < 1e-6 ? k : -1))
             .filter((k) => k >= 0);
           const t = idx.reduce((s, k) => s + tension[k]!, 0);
+          if (st) {
+            // Stiffened: each rod to its nearest support (DG1 Ex. 4.7-7).
+            const res = tensionLine(
+              st,
+              axis,
+              idx.map((k) => ({ ...rods[k]!, t: tension[k]! })),
+              a.x,
+              a.b,
+              i.plate.fy,
+              plateFactor(i),
+            );
+            tp = Math.max(tp, res.tp);
+            stiffTension.push(...res.groups);
+            continue;
+          }
+          // 45° widths of the rods in tension only (engine 0.3.0 fix).
           const beff = effectiveWidth(
-            idx.map((k) => (axis === "y" ? rods[k]!.x : rods[k]!.y)),
+            idx
+              .filter((k) => tension[k]! > 0)
+              .map((k) => (axis === "y" ? rods[k]!.x : rods[k]!.y)),
             a.x,
             a.b,
           );
@@ -1528,6 +1641,74 @@ export function analyzeBasePlate(
         }
       }
     }
+    // Stiffened plate: panels replace the DG1 cantilever in stiffened zones.
+    let stiffener: ComboStiffener | null = null;
+    if (st) {
+      const fb = plateFactor(i);
+      const panels = new Map<string, PanelResult>();
+      const bearingCases: { region: PlateRect; fp: number }[] = [];
+      let unstiffenedTp = 0;
+      if (P > 0 && kase !== "no-solution") {
+        const lU = Math.max(
+          0,
+          ...st.zones.filter((z) => !z.stiffened).map((z) => z.depth),
+        );
+        for (const a of axes) {
+          const region =
+            a.case === "biaxial-small"
+              ? meyerhofRect(i, ex, ey)
+              : bearingRegion(i, a);
+          const l = a.case === "axial" ? Math.max(lU, lam.lambdaNp) : lU;
+          const yA = a.case === "axial" ? a.n : a.y;
+          const tpU =
+            l > 0 ? tpFromMpl(bearingMpl(a.fp, yA, l), i.plate.fy, fb) : 0;
+          unstiffenedTp = Math.max(unstiffenedTp, tpU);
+          const pr = panelBearing(st, region, a.fp, i.plate.fy, fb);
+          for (const p of pr)
+            if ((panels.get(p.id)?.tpReq ?? -1) < p.tpReq) panels.set(p.id, p);
+          bearingCases.push({ region, fp: a.fp });
+          a.tpBearing = Math.max(tpU, ...pr.map((p) => p.tpReq));
+          if (a.case === "large" && a.tensionRods.length) {
+            const per = a.tu / a.tensionRods.length;
+            const res = tensionLine(
+              st,
+              a.axis,
+              a.tensionRods.map((id) => ({
+                ...rods.find((r) => r.id === id)!,
+                t: per,
+              })),
+              a.x,
+              a.b,
+              i.plate.fy,
+              fb,
+            );
+            a.tpTension = res.tp;
+            stiffTension.push(...res.groups);
+          }
+        }
+        tp = Math.max(...axes.map((a) => Math.max(a.tpBearing, a.tpTension)));
+      }
+      const sctx = basePlateStiffenerContext(i);
+      const members = st.plates.map((p) =>
+        memberCheck(
+          sctx,
+          st,
+          p,
+          bearingCases
+            .map((b) => stiffenerBearingLoad(p, st.input.t, b.region, b.fp))
+            .filter((b) => b !== null),
+          stiffTension
+            .filter((g) => g.support === p.id)
+            .map((g) => ({ t: g.tensions, xi: g.xi, beff: g.beff })),
+        ),
+      );
+      stiffener = {
+        panels: [...panels.values()],
+        tension: stiffTension,
+        members,
+        unstiffenedTp,
+      };
+    }
     const vRes = Math.hypot(load.vx, load.vy) * 1e3;
     const seismicApplies = seismicSdc && load.seismic;
     // Friction (DG1): φ = 0.75, μ Pu, compression only; not relied on for E combinations.
@@ -1612,6 +1793,7 @@ export function analyzeBasePlate(
       friction,
       lug,
       seismicApplies,
+      stiffener,
     });
   }
   const gov = combos.reduce(
@@ -1651,6 +1833,20 @@ export function analyzeBasePlate(
     notes.push(
       "Concrete and steel primary design codes differ (one is NSCP 2015); confirm the project's code basis.",
     );
+  if (st) {
+    notes.push(
+      `Stiffened base (${stiffenerLayoutInfo[st.input.layout].label}): outside the AISC DG1 3rd Ed. scope (Sec. 3.1). Stiffened zones: ${st.input.plateMethod === "strip" ? "Hillerborg strip method (lower bound)" : "yield-line panels (upper bound, ×1.10 corner allowance, not above the unstiffened cantilever)"} with the DG1 critical lines as supported back edges; unstiffened zones and λn′ per DG1. Tension side per DG1 Ex. 4.7-7 (nearest support, 45° width). The column-to-plate weld is checked without stiffener relief (conservative).`,
+    );
+    if (st.plates.some((p) => p.group !== "web-line"))
+      notes.push(
+        st.plates.some((p) => p.group === "mid-side" || p.group === "radial")
+          ? "HSS wall local strength at the stiffeners (AISC 360-22 Ch. K plate-to-HSS) is not calculated: verify separately."
+          : "Column flange-tip / web out-of-plane strength at flange-tip or web-side stiffeners is not calculated: verify separately.",
+      );
+    notes.push(
+      "Stiffener free-edge slenderness uses hc/ts ≤ 0.56√(E/Fy) (engine rule; AISC 360-22 Table B4.1a case 1 limit); web local yielding uses k = tf (no fillet).",
+    );
+  }
   return {
     engine: BASE_PLATE_ENGINE,
     method: {
@@ -1663,6 +1859,7 @@ export function analyzeBasePlate(
     },
     rods,
     bearing: cap,
+    stiffening: st,
     combos,
     geometry: basePlateGeometry(i, rods, tableHole),
     governing: { tp: gov },
@@ -1735,8 +1932,10 @@ export function basePlateDesignChecks(
       id: "plate",
       label: "Base Plate Thickness",
       dcr: t.dcr / i.plate.tp,
-      clause: basePlateClauses.plate(),
-      detail: `${t.c.load.id}: tp,req ${Number.isFinite(t.dcr) ? t.dcr.toFixed(1) : "—"} mm vs tp ${i.plate.tp.toFixed(1)} mm (Fy ${i.plate.fy} MPa, ${i.designMethod === "LRFD" ? "φb 0.90" : "Ωb 1.67"}). Suggested ${suggestPlateThickness(t.dcr) ?? "—"} mm.`,
+      clause: r.stiffening
+        ? basePlateClauses.stiffenedPlate()
+        : basePlateClauses.plate(),
+      detail: `${t.c.load.id}: tp,req ${Number.isFinite(t.dcr) ? t.dcr.toFixed(1) : "—"} mm vs tp ${i.plate.tp.toFixed(1)} mm (Fy ${i.plate.fy} MPa, ${i.designMethod === "LRFD" ? "φb 0.90" : "Ωb 1.67"}). Suggested ${suggestPlateThickness(t.dcr) ?? "—"} mm.${t.c.stiffener ? ` Stiffened (${i.stiffeners.plateMethod}): unstiffened zones ${t.c.stiffener.unstiffenedTp.toFixed(1)} mm, panels ${Math.max(0, ...t.c.stiffener.panels.map((p) => p.tpReq)).toFixed(1)} mm, tension ${Math.max(0, ...t.c.stiffener.tension.map((g) => g.tpReq)).toFixed(1)} mm.` : ""}`,
     });
   const w = governing(
     cs,
@@ -1973,6 +2172,122 @@ export function basePlateDesignChecks(
       clause: basePlateClauses.seismic(),
       detail: du.t.detail,
     });
+  // Stiffeners (engine 0.3.0)
+  const stf = r.stiffening;
+  if (stf) {
+    const worst = <T>(
+      pick: (m: StiffenerMemberResult) => T | null,
+      dcr: (t: T) => number,
+    ) => {
+      let best: {
+        c: ComboResult;
+        m: StiffenerMemberResult;
+        t: T;
+        dcr: number;
+      } | null = null;
+      for (const c of cs)
+        for (const m of c.stiffener?.members ?? []) {
+          const t = pick(m);
+          if (t === null) continue;
+          const d = dcr(t);
+          if (!best || d > best.dcr) best = { c, m, t, dcr: d };
+        }
+      return best;
+    };
+    const s = stf.input;
+    const fl = worst(
+      (m) => m.flexure,
+      (x) => x.dcr,
+    );
+    if (fl)
+      push({
+        id: "stiffener-flexure",
+        label: "Stiffener Flexure",
+        dcr: fl.dcr,
+        clause: basePlateClauses.stiffenerFlexure(),
+        detail: `${fl.c.load.id}, ${fl.m.id}: Mu ${(fl.t.mu / 1e6).toFixed(2)} kN·m at ${fl.t.xi.toFixed(0)} mm from the column face (h ${fl.t.h.toFixed(0)} mm) vs ${i.designMethod === "LRFD" ? "φbMn" : "Mn/Ωb"} ${(fl.t.phiMn / 1e6).toFixed(2)} kN·m — ${fl.t.basis || "no demand"}.`,
+      });
+    const sh = worst(
+      (m) => m.shear,
+      (x) => x.dcr,
+    );
+    if (sh)
+      push({
+        id: "stiffener-shear",
+        label: "Stiffener Shear Yielding",
+        dcr: sh.dcr,
+        clause: basePlateClauses.stiffenerShear(),
+        detail: `${sh.c.load.id}, ${sh.m.id}: Vu ${kN(sh.t.vu)} kN vs ${i.designMethod === "LRFD" ? "φVn" : "Vn/Ω"} ${kN(sh.t.phiVn)} kN (0.6Fy ts h).`,
+      });
+    const sl = stiffenerSlenderness(s);
+    push({
+      id: "stiffener-slenderness",
+      label: "Stiffener Free-Edge Slenderness",
+      dcr: sl.dcr,
+      clause: basePlateClauses.stiffenerSlenderness(),
+      detail: `hc/ts = ${s.hc}/${s.t} = ${sl.ratio.toFixed(1)} vs 0.56√(E/Fy) = ${sl.limit.toFixed(1)} (Fy ${s.fy} MPa).`,
+    });
+    const wc = worst(
+      (m) => m.weldColumn,
+      (x) => x.dcr,
+    );
+    if (wc)
+      push({
+        id: "stiffener-weld-column",
+        label: "Stiffener-to-Column Weld",
+        dcr: wc.dcr,
+        clause: basePlateClauses.stiffenerWeld(),
+        detail: `${wc.c.load.id}, ${wc.m.id}: f = √((V/2Lw)² + (M/(2Lw²/6))²) = ${wc.t.f.toFixed(0)} N/mm vs ${wc.t.capacity.toFixed(0)} N/mm (2 × ${s.weldColumn} mm fillets, Lw ${wc.t.length.toFixed(0)} mm).`,
+      });
+    const wp = worst(
+      (m) => m.weldPlate,
+      (x) => x.dcr,
+    );
+    if (wp)
+      push({
+        id: "stiffener-weld-plate",
+        label: "Stiffener-to-Plate Weld",
+        dcr: wp.dcr,
+        clause: basePlateClauses.stiffenerWeld(),
+        detail:
+          wp.t.f > 0
+            ? `${wp.c.load.id}, ${wp.m.id}: ${wp.t.f.toFixed(0)} N/mm vs ${wp.t.capacity.toFixed(0)} N/mm over ${wp.t.length.toFixed(0)} mm (${s.section === "tee" ? "rod tension + shear flow VQ/I" : "rod tension on one fillet, kds 1.5 (DG1 Ex. 4.7-7)"}).`
+            : "No rod tension on the stiffeners; bearing transfers by contact.",
+      });
+    const co = worst(
+      (m) => m.column,
+      (x) => x.dcr,
+    );
+    if (co)
+      push({
+        id: "stiffener-column",
+        label: "Column Web at Stiffener",
+        dcr: co.dcr,
+        clause: basePlateClauses.stiffenerColumn(),
+        detail: `${co.c.load.id}, ${co.m.id}: H = 1.5M/Lw = ${kN(co.t.h)} kN over lb ${co.t.lb.toFixed(0)} mm vs web yielding ${kN(co.t.phiRnWly)} kN, crippling ${kN(co.t.phiRnWcr)} kN (member end, k = tf).`,
+      });
+    const short = stf.plates.filter((p) => p.length <= 1);
+    push({
+      id: "geo-stiffener-fit",
+      label: "Stiffeners Fit the Plate",
+      dcr: short.length ? Infinity : 0,
+      invalidLabel: "Plate does not extend past the column",
+      clause: "Geometry",
+      detail: short.length
+        ? `No length for ${short.map((p) => p.id).join(", ")}.`
+        : `${stf.plates.length} stiffeners, length ${[...new Set(stf.plates.map((p) => p.length.toFixed(0)))].join(" / ")} mm, ts ${s.t} mm, hc ${s.hc} mm, he ${s.he} mm.`,
+    });
+    const cl = stiffenerRodClearance(stf, r.rods, i.anchors.washer.size);
+    if (Number.isFinite(cl.min))
+      push({
+        id: "geo-stiffener-clear",
+        label: "Rod Washer Clear of Stiffener",
+        dcr: cl.min > 0 ? cl.required / cl.min : Infinity,
+        invalidLabel: "Rod clashes with a stiffener",
+        clause: "Geometry (engine rule: washer/2 + weld size)",
+        detail: `${cl.rod}: ${cl.min.toFixed(1)} mm from the stiffener face vs ${cl.required.toFixed(1)} mm (washer ${i.anchors.washer.size.toFixed(0)}/2 + weld ${s.weldPlate} mm). Check wrench clearance.`,
+      });
+  }
   // Geometry
   push({
     id: "geo-fit",

@@ -221,6 +221,78 @@ describe("drawings, 3D model and steps", () => {
   });
 });
 
+describe("stiffened base plate (engine 0.3.0)", () => {
+  const i = defaultBasePlateInput();
+  i.stiffeners = { ...i.stiffeners, layout: "web-line+web-side" };
+  const r = analyzeBasePlate(i);
+  const c = r.combos[0]!;
+  it("shows the layout chooser and stiffener inputs", () => {
+    const html = renderToStaticMarkup(
+      <BasePlateWorkspace
+        cloudReady={false}
+        onSaved={() => {}}
+        draft={
+          {
+            id: "d1",
+            projectId: "p1",
+            moduleSlug: "base-plate",
+            title: "BP stiff",
+            payload: { kind: "base-plate", version: 1, input: i },
+            createdAt: "",
+            updatedAt: "",
+          } as never
+        }
+      />,
+    );
+    expect(html).toContain("Stiffener layout");
+    expect(html).toContain("Web-line — 2 plates outside the flanges");
+    expect(html).toContain("Height at column hc");
+    expect(html).toContain("Yield-line (default)");
+    expect(html).not.toContain("NaN");
+  });
+  it("draws stiffeners in plan, sections and 3D", () => {
+    const plan = basePlatePlanSvg(i, c);
+    expect(plan.match(/>S\d<\/text>/g)).toHaveLength(4);
+    const a = basePlateSectionSvg(i, "A", c);
+    expect(a).toContain("S1 16 × 250/100");
+    const m = buildBasePlate3DModel(i, c);
+    expect(m.stiffeners).toHaveLength(4);
+    expect(m.stiffeners[0]!.profile).toHaveLength(5);
+    expect(m.column.z1 - m.column.z0).toBeGreaterThan(0.25);
+  });
+  it("prints panels and stiffener members in the steps and report", async () => {
+    const steps = basePlateSteps(i, r, c)
+      .map((s) => s[0])
+      .join("|");
+    expect(steps).toContain("Stiffened plate");
+    expect(steps).toMatch(/Stiffener S\d \(web-line\)/);
+    expect(steps).toContain("Column web at S1");
+    const data = basePlateReportData(
+      undefined,
+      "BP-02",
+      i,
+      r,
+      defaultDesignCheckPolicy,
+      {},
+      null,
+    );
+    const text = JSON.stringify(data);
+    expect(text).toContain("Stiffener-to-Column Weld");
+    expect(text).toContain("Cross — web-line + web-side (4 plates)");
+    for (const row of data.checks.rows)
+      expect(String(row[1])).toMatch(/AISC|ACI|Geometry/);
+    for (const fig of data.figures) fig.png ??= png;
+    const out = await generateCalculationPdf(data, {
+      type: "complete",
+      paper: "A4",
+      nolaLogo: png,
+    });
+    expect((await PDFDocument.load(out.bytes)).getPageCount()).toBeGreaterThan(
+      1,
+    );
+  });
+});
+
 describe("base plate report", () => {
   it("builds Simple and Complete PDFs with AISC/ACI clauses on every check", async () => {
     const i = defaultBasePlateInput();

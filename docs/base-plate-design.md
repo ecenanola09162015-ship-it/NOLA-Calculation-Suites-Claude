@@ -1,6 +1,6 @@
 # Steel column base plate & anchor rod design pilot
 
-The Base Plate launcher card (Steel) opens a live workspace inside the project explorer. The engine lives in `packages/calc-core` (`modules/base-plate.ts`, `modules/base-plate-anchors.ts`, `anchor-rods.ts`, shared `steel-shapes/`); the web workspace, PDF report and save endpoint consume the same versioned inputs (`kind: "base-plate"`, `version: 1`). Saved base plates are `verification-required`. Engine `base-plate-0.2.0`.
+The Base Plate launcher card (Steel) opens a live workspace inside the project explorer. The engine lives in `packages/calc-core` (`modules/base-plate.ts`, `modules/base-plate-anchors.ts`, `anchor-rods.ts`, shared `steel-shapes/`); the web workspace, PDF report and save endpoint consume the same versioned inputs (`kind: "base-plate"`, `version: 1`). Saved base plates are `verification-required`. Engine `base-plate-0.3.0`.
 
 ## Basis
 
@@ -15,6 +15,19 @@ The Base Plate launcher card (Steel) opens a live workspace inside the project e
 Two primary codes: **Concrete** (ACI 318-19, or NSCP 2015 project on the ACI 318-19 basis) and **Steel** (AISC 360-22 + DG1, or NSCP 2015 project on the AISC 360-22 basis); other editions are listed as Future Development. Drafts saved with one `code` open with both codes set from it.
 
 **LRFD / ASD** (shared `steel-design-method.ts`, reused by later steel modules): LRFD applies φ (bearing 0.65, plate 0.90, weld 0.75, friction 0.75) to factored combinations; ASD applies 1/Ω (2.31, 1.67, 2.00, 2.00) to service combinations (AISC 360-22 B3.2). ACI 318-19 has no ASD, so under ASD the anchor checks (Ch. 17, incl. lug bearing/breakout) use α × ASD demand against φRn, α = 1.6 by default (editable 1.4–2.0, printed in the report).
+
+## Stiffeners (engine 0.3.0)
+
+Layouts (Panel 02, plan thumbnails at true scale): none; I-shapes web-line (2), flange-tip (4), web-side (2), cross (web-line + web-side, 4); rectangular HSS mid-side (4); round HSS / pipe radial (4). Inputs: ts, hc (at the column), he (at the plate edge; 0 = triangle), corner snip, Fy, fillets to the column and to the plate (both sides), flexure section (stiffener alone, or tee with the plate), plate-panel method. Drafts saved before 0.3.0 open unstiffened; a layout that does not suit a new column family resets to none.
+
+AISC DG1 3rd Ed. Sec. 3.1 puts stiffened bases outside its scope; the method is printed in the notes, steps and PDF:
+
+- **Plate panels.** The DG1 zones (m beyond 0.95d, n beyond 0.80bf; HSS 0.95; round 0.80D) keep their critical lines as supported back edges; stiffeners add side supports. P3 (back + two stiffeners) and P2 (back + one stiffener) panels under the uniform bearing block (partial blocks clipped to the panel): (a) yield-line, default — families P3-A/B, P2-C1/C2, fixed supports m′ = m, × 1.10 corner allowance, never above the unstiffened cantilever; (b) Hillerborg simple strip method (45° to the nearest support, lower bound). Unstiffened zones and λn′ stay DG1.
+- **Tension side.** DG1 Ex. 4.7-7: each rod bends the plate about its nearest support (DG1 column-face lever x, or a stiffener face, a = clear distance), 45° width 2a clipped to the support length; rods of one support share the union width.
+- **Stiffener.** Cantilever bracket from the column face loaded by the strip-method share of bearing (width min(y, cap) each side, cap = b/2 for P3, b for P2) or by the rods assigned to it. Flexure at 19 sections along the taper: F11 rectangular bar (LTB with Lb = length, Cb 1.0, when the free edge is in compression) or F9 tee (effective plate 15εtp each side, EN 1993-1-5 9.1); shear yielding J4.2(a); hc/ts ≤ 0.56√(E/Fy) (engine rule); welds J2.4 — to the column √((V/2Lw)² + (6M/2Lw²)²), to the plate rod tension on one fillet over 2a with kds 1.5 (DG1 Ex. 4.7-7), bearing by contact (tee adds VQ/I).
+- **Column.** Web-line stiffeners on I-shapes: J10.2 web local yielding and J10.3 web crippling at the member end, H = 1.5M/Lw over lb = Lw/2, k = tf. HSS walls, flange tips and webs out of plane are not calculated (note in the report). The column-to-plate weld is still checked without stiffener relief.
+
+Checks: `stiffener-flexure`, `stiffener-shear`, `stiffener-slenderness`, `stiffener-weld-column`, `stiffener-weld-plate`, `stiffener-column`, `geo-stiffener-fit`, `geo-stiffener-clear` (washer/2 + weld). Fix in 0.3.0: the uplift 45° width now counts only rods in tension (was all rods of the line).
 
 ## Custom column sections
 
@@ -33,7 +46,7 @@ Sign convention: Pu positive in compression; +Mx moves the resultant to +Y (rods
 - λn′ for round sections uses D/4 (I and rectangular HSS: √(d bf)/4).
 - Without welded washers half the rods resist shear and breakout is checked from the front row; with welded washers all rods and the farthest row (ACI 17.7.2.1(b)).
 - Shear-lug breakout uses the 17.7.2.2.1 upper-bound Vb; lug welds are not checked. Shear parallel to an edge and ψc,V = 1.2 are not evaluated.
-- Pedestal reinforcement, embedded/blockout bases, stiffened plates and plate flexibility are out of scope.
+- Pedestal reinforcement, embedded/blockout bases and plate flexibility are out of scope; stiffened plates per the section above.
 
 ## Shapes database
 
@@ -45,4 +58,4 @@ Sign convention: Pu positive in compression; +Mx moves the resultant to +Y (rods
 
 ## Verification
 
-`packages/calc-core/test/base-plate.test.ts` checks the engine against `tools/benchmarks/base_plate_reference.py` (independent Python): J8 bearing, DG1 axial / small / large moment (Y, Tu, both interfaces), ACI steel, h′ef breakout, ψec, pullout, shear breakout, interaction, bond, seismic 0.75, Table 14-2, the user's workbook steel values and its geometry bug (E8), sizing non-mutation and the shapes database. `apps/web/test/base-plate-*.test.tsx` cover the workspace, drawings, 3D model, PDF, save API and a real-browser run. AISC DG1 3rd Ed. worked examples are to be added as benchmarks once the guide is available.
+`packages/calc-core/test/base-plate.test.ts` checks the engine against `tools/benchmarks/base_plate_reference.py` (independent Python): J8 bearing, DG1 axial / small / large moment (Y, Tu, both interfaces), ACI steel, h′ef breakout, ψec, pullout, shear breakout, interaction, bond, seismic 0.75, Table 14-2, the user's workbook steel values and its geometry bug (E8), sizing non-mutation and the shapes database. `apps/web/test/base-plate-*.test.tsx` cover the workspace, drawings, 3D model, PDF, save API and a real-browser run. `packages/calc-core/test/base-plate-stiffeners.test.ts` checks the stiffener engine against `tools/benchmarks/base_plate_stiffener_reference.py` (numerical yield-line integration, strip loads, F11/J4.2/J2.4/J10) and AISC DG1 3rd Ed. Example 4.7-7 (a 3.00 in, be 6.00 in, Mr 51.9 kip-in, weld φRn 50.1 kips per rod). The other DG1 3rd Ed. worked examples are added with the DG1 alignment batch.
