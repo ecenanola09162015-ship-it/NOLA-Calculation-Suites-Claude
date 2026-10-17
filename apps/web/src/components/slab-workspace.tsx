@@ -620,11 +620,7 @@ export function SlabWorkspace({
         />
       </div>
       <p className="slabPilot">
-        Development pilot ·{" "}
-        {input.code === "NSCP 2015"
-          ? "Project standard: NSCP 2015. Calculation basis: ACI 318-19."
-          : "Calculation basis: ACI 318-19."}{" "}
-        Independent engineering review required.
+        Development pilot · Calculation basis: ACI 318-19. Independent engineering review required.
       </p>
       {!project && <p>Create or select a project to save this calculation.</p>}
       {duplicate ? (
@@ -663,7 +659,7 @@ export function SlabWorkspace({
         <aside className="slabInputs slabPanel">
           <h2>01 · Slab Geometry & Materials</h2>
           {/* Same structure as the column panel 01 (decisions 15 Oct 2026). */}
-          <DesignCodeFields input={input} onChange={update} engine="slab" />
+          <DesignCodeFields input={input} onChange={update} />
           <h3 className="rcSubhead">Slab Dimensions</h3>
           <div className="slabFieldGrid slabDimRow">
             <Numeric

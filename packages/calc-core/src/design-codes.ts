@@ -239,3 +239,35 @@ export function designCodeSchema<D extends CodeDiscipline>(discipline: D) {
     ...(rest as string[]),
   ]) as unknown as z.ZodType<ActiveDesignCode<D>>;
 }
+
+/**
+ * Drafts saved before 17 Oct 2026 could choose "NSCP 2015 project — ACI
+ * 318-19 / AISC 360-22 calculation basis". That option is retired: on load the
+ * code becomes its calculation basis (identical results) and "NSCP 2015
+ * (project standard)" is kept under Other Codes so the record stays traceable.
+ */
+export const LEGACY_PROJECT_STANDARD = "NSCP 2015";
+export const LEGACY_PROJECT_STANDARD_NOTE = "NSCP 2015 (project standard)";
+
+export function upgradeLegacyProjectCode(
+  raw: unknown,
+  fields: Readonly<Record<string, string>>,
+): unknown {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  const r = { ...(raw as Record<string, unknown>) };
+  let upgraded = false;
+  for (const [key, basis] of Object.entries(fields))
+    if (r[key] === LEGACY_PROJECT_STANDARD) {
+      r[key] = basis;
+      upgraded = true;
+    }
+  if (!upgraded) return raw;
+  const other = typeof r.otherCodes === "string" ? r.otherCodes.trim() : "";
+  if (!/NSCP\s*2015/i.test(other))
+    r.otherCodes = (
+      other
+        ? `${LEGACY_PROJECT_STANDARD_NOTE}; ${other}`
+        : LEGACY_PROJECT_STANDARD_NOTE
+    ).slice(0, 300);
+  return r;
+}

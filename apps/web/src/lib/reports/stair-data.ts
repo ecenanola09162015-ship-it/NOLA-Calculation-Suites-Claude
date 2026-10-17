@@ -360,7 +360,7 @@ export function stairsReportData(
       : []),
     [
       "Calculation Basis",
-      `${stairCalculationBasis(i)}${i.code === "NSCP 2015" ? " (project standard NSCP 2015)" : ""}`,
+      stairCalculationBasis(i),
     ],
     [
       "Analysis / Combinations",

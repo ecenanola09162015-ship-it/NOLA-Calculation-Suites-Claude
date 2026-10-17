@@ -434,20 +434,17 @@ describe("stairs: draft, review and clauses", () => {
 });
 
 describe("stairs: code basis seam (Code Basis K3/K5)", () => {
-  it("records NSCP 2015 as project standard and calculates per ACI 318-19", async () => {
+  it("legacy NSCP 2015 drafts load as ACI 318-19 with identical checks (17 Oct 2026)", async () => {
     const m = await import("../src");
-    const i = {
-      ...defaultStairsInput(),
-      code: "NSCP 2015" as const,
-      otherCodes: "ASCE 7-16",
-    };
-    expect(m.stairCalculationBasis(i)).toBe("ACI 318-19");
-    expect(m.stairCodeBasisLabel(i)).toBe(
-      "Project standard: NSCP 2015. Calculation basis: ACI 318-19.",
-    );
+    const aciInput = { ...defaultStairsInput(), otherCodes: "ASCE 7-16" };
+    const legacy = m.stairsInputSchema.parse({ ...aciInput, code: "NSCP 2015" });
+    expect(legacy.code).toBe("ACI 318-19");
+    expect(legacy.otherCodes).toBe("NSCP 2015 (project standard); ASCE 7-16");
+    expect(m.stairCalculationBasis(legacy)).toBe("ACI 318-19");
+    expect(m.stairCodeBasisLabel(legacy)).toBe("Calculation basis: ACI 318-19.");
     expect(Object.keys(m.stairProvisions)).toEqual(["ACI 318-19"]);
-    const a = analyzeStairs(i),
-      b = analyzeStairs({ ...i, code: "ACI 318-19" });
+    const a = analyzeStairs(legacy),
+      b = analyzeStairs(aciInput);
     expect(a.checks.map((c) => c.dcr)).toEqual(b.checks.map((c) => c.dcr));
   });
 });
