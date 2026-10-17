@@ -426,16 +426,60 @@ def slope_stability():    # I-22: more soil layers, soil-coloured face, prominen
     return s
 
 
-def liquefaction():       # I-23 rev 2: granular saturated sand; seismic sign (option A) below the soil block
+def clip_z(poly, z0=0.0):
+    """Keep the part of a 3D polygon with z >= z0 (Sutherland-Hodgman on one plane)."""
+    out = []
+    for i in range(len(poly)):
+        A, B = poly[i - 1], poly[i]
+        ia, ib = A[2] >= z0, B[2] >= z0
+        if ia != ib:
+            t = (z0 - A[2]) / (B[2] - A[2]); out.append(tuple(A[k] + t * (B[k] - A[k]) for k in range(3)))
+        if ib: out.append(B)
+    return out
+
+
+def leaning_building(s, x, y, z, w, d, h, ang, storeys=3):
+    """Facade building rotated about the y axis (leans toward +x), clipped at ground level so it reads as sunk:
+    window bands on both visible faces, parapet roof and a rooftop box."""
+    ca, sa = math.cos(ang), math.sin(ang)
+    R = lambda u, v, t: (x + u * ca + t * sa, y + v, z - u * sa + t * ca)
+    nx, ny, nz = (ca, 0, -sa), (0, 1, 0), (sa, 0, ca)
+    def quad(pts, n, mat, seed, off=0.0):
+        pts = [tuple(p[k] + off * n[k] for k in range(3)) for p in pts]
+        q = clip_z(pts)
+        if len(q) >= 3: s.face(q, n, mat, seed)
+    quad([R(w, 0, 0), R(w, d, 0), R(w, d, h), R(w, 0, h)], nx, 'concrete', 3)          # side facade (+x)
+    quad([R(0, d, 0), R(w, d, 0), R(w, d, h), R(0, d, h)], ny, 'concrete', 4)          # front facade (+y)
+    quad([R(0, 0, h), R(w, 0, h), R(w, d, h), R(0, d, h)], nz, 'concrete', 5)          # roof slab
+    e = 0.38                                                                             # parapet width
+    quad([R(e, e, h), R(w - e, e, h), R(w - e, d - e, h), R(e, d - e, h)], nz, 'muted', 6, 0.01)
+    hs = h / storeys
+    for k in range(storeys):
+        t0, t1 = k * hs + 0.55, (k + 1) * hs - 0.30
+        for j, (v0, v1) in enumerate([(0.45, d / 2 - 0.2), (d / 2 + 0.2, d - 0.45)]):     # 2 bays on the side
+            quad([R(w, v0, t0), R(w, v1, t0), R(w, v1, t1), R(w, v0, t1)], nx, 'glass', 40 + k * 4 + j, 0.03)
+        bw = (w - 0.9) / 3
+        for j in range(3):                                                               # 3 bays on the front
+            u0 = 0.45 + j * bw + 0.12; u1 = 0.45 + (j + 1) * bw - 0.12
+            quad([R(u0, d, t0), R(u1, d, t0), R(u1, d, t1), R(u0, d, t1)], ny, 'glass', 60 + k * 4 + j, 0.03)
+    u0, u1, v0, v1, t1 = 1.0, 2.6, 1.0, 2.4, h + 1.0                                     # rooftop box
+    quad([R(u1, v0, h), R(u1, v1, h), R(u1, v1, t1), R(u1, v0, t1)], nx, 'concrete', 80)
+    quad([R(u0, v1, h), R(u1, v1, h), R(u1, v1, t1), R(u0, v1, t1)], ny, 'concrete', 81)
+    quad([R(u0, v0, t1), R(u1, v0, t1), R(u1, v1, t1), R(u0, v1, t1)], nz, 'concrete', 82)
+
+
+def liquefaction():       # I-23 rev 3: tilted, sunk facade building on liquefied saturated sand; seismic sign below
     s = Scene((0, 0, -9), (14, 12, 8), margin=0.06, extra=[(14, 12, -16.5)])
     s.layered(0, 0, 14, 12, [(-9, -6, 'dsand'), (-6, -1.4, 'satsand'), (-1.4, 0, 'topsoil')], 0)
     for z0 in (-4.6, -2.8):
         a = [(x, 12.02, z0 + 0.3 * math.sin(x * 1.6)) for x in np.linspace(0.2, 13.8, 50)]
         b = [(14.02, y, z0 + 0.3 * math.sin(y * 1.6)) for y in np.linspace(0.2, 11.8, 45)]
         s.polyline(a, (0.18, 0.48, 0.78), width=int(s.W / 160)); s.polyline(b, (0.18, 0.48, 0.78), width=int(s.W / 160))
-    for x, y in [(3, 9), (11.5, 3.5)]:
+    for x, y in [(11.4, 10.0), (12.2, 2.4)]:                                             # sand boils
         s.cone_down(x, y, 0.6, 0.9, -0.0001, 'sand', 9)
-    s.tilted_box(5, 4, 0, 4.2, 4.2, 7.5, math.radians(9), 'concrete', 3, lines=[('e1', 2.5, .05)])
+    bx, by, bw, bd = 3.6, 3.2, 6.4, 5.2
+    s.prism_xz([(bx - 2.0, 0), (bx + 0.2, 0), (bx + 0.2, 0.8), (bx - 0.7, 0.7)], by - 0.3, by + bd + 0.3, 'topsoil', 12)  # heave
+    leaning_building(s, bx, by, -0.35, bw, bd, 6.6, math.radians(10))
     seismic_sign_below(s, (0, 12, -9), (14, 0, -9), (14, 12, -9))
     return s
 
