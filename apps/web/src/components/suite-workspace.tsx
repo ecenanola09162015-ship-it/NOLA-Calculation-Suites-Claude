@@ -1,5 +1,6 @@
 "use client";
-import { Fragment, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useRef, useState, type ReactNode } from "react";
+import { confirmLeave } from "../lib/unsaved";
 import Image from "next/image";
 import dynamic from "next/dynamic";
 const RectangularColumnWorkspace = dynamic(
@@ -89,7 +90,19 @@ export function SuiteWorkspace({
     .slice()
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, 3);
+  // Unsaved edits in the open column / slab workspace (reported by it).
+  const workspaceDirty = useRef(false);
+  const onDirtyChange = useCallback((dirty: boolean) => {
+    workspaceDirty.current = dirty;
+  }, []);
+  /** Ask before leaving a workspace with unsaved edits; true = proceed. */
+  function leave() {
+    if (!confirmLeave(workspaceDirty.current)) return false;
+    workspaceDirty.current = false;
+    return true;
+  }
   function selectProject(id: string) {
+    if (!leave()) return;
     setProjectId(id);
     setModule(null);
     setDraftId("");
@@ -97,6 +110,7 @@ export function SuiteWorkspace({
     setExplorer(false);
   }
   function openModule(item: UiModule) {
+    if (!leave()) return;
     setWorkspaceSession((previous) => previous + 1);
     setModule(item);
     setDraftId("");
@@ -193,6 +207,7 @@ export function SuiteWorkspace({
   function openDraft(d: CalculationDraftRecord) {
     const item = uiCatalogue.find((m) => m.slug === d.moduleSlug);
     if (!item) return;
+    if (!leave()) return;
     setProjectId(d.projectId);
     setWorkspaceSession((previous) => previous + 1);
     setModule(item);
@@ -214,7 +229,7 @@ export function SuiteWorkspace({
       setDrafts((previous) =>
         previous.map((d) => (d.id === item.id ? item : d)),
       );
-      if (draftId === item.id) {
+      if (draftId === item.id && leave()) {
         // Reopen the calculation so the workspace shows (and later saves) the new name.
         setTitle(item.title);
         setWorkspaceSession((previous) => previous + 1);
@@ -256,6 +271,7 @@ export function SuiteWorkspace({
           <button
             className="active"
             onClick={() => {
+              if (!leave()) return;
               setModule(null);
               setDraftId("");
             }}
@@ -264,6 +280,7 @@ export function SuiteWorkspace({
           </button>
           <button
             onClick={() => {
+              if (!leave()) return;
               setModule(null);
               setDraftId("");
             }}
@@ -355,6 +372,7 @@ export function SuiteWorkspace({
               <button
                 className="suiteSecondary"
                 onClick={() => {
+                  if (!leave()) return;
                   setModule(null);
                   setDraftId("");
                 }}
@@ -470,6 +488,7 @@ export function SuiteWorkspace({
               project={project}
               draft={selectedDraft}
               cloudReady={cloudReady}
+              onDirtyChange={onDirtyChange}
               onSaved={(item) => {
                 setDrafts((previous) => [
                   item,
@@ -483,6 +502,7 @@ export function SuiteWorkspace({
               project={project}
               draft={selectedDraft}
               cloudReady={cloudReady}
+              onDirtyChange={onDirtyChange}
               onSaved={(item) =>
                 setDrafts((previous) => [
                   item,
