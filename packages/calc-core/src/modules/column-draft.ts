@@ -1,13 +1,17 @@
 import { designCheckPolicySchema, designRemarksSchema } from "../design-review";
 import { z } from "zod";
+import { designCodeSchema, upgradeLegacyProjectCode } from "../design-codes";
 import { FC_ENGINE_MAX, FC_ENGINE_MIN, PSI_MAX, PSI_MIN } from "../concrete-units";
 import { columnQuantitySchema } from "./column-quantity";
 import { columnSlendernessSchema } from "./column-slenderness";
 import { columnStoreySchema } from "./column-storey";
 import { columnTieDesignSchema } from "./column-transverse";
-export const columnInputSchema = z
+/** Legacy "NSCP 2015" drafts load as ACI 318-19 (design-codes.ts). */
+export const columnInputSchema = z.preprocess(
+  (raw) => upgradeLegacyProjectCode(raw, { code: "ACI 318-19" }),
+  z
   .object({
-    code: z.enum(["ACI 318-19", "NSCP 2015"]),
+    code: designCodeSchema("concrete"),
     width: z.number().positive().max(10000),
     depth: z.number().positive().max(10000),
     fc: z.number().min(FC_ENGINE_MIN).max(FC_ENGINE_MAX),
@@ -59,7 +63,8 @@ export const columnInputSchema = z
     (input) =>
       new Set(input.loads.map((load) => load.id)).size === input.loads.length,
     "Combination labels must be unique.",
-  );
+  ),
+);
 export const columnDraftSchema = z.object({
   kind: z.literal("rc-column"),
   version: z.literal(1),

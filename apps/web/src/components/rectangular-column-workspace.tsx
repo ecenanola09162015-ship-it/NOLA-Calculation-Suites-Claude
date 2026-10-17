@@ -11,7 +11,7 @@ import {
   columnDraftSchema,
   defaultColumnQuantity,
   defaultColumnTieDesign,
-  defaultColumnStorey,
+  newColumnStorey,
   effectiveColumnQuantity,
   migrateColumnStorey,
   rebarDesignation,
@@ -33,6 +33,8 @@ import {
   ColumnBiaxialContourPlot,
 } from "./column-diagrams";
 import { ReportExportControls } from "./report-export-controls";
+import { SaveRunBar, SaveToProject } from "./calc-actions";
+import { postCalculation } from "@/lib/calc-save";
 import {
   DuplicateSavePrompt,
   type DraftDuplicate,
@@ -40,7 +42,7 @@ import {
 import { ColumnQuantityPanel } from "./column-quantity-panel";
 import { StoreyGeometryFields } from "./column-storey-panel";
 import { DesignCodeFields } from "./column-materials-fields";
-import { ColumnBundlePanel } from "./column-bundle-panel";
+import { BundleInset, ColumnBundlePanel } from "./column-bundle-panel";
 import { ConcreteStrengthFields } from "./concrete-strength-fields";
 import { ColumnSectionDrawingButton } from "./column-section-drawing-button";
 import dynamic from "next/dynamic";
@@ -77,7 +79,7 @@ import {
 /** New calculations start with Vux = Vuy = 400 kN (user decision); imports stay as pasted. */
 export const DEFAULT_SHEAR = 400;
 const initial: RectangularColumnInput = {
-  storey: defaultColumnStorey(),
+  storey: newColumnStorey(),
   code: "ACI 318-19",
   width: 600,
   depth: 800,
@@ -228,6 +230,9 @@ export function RectangularColumnWorkspace({
   );
   const [title, setTitle] = useState(draft?.title ?? "C1 · Ground floor");
   const [id, setId] = useState(draft?.id);
+  const [savedAt, setSavedAt] = useState(
+    restored.success ? draft?.updatedAt : undefined,
+  );
   const [result, setResult] = useState<RectangularColumnResult | null>(null);
   const [selected, setSelected] = useState("");
   const [message, setMessage] = useState("");
@@ -236,6 +241,13 @@ export function RectangularColumnWorkspace({
   const [dirty, setDirty] = useState(false);
   // Bars picked for bundling (section picture / coordinates table).
   const [selectedBars, setSelectedBars] = useState<number[]>([]);
+  // 3D storey snapshot for the Complete report (session only, like the slab).
+  const [storeySnapshot, setStoreySnapshot] = useState<string | null>(null);
+  // Section view: zoom, bundles just applied (flash) and the magnified bundle.
+  const sectionRef = useRef<HTMLDivElement>(null);
+  const [sectionZoom, setSectionZoom] = useState(1);
+  const [flashBundles, setFlashBundles] = useState<string[]>([]);
+  const [focusBundle, setFocusBundle] = useState<string | null>(null);
   const markUnsaved = () => {
     setSaved(false);
     setDirty(true);
@@ -428,72 +440,100 @@ export function RectangularColumnWorkspace({
       );
     }
   }
-  /** opts.overwrite: confirmed in the duplicate prompt; opts.title: save-as name. */
-  async function save(opts: { overwrite?: boolean; title?: string } = {}) {
-    if (!project) return;
+  /** Validated draft payload of the current inputs (Save changes / Save to project). */
+  function buildPayload() {
+    const parsed = columnDraftSchema.safeParse({
+      kind: "rc-column",
+      version: 1,
+      input,
+      scopeConfirmed: scope,
+      quantity,
+      tieDesign: effectiveTie,
+      designPolicy: policy,
+      remarks,
+      reviewCompleted: !!result,
+    });
+    if (!parsed.success)
+      throw new Error(
+        "Complete valid numerical inputs and unique combination labels before saving.",
+      );
+    if (result && missingRemarksMessage("Saving"))
+      throw Error(missingRemarksMessage("Saving"));
+    return parsed.data;
+  }
+  /**
+   * Save changes: update this calculation file in its project.
+   * opts.overwrite: confirmed in the duplicate prompt; opts.title: save-as name.
+   * Resolves true when the file is saved.
+   */
+  async function save(
+    opts: { overwrite?: boolean; title?: string } = {},
+  ): Promise<boolean> {
+    if (!project) return false;
     const saveTitle = opts.title ?? title;
     const saveVersion = editVersion.current;
     setBusy(true);
     setMessage("");
     try {
-      const payload = {
-        kind: "rc-column",
-        version: 1,
-        input,
-        scopeConfirmed: scope,
-        quantity,
-        tieDesign: effectiveTie,
-        designPolicy: policy,
-        remarks,
-        reviewCompleted: !!result,
-      };
-      const parsed = columnDraftSchema.safeParse(payload);
-      if (!parsed.success)
-        throw new Error(
-          "Complete valid numerical inputs and unique combination labels before saving.",
-        );
-      if (result && missingRemarksMessage("Saving"))
-        throw Error(missingRemarksMessage("Saving"));
-      const response = await fetch("/api/calculations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id,
-          projectId: project.id,
-          moduleSlug: "rc-column",
-          title: saveTitle,
-          overwrite: opts.overwrite === true,
-          payload: parsed.data,
-        }),
+      const posted = await postCalculation({
+        id,
+        projectId: project.id,
+        moduleSlug: "rc-column",
+        title: saveTitle,
+        overwrite: opts.overwrite === true,
+        payload: buildPayload(),
       });
-      const body = await response.json();
-      if (response.status === 409 && body.duplicate) {
-        setDuplicate(body.duplicate);
+      if (!posted.ok && posted.duplicate) {
+        setDuplicate(posted.duplicate);
         setMessage("");
-        return;
+        return false;
       }
       setDuplicate(null);
       if (opts.title) setTitle(opts.title);
-      if (!response.ok)
-        throw new Error(body.error ?? "Could not save calculation.");
-      setId(body.draft.id);
+      if (!posted.ok) throw new Error(posted.error);
+      setId(posted.draft.id);
+      setSavedAt(posted.draft.updatedAt);
       const clean =
         editVersion.current === saveVersion && livePolicy.current === policyKey;
       setSaved(clean);
       setDirty(!clean);
       setSavedPolicy(policyKey);
-      onSaved(body.draft);
+      onSaved(posted.draft);
       setMessage(
         editVersion.current === saveVersion
-          ? "Column inputs saved to this project. Reopen from the explorer to recalculate."
+          ? "Changes saved."
           : "Earlier inputs were saved. Your newer edits remain unsaved; save again to keep them.",
       );
+      return true;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Save failed.");
+      return false;
     } finally {
       setBusy(false);
     }
   }
+  const unsaved = !(saved && savedPolicy === policyKey);
+  /** Save to project: changes are saved here first (skipped when nothing changed). */
+  const saveChanges = async () => (!unsaved && id ? true : save());
+  const canSave = !!project && cloudReady && !!title.trim();
+  const saveBlockedReason = !project
+    ? "Create or select a project to save this calculation."
+    : !cloudReady
+      ? "Cloud saving is not configured."
+      : "Enter a calculation title.";
+  const saveRun = (section: string, fromBottom = false) => (
+    <SaveRunBar
+      section={section}
+      dirty={unsaved}
+      busy={busy}
+      canSave={canSave}
+      saveBlockedReason={saveBlockedReason}
+      savedAt={savedAt}
+      onSave={() => save()}
+      stale={!result}
+      onRun={() => calculate(fromBottom)}
+    />
+  );
   const check = result?.checks.find((c) => c.load.id === selected);
   const transverse = useMemo(() => {
     if (!result || (!tieDesign.shear.enabled && !tieDesign.confinement.enabled))
@@ -564,6 +604,10 @@ export function RectangularColumnWorkspace({
     setTieDesign(next);
     markUnsaved();
   }
+  // Magnified bundle: the one tapped / last applied, else the first bundle.
+  const bundleIds = [...new Set(input.bars.map((b) => b.bundle).filter((b): b is string => !!b))];
+  const shownBundle =
+    focusBundle && bundleIds.includes(focusBundle) ? focusBundle : (bundleIds[0] ?? null);
   return (
     <div className="rcWorkspace">
       <div className="rcToolbar">
@@ -580,25 +624,19 @@ export function RectangularColumnWorkspace({
             }}
           />
         </label>
-        <span>
-          {saved && savedPolicy === policyKey
-            ? "Saved inputs"
-            : "Unsaved inputs"}
-        </span>
-        <button
-          className="suiteSecondary"
-          disabled={!project || !cloudReady || busy || !title.trim()}
-          onClick={() => save()}
-        >
-          {busy ? "Saving…" : "Save to project"}
-        </button>
-        <button className="suitePrimary" onClick={() => calculate()}>
-          Calculate section
-        </button>
+        {saveRun("Calculation")}
+        <SaveToProject
+          currentProjectId={project?.id}
+          moduleSlug="rc-column"
+          title={title}
+          canCopy={canSave}
+          buildPayload={buildPayload}
+          saveChanges={saveChanges}
+        />
         <ReportExportControls
           moduleName="RC Column"
           disabled={!result}
-          disabledReason="Calculate section to enable export. Results clear whenever an input changes."
+          disabledReason="Run calculation to enable export. Results clear whenever an input changes."
           hint={missingRemarksMessage("Exporting")}
           onData={async () => {
             if (!result) throw Error("Calculate The Column First.");
@@ -615,6 +653,7 @@ export function RectangularColumnWorkspace({
               remarks,
               effectiveTie,
               transverse.design,
+              storeySnapshot,
             );
           }}
         />
@@ -730,7 +769,11 @@ export function RectangularColumnWorkspace({
               }
             />
           </div>
-          <StoreyGeometryFields input={input} onChange={update} />
+          <StoreyGeometryFields
+            input={input}
+            onChange={update}
+            onSnapshot={setStoreySnapshot}
+          />
           <label className="rcCheckbox">
             <input
               type="checkbox"
@@ -752,18 +795,41 @@ export function RectangularColumnWorkspace({
             Compression Pu is positive. Mux and Muy retain their signs. No load
             factors or combinations are generated here.
           </p>
+          {saveRun("Section & Materials")}
         </section>
         <section className="rcPanel">
           <h2>02 · Reinforcement Layout</h2>
-          <ColumnSection
-            input={input}
-            selected={selectedBars}
-            onToggle={(i) =>
-              setSelectedBars((s) =>
-                s.includes(i) ? s.filter((k) => k !== i) : [...s, i],
-              )
-            }
-          />
+          <div className="rcSectionView" ref={sectionRef}>
+            <div className="sectionZoom" role="group" aria-label="Section zoom">
+              {[1, 1.5, 2].map((z) => (
+                <button
+                  key={z}
+                  className={`suiteSecondary${sectionZoom === z ? " active" : ""}`}
+                  aria-pressed={sectionZoom === z}
+                  onClick={() => setSectionZoom(z)}
+                >
+                  {z}×
+                </button>
+              ))}
+            </div>
+            <div className="sectionScroll">
+              <div style={{ width: `${sectionZoom * 100}%` }}>
+                <ColumnSection
+                  input={input}
+                  selected={selectedBars}
+                  flash={flashBundles}
+                  onToggle={(i) => {
+                    const id = input.bars[i]?.bundle;
+                    if (id) setFocusBundle(id);
+                    setSelectedBars((s) =>
+                      s.includes(i) ? s.filter((k) => k !== i) : [...s, i],
+                    );
+                  }}
+                />
+              </div>
+            </div>
+            {shownBundle && <BundleInset input={input} bundle={shownBundle} />}
+          </div>
           <p className="rcMuted">
             Initial values reproduce your workbook example. Bar coordinates are
             retained; cover and steel-ratio issues appear in results.
@@ -795,6 +861,13 @@ export function RectangularColumnWorkspace({
             selected={selectedBars}
             onSelect={setSelectedBars}
             onChange={update}
+            onApplied={(ids) => {
+              setFocusBundle(ids[0] ?? null);
+              setFlashBundles(ids);
+              window.setTimeout(() => setFlashBundles([]), 2500);
+              // Show the result: back up to the section view (phones).
+              sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
             minTie={
               rebarSizes[standard]
                 .map((s) => s.calcDiameter)
@@ -802,6 +875,7 @@ export function RectangularColumnWorkspace({
                 .sort((a, b) => a - b)[0] ?? 12
             }
           />
+          {saveRun("Reinforcement Layout")}
         </section>
       </div>
       <details className="rcPanel">
@@ -1135,19 +1209,12 @@ export function RectangularColumnWorkspace({
           change only when you choose Replace or Append. File upload (.xlsx) is
           not included in this build.
         </p>
-        <div className="rcCalculateBar">
-          <button
-            className="suitePrimary"
-            onClick={() => calculate(true)}
-          >
-            Calculate section
-          </button>
-          <span className="rcMuted">
-            {!scope
-              ? "Tick the demand confirmation in panel 01 before calculating."
-              : "Results clear whenever an input changes."}
-          </span>
-        </div>
+        {saveRun("Factored Load Combinations", true)}
+        <p className="rcMuted">
+          {!scope
+            ? "Tick the demand confirmation in panel 01 before calculating."
+            : "Results clear whenever an input changes."}
+        </p>
       </section>
       <ColumnSlendernessInputs input={input} onChange={update} />
       {result ? (
@@ -1402,7 +1469,7 @@ export function RectangularColumnWorkspace({
           <h2>Results Workspace</h2>
           <p>
             Confirm the section-check scope, review inputs, then choose
-            Calculate section. Results are cleared when engineering inputs
+            Run calculation. Results are cleared when engineering inputs
             change.
           </p>
         </section>

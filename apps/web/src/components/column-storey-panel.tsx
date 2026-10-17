@@ -4,28 +4,63 @@
  * depths. One source for slenderness ℓu (6.2.4), confinement lo / Ve
  * (18.7.5.1, 18.7.6.1.1) and the estimate's height and joint (18.8.3).
  */
+import { useState } from "react";
+import dynamic from "next/dynamic";
 import {
+  STOREY_SIDES,
   defaultColumnStorey,
   storeyClearHeights,
+  storeyDepths,
   storeyError,
+  storeySides,
+  withStoreySides,
   type ColumnStorey,
   type RectangularColumnInput,
+  type StoreySide,
+  type StoreySideId,
 } from "@nola/calc-core";
 import { NumberField, fmt } from "./column-ui";
 import { OVERRIDE_COLOR } from "../lib/override-style";
 
+// three.js loads only when panel 01 renders in the browser.
+const ColumnStorey3DView = dynamic(() => import("./column-storey-3d-view"), {
+  ssr: false,
+  loading: () => <p className="rcMuted">Loading 3D storey view…</p>,
+});
+const SIDE_NAME: Record<StoreySideId, string> = {
+  north: "North",
+  south: "South",
+  east: "East",
+  west: "West",
+};
+
 export function StoreyGeometryFields({
   input,
   onChange,
+  onSnapshot,
 }: {
   input: RectangularColumnInput;
   onChange: (next: RectangularColumnInput) => void;
+  /** 3D storey snapshot for the Complete report. */
+  onSnapshot?: (png: string) => void;
 }) {
   const s = input.storey ?? defaultColumnStorey();
   const set = (k: keyof ColumnStorey, v: number) =>
     onChange({ ...input, storey: { ...s, [k]: v } });
   const h = storeyClearHeights(s);
   const error = storeyError(s);
+  const resolved = storeySides(s);
+  const depths = storeyDepths(s);
+  const setSide = (k: StoreySideId, patch: Partial<StoreySide>) =>
+    onChange({
+      ...input,
+      storey: withStoreySides(
+        s,
+        { ...resolved.sides, [k]: { ...resolved.sides[k], ...patch } },
+        resolved.slab,
+      ),
+    });
+  const [no3d, setNo3d] = useState(false);
   return (
     <div className="storeyGeometry">
       <h3>Storey Geometry</h3>
@@ -38,16 +73,15 @@ export function StoreyGeometryFields({
             onChange={(v) => set("height", v)}
           />
           <NumberField
-            label="Beam along X — depth (braces Muy)"
+            label="Upper slab thickness (sides without a beam)"
             unit="mm"
-            value={s.beamX}
-            onChange={(v) => set("beamX", v)}
-          />
-          <NumberField
-            label="Beam along Y — depth (braces Mux)"
-            unit="mm"
-            value={s.beamY}
-            onChange={(v) => set("beamY", v)}
+            value={resolved.slab}
+            onChange={(v) =>
+              onChange({
+                ...input,
+                storey: withStoreySides(s, resolved.sides, v),
+              })
+            }
           />
           <NumberField
             label="Drop panel / capital / haunch below soffit"
@@ -62,8 +96,81 @@ export function StoreyGeometryFields({
             onChange={(v) => set("bottom", Number.isFinite(v) ? v : 0)}
           />
         </div>
-        <StoreySketch storey={s} />
       </div>
+      {/* Upper-floor beams on each face (N/S along Y brace Mux; E/W along X brace Muy). */}
+      <div className="rcTableWrap storeySides">
+        <table className="rcInputTable" aria-label="Upper-floor beams">
+          <thead>
+            <tr>
+              <th>Side</th>
+              <th>Support</th>
+              <th>Width (mm)</th>
+              <th>Depth (mm)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {STOREY_SIDES.map((k) => {
+              const side = resolved.sides[k];
+              return (
+                <tr key={k}>
+                  <td>
+                    {SIDE_NAME[k]}
+                    <small className="rcMuted">
+                      {" "}
+                      {k === "north" || k === "south" ? "along Y · Mux" : "along X · Muy"}
+                    </small>
+                  </td>
+                  <td>
+                    <select
+                      aria-label={`${SIDE_NAME[k]} support`}
+                      value={side.beam ? "beam" : "none"}
+                      onChange={(e) => setSide(k, { beam: e.target.value === "beam" })}
+                    >
+                      <option value="beam">Beam</option>
+                      <option value="none">None (slab only)</option>
+                    </select>
+                  </td>
+                  <td>
+                    <input
+                      type="number"
+                      step="any"
+                      aria-label={`${SIDE_NAME[k]} beam width`}
+                      disabled={!side.beam}
+                      value={side.width}
+                      onChange={(e) => setSide(k, { width: Number(e.target.value) })}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="number"
+                      step="any"
+                      aria-label={`${SIDE_NAME[k]} beam depth`}
+                      disabled={!side.beam}
+                      value={side.depth}
+                      onChange={(e) => setSide(k, { depth: Number(e.target.value) })}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="rcMuted">
+        Governing depth for ℓu (shallower support in each direction, ACI 318-19 6.2.4):
+        N/S {fmt(depths.ns, 0)} mm → ℓu,x · E/W {fmt(depths.ew, 0)} mm → ℓu,y.
+        {resolved.assumedWidth && " Beam widths are assumed 300 mm (older draft) until entered."}
+      </p>
+      {no3d ? (
+        <StoreySketch storey={s} />
+      ) : (
+        <ColumnStorey3DView
+          storey={s}
+          column={{ width: input.width, depth: input.depth }}
+          onSnapshot={onSnapshot}
+          onUnavailable={() => setNo3d(true)}
+        />
+      )}
       {error ? (
         <p className="rcAlert">{error}</p>
       ) : (
@@ -82,9 +189,8 @@ export function StoreyGeometryFields({
               → override {fmt(s.luOverrideY, 0)}
             </strong>
           ) : null}{" "}
-          · lo uses {fmt(h.loClear, 0)} mm · joint {fmt(h.joint, 0)} mm (deeper
-          beam). No beam in a direction: enter the slab thickness. ACI 318-19
-          6.2.4.
+          · lo uses {fmt(h.loClear, 0)} mm · joint {fmt(h.joint, 0)} mm (deepest
+          member). ACI 318-19 6.2.4.
         </p>
       )}
     </div>

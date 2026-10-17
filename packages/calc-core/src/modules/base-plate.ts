@@ -4,8 +4,7 @@
  * Basis: AISC 360-22 J8 (bearing), J2 (welds), J9 (anchor rods → ACI 318);
  * AISC Design Guide 1, 3rd Ed. (2024) Ch. 4 exposed base plates (uniform
  * bearing stress block); AISC Manual 16th Ed. Table 14-2 (holes, washers);
- * ACI 318-19 Chapter 17 (anchors). NSCP 2015 projects are recorded by
- * designer choice and calculated per these editions.
+ * ACI 318-19 Chapter 17 (anchors). Codes: design-codes.ts catalogue.
  *
  * Units: inputs kN, kN·m, mm, MPa; internal N, N·mm, mm, MPa.
  * Axes: rotation 0° puts the column depth d along Y and bf along X.
@@ -14,6 +13,11 @@
  * +Vy towards +Y (north). Pu is positive in compression.
  */
 import { z } from "zod";
+import {
+  activeDesignCodes,
+  designCodeSchema,
+  upgradeLegacyProjectCode,
+} from "../design-codes";
 
 import type { ShapeRecord } from "../steel-shapes";
 import {
@@ -197,15 +201,19 @@ export const basePlateLoadSchema = z.object({
 });
 export type BasePlateLoad = z.infer<typeof basePlateLoadSchema>;
 
-export const concreteDesignCodes = ["ACI 318-19", "NSCP 2015"] as const;
-export const steelDesignCodes = ["AISC 360-22", "NSCP 2015"] as const;
-/** Drafts saved before engine 0.2.0 carry one `code`: map it to both codes. */
+/** Selectable codes come from the shared catalogue (design-codes.ts). */
+export const concreteDesignCodes = activeDesignCodes("concrete");
+export const steelDesignCodes = activeDesignCodes("steel");
+/**
+ * Drafts saved before engine 0.2.0 carry one `code`: map it to both codes.
+ * Legacy "NSCP 2015" codes load as ACI 318-19 / AISC 360-22 (design-codes.ts).
+ */
 function migrateBasePlateInput(raw: unknown) {
   if (!raw || typeof raw !== "object") return raw;
   const r0 = raw as Record<string, unknown>;
   // Engine 0.5.0: seismic design needs activation; SDC C–F drafts open active.
   const sz = r0.seismic as Record<string, unknown> | undefined;
-  const r =
+  let r =
     sz && typeof sz === "object" && !("active" in sz)
       ? {
           ...r0,
@@ -215,20 +223,25 @@ function migrateBasePlateInput(raw: unknown) {
           },
         }
       : r0;
-  if (!("code" in r) || "concreteCode" in r) return r;
-  const { code, ...rest } = r;
-  return {
-    ...rest,
-    concreteCode: code,
-    steelCode: code === "NSCP 2015" ? "NSCP 2015" : "AISC 360-22",
-  };
+  if ("code" in r && !("concreteCode" in r)) {
+    const { code, ...rest } = r;
+    r = {
+      ...rest,
+      concreteCode: code,
+      steelCode: code === "NSCP 2015" ? "NSCP 2015" : "AISC 360-22",
+    };
+  }
+  return upgradeLegacyProjectCode(r, {
+    concreteCode: "ACI 318-19",
+    steelCode: "AISC 360-22",
+  });
 }
 const basePlateInputObject = z
   .object({
     /** Concrete bearing and anchorage (ACI 318-19 Ch. 17). */
-    concreteCode: z.enum(concreteDesignCodes).default("ACI 318-19"),
+    concreteCode: designCodeSchema("concrete").default("ACI 318-19"),
     /** Plate, weld and steel checks (AISC 360-22 + DG1). */
-    steelCode: z.enum(steelDesignCodes).default("AISC 360-22"),
+    steelCode: designCodeSchema("steel").default("AISC 360-22"),
     /** AISC 360-22 B3: LRFD (φ) or ASD (Ω). Loads must match the method. */
     designMethod: z.enum(steelDesignMethods).default("LRFD"),
     /** ASD only: ASD demand × α for the ACI 318 anchor checks. */
@@ -2653,10 +2666,6 @@ export function analyzeBasePlate(
       c.tpRequired > g.value ? { value: c.tpRequired, combo: c.load.id } : g,
     { value: 0, combo: combos[0]?.load.id ?? "" },
   );
-  if (i.concreteCode === "NSCP 2015" || i.steelCode === "NSCP 2015")
-    notes.push(
-      "NSCP 2015 recorded as project standard; calculated per AISC 360-22 / DG1 3rd Ed. / ACI 318-19.",
-    );
   if (rods.length < 4)
     notes.push(
       "Fewer than 4 anchor rods: OSHA 29 CFR 1926.755 requires at least 4 for erection.",
@@ -2688,10 +2697,6 @@ export function analyzeBasePlate(
   if (i.designMethod === "ASD")
     notes.push(
       `ASD (AISC 360-22 B3.2): loads are ASD combinations; steel checks use Rn/Ω (Ωc ${aiscFactors.bearing.omega}, Ωb ${aiscFactors.plateFlexure.omega}, Ωw ${aiscFactors.weld.omega}, rods ${aiscFactors.rod.omega}). ACI 318-19 has no ASD: ${i.asdAnchorBasis === "lrfd" ? "anchor, friction and lug-concrete checks use the separate LRFD combinations (DG1 practice)." : `anchor, friction and lug-concrete checks use ${alpha} × ASD demand vs φRn (engine option; DG1 checks ACI with LRFD loads).`}`,
-    );
-  if (i.concreteCode !== i.steelCode.replace("AISC 360-22", "ACI 318-19"))
-    notes.push(
-      "Concrete and steel primary design codes differ (one is NSCP 2015); confirm the project's code basis.",
     );
   if (st) {
     notes.push(

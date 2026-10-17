@@ -486,11 +486,17 @@ describe("design codes and custom sections", () => {
       version: 1,
       input: { ...old, code: "NSCP 2015" },
     });
+    // Legacy NSCP 2015 project option retired 17 Oct 2026: loads on its
+    // calculation basis, NSCP 2015 kept under Other Codes.
     expect(parsed.input).toMatchObject({
-      concreteCode: "NSCP 2015",
-      steelCode: "NSCP 2015",
+      concreteCode: "ACI 318-19",
+      steelCode: "AISC 360-22",
       designMethod: "LRFD",
     });
+    expect(parsed.input.otherCodes).toMatch(/^NSCP 2015 \(project standard\)/);
+    expect(analyzeBasePlate(parsed.input)).toEqual(
+      analyzeBasePlate({ ...parsed.input, otherCodes: old.otherCodes }),
+    );
     const aci = basePlateDraftSchema.parse({
       kind: "base-plate",
       version: 1,

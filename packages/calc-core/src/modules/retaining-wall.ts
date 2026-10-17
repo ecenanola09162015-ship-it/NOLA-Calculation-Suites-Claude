@@ -12,6 +12,7 @@
  * of the footing. Stem height H is measured from the top of the footing.
  */
 import { z } from "zod";
+import { designCodeSchema, upgradeLegacyProjectCode } from "../design-codes";
 
 import { designCheckPolicySchema, designRemarksSchema } from "../design-review";
 import { retainingWallQuantitySchema } from "./retaining-wall-quantity";
@@ -72,9 +73,12 @@ export function defaultCounterfort() {
     heelTies: { diameter: 16, spacing: 200 },
   };
 }
-export const retainingWallInputSchema = z
+/** Legacy "NSCP 2015" drafts load as ACI 318-19 (design-codes.ts). */
+export const retainingWallInputSchema = z.preprocess(
+  (raw) => upgradeLegacyProjectCode(raw, { code: "ACI 318-19" }),
+  z
   .object({
-    code: z.enum(["ACI 318-19", "NSCP 2015"]),
+    code: designCodeSchema("concrete"),
     otherCodes: z.string().max(300).optional(),
     wallType: z.enum(retainingWallTypes),
     /** 1 m strip (Phase 1) or full-width plate of the stem (Phase 2). */
@@ -288,7 +292,8 @@ export const retainingWallInputSchema = z
       new Set(i.strength.map((c) => c.id)).size === i.strength.length &&
       new Set(i.service.map((c) => c.id)).size === i.service.length,
     "Load combination labels must be unique.",
-  );
+  ),
+);
 export type RetainingWallInput = z.infer<typeof retainingWallInputSchema>;
 
 export const retainingWallDraftSchema = z.object({

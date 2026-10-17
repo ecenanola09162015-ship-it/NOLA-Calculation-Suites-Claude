@@ -28,6 +28,10 @@ import type { ProjectRecord, CalculationDraftRecord } from "@/lib/projects";
 import { DesignReviewPanel, DesignStatus } from "./design-review-panel";
 import { ReportExportControls } from "./report-export-controls";
 import { DuplicateSavePrompt, type DraftDuplicate } from "./duplicate-save-prompt";
+import { SaveRunBar, SaveToProject, StaleResultsNotice } from "./calc-actions";
+import { postCalculation } from "@/lib/calc-save";
+import { useCalculationRun } from "@/lib/use-calc-run";
+import { useUnsavedGuard } from "../lib/unsaved";
 import { ConcreteStrengthFields } from "./concrete-strength-fields";
 import { DesignCodeFields } from "./column-materials-fields";
 import { RebarGradeSelect, RebarSizeSelect, RebarStandardSelect } from "./rebar-select";
@@ -102,11 +106,14 @@ export function RetainingWallWorkspace({
   draft,
   cloudReady,
   onSaved,
+  onDirtyChange,
 }: {
   project?: ProjectRecord;
   draft?: CalculationDraftRecord;
   cloudReady: boolean;
   onSaved: (d: CalculationDraftRecord) => void;
+  /** Reports unsaved edits to the suite (asks before navigating away). */
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const restored = useMemo(() => retainingWallDraftSchema.safeParse(draft?.payload), [draft]);
   const [input, setInput] = useState<RetainingWallInput>(() =>
@@ -128,26 +135,43 @@ export function RetainingWallWorkspace({
   const [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
     [duplicate, setDuplicate] = useState<DraftDuplicate | null>(null),
-    [saved, setSaved] = useState(!!restored.success);
+    [, setSaved] = useState(!!restored.success),
+    // Edited since opened / last saved (unsaved-changes guard).
+    [dirty, setDirty] = useState(false),
+    [savedAt, setSavedAt] = useState<string | undefined>(restored.success ? draft?.updatedAt : undefined);
+  useUnsavedGuard(dirty, onDirtyChange);
   const editVersion = useRef(0);
-  const analysed = useDeferredValue(input);
-  const analysis = useMemo(() => {
-    const parsed = retainingWallInputSchema.safeParse(analysed);
+  // Explicit Run calculation: results belong to the last run and are withheld
+  // after any input edit until the next run (calc-actions, 17 Oct 2026).
+  const analysis = useCalculationRun(input, (i: RetainingWallInput) => {
+    const parsed = retainingWallInputSchema.safeParse(i);
     if (!parsed.success)
-      return {
-        result: null,
-        error: `Check inputs: ${parsed.error.issues
+      throw new Error(
+        `Check inputs: ${parsed.error.issues
           .slice(0, 3)
           .map((x) => `${x.path.join(".") || "input"} — ${x.message}`)
           .join("; ")}`,
-      };
-    try {
-      return { result: designRetainingWall(parsed.data), error: "" };
-    } catch (e) {
-      return { result: null, error: e instanceof Error ? e.message : "Check numerical inputs." };
-    }
-  }, [analysed]);
+      );
+    return designRetainingWall(parsed.data);
+  });
+  const analysed = analysis.ranInput;
   const r = analysis.result;
+  // Geometry drawings follow the live inputs like the other modules: while
+  // results are out of date the section and 3D show a preview of the edited
+  // wall (pressures and bearing hidden in the section until Run).
+  const liveInput = useDeferredValue(input);
+  const preview = useMemo(() => {
+    if (!analysis.stale) return null;
+    const parsed = retainingWallInputSchema.safeParse(liveInput);
+    if (!parsed.success) return null;
+    try {
+      return { input: parsed.data, result: designRetainingWall(parsed.data) };
+    } catch {
+      return null;
+    }
+  }, [analysis.stale, liveInput]);
+  const drawInput = preview?.input ?? analysed;
+  const drawResult = r ?? preview?.result ?? null;
   const checks = useMemo(() => (r ? retainingWallDesignChecks(r) : []), [r]);
   const missing = r ? missingJudgmentRemarks(checks, policy, remarks).length : 0;
   const status = r ? retainingWallStatus(r, input.dcrLimit) : null;
@@ -155,10 +179,14 @@ export function RetainingWallWorkspace({
   const basement = input.wallType === "basement";
   const seismicOn = input.seismic.method !== "none";
 
+  function markUnsaved() {
+    setSaved(false);
+    setDirty(true);
+  }
   function update(next: RetainingWallInput) {
     editVersion.current++;
     setInput(next);
-    setSaved(false);
+    markUnsaved();
     setMessage("");
   }
   /** Copy-on-write edit of the input. */
@@ -176,71 +204,96 @@ export function RetainingWallWorkspace({
         Object.assign(d, retainingWallCombinationPreset(d.combinationSet, d.seismic.method !== "none", d.wind.enabled));
     });
   }
-  async function save(opts: { overwrite?: boolean; title?: string } = {}) {
-    if (!project) return;
+  /** Validated draft payload of the inputs on screen (Save changes / Save to project). */
+  function buildPayload() {
+    const parsed = retainingWallDraftSchema.safeParse({
+      kind: "retaining-wall",
+      version: 1,
+      input,
+      quantity,
+      designPolicy: policy,
+      remarks,
+      // Saved while results are out of date: stored as not calculated.
+      reviewCompleted: !!r,
+    });
+    if (!parsed.success || !title.trim()) throw new Error("Complete valid inputs and a calculation title before saving.");
+    if (missing) throw Error("Add Remarks For Each Amber Design Check Before Saving.");
+    return parsed.data;
+  }
+  /** Save changes to this calculation file; true when saved. */
+  async function save(opts: { overwrite?: boolean; title?: string } = {}): Promise<boolean> {
+    if (!project) return false;
     const saveTitle = opts.title ?? title;
     const version = editVersion.current;
     setBusy(true);
     setMessage("");
     try {
-      const parsed = retainingWallDraftSchema.safeParse({
-        kind: "retaining-wall",
-        version: 1,
-        input,
-        quantity,
-        designPolicy: policy,
-        remarks,
-        reviewCompleted: !!r,
+      const outcome = await postCalculation({
+        id,
+        projectId: project.id,
+        moduleSlug: "retaining-wall",
+        title: saveTitle,
+        overwrite: opts.overwrite === true,
+        payload: buildPayload(),
       });
-      if (!parsed.success || !title.trim()) throw new Error("Complete valid inputs and a calculation title before saving.");
-      if (missing) throw Error("Add Remarks For Each Amber Design Check Before Saving.");
-      const response = await fetch("/api/calculations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id,
-          projectId: project.id,
-          moduleSlug: "retaining-wall",
-          title: saveTitle,
-          overwrite: opts.overwrite === true,
-          payload: parsed.data,
-        }),
-      });
-      const body = await response.json();
-      if (response.status === 409 && body.duplicate) {
-        setDuplicate(body.duplicate);
-        return;
+      if (!outcome.ok && outcome.duplicate) {
+        setDuplicate(outcome.duplicate);
+        return false;
       }
       setDuplicate(null);
       if (opts.title) setTitle(opts.title);
-      if (!response.ok) throw new Error(body.error ?? "Save failed.");
-      setId(body.draft.id);
-      setSaved(version === editVersion.current);
-      onSaved(body.draft);
+      if (!outcome.ok) throw new Error(outcome.error);
+      setId(outcome.draft.id);
+      setSavedAt(outcome.draft.updatedAt);
+      const clean = version === editVersion.current;
+      setSaved(clean);
+      setDirty(!clean);
+      onSaved(outcome.draft);
       setMessage(
-        version === editVersion.current
-          ? "Retaining wall saved. Reopen it from the project explorer."
+        clean
+          ? `Retaining wall saved${analysis.stale ? " (results out of date — run the calculation)" : ""}. Reopen it from the project explorer.`
           : "Earlier inputs saved; newer edits remain unsaved.",
       );
+      return true;
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Save failed.");
+      return false;
     } finally {
       setBusy(false);
     }
   }
+  /** Save to project: save this file first (skipped when nothing changed). */
+  const saveChanges = () => (!dirty && id ? Promise.resolve(true) : save());
+  const canSave = !!project && cloudReady && !!title.trim();
+  const saveRun = (section: string) => (
+    <SaveRunBar
+      section={section}
+      dirty={dirty || !id}
+      busy={busy}
+      canSave={canSave}
+      saveBlockedReason={!project ? "Create or select a project to save this calculation." : !cloudReady ? "Cloud saving is not configured." : "Enter a calculation title."}
+      savedAt={savedAt}
+      onSave={() => void save()}
+      stale={analysis.stale}
+      onRun={analysis.run}
+    />
+  );
 
   const sectionSvg = useMemo(
-    () => (r ? retainingWallSectionSvg(analysed, r, layers) : ""),
-    [r, analysed, layers],
+    () =>
+      drawResult
+        ? retainingWallSectionSvg(drawInput, drawResult, r ? layers : { ...layers, pressures: false, bearing: false })
+        : "",
+    [r, drawResult, drawInput, layers],
   );
   const estimate = useMemo(() => {
-    if (!quantity.enabled || !r) return null;
+    if (!quantity.enabled || !drawResult) return null;
     try {
-      return estimateRetainingWallQuantity(analysed, quantity);
+      return estimateRetainingWallQuantity(drawInput, quantity);
     } catch {
       return null;
     }
-  }, [quantity, r, analysed]);
+  }, [quantity, drawResult, drawInput]);
   const elevationSvg = useMemo(
     () => (r?.plate && tab === "elevation" ? retainingWallElevationSvg(analysed, r, elevationField) : ""),
     [r, analysed, elevationField, tab],
@@ -347,17 +400,23 @@ export function RetainingWallWorkspace({
               editVersion.current++;
               setTitle(e.target.value);
               setDuplicate(null);
-              setSaved(false);
+              markUnsaved();
             }}
           />
         </label>
-        <button className="suitePrimary" onClick={() => save()} disabled={busy || !project || !cloudReady || !r}>
-          {busy ? "Saving…" : saved ? "Saved" : "Save wall"}
-        </button>
+        {saveRun("Calculation")}
+        <SaveToProject
+          currentProjectId={project?.id}
+          moduleSlug="retaining-wall"
+          title={title}
+          canCopy={canSave}
+          buildPayload={buildPayload}
+          saveChanges={saveChanges}
+        />
         <ReportExportControls
           moduleName="Concrete Retaining Wall"
           disabled={!r}
-          disabledReason="Complete valid wall inputs to enable export."
+          disabledReason={analysis.stale ? "Run calculation to enable export." : "Complete valid wall inputs to enable export."}
           hint={missing ? `Record Engineering Judgment Remarks Before Exporting (${missing}).` : undefined}
           onData={async () => {
             if (!r) throw Error("Complete Valid Wall Inputs First.");
@@ -368,8 +427,7 @@ export function RetainingWallWorkspace({
         />
       </div>
       <p className="slabPilot">
-        Development pilot · Calculation basis: ACI 318-19
-        {input.code === "NSCP 2015" ? "; project standard NSCP 2015 (combinations Sec. 203, stability Sec. 307, seismic Sec. 208)" : ""}. 1 m strip
+        Development pilot · Calculation basis: ACI 318-19. 1 m strip
         analysis. Independent engineering review required.
       </p>
       {!project && <p>Create or select a project to save this calculation.</p>}
@@ -390,7 +448,7 @@ export function RetainingWallWorkspace({
       <div className="slabGrid">
         <aside className={`slabInputs slabPanel ${styles.inputs}`}>
           <h2>01 · Wall Type & Code</h2>
-          <DesignCodeFields input={input} onChange={update} engine="slab" />
+          <DesignCodeFields input={input} onChange={update} />
           <label>
             Wall type
             <select
@@ -640,6 +698,8 @@ export function RetainingWallWorkspace({
             </div>
           )}
 
+          {saveRun("Geometry")}
+
           <h2>03 · Backfill, Surcharge & Water</h2>
           <label>
             Earth pressure
@@ -733,6 +793,8 @@ export function RetainingWallWorkspace({
               </div>
             </>
           )}
+
+          {saveRun("Soil and water")}
 
           <h2>05 · Seismic</h2>
           <label>
@@ -849,6 +911,8 @@ export function RetainingWallWorkspace({
             <Numeric label="Cut-off height above footing" unit="m" value={input.bars.stemCut.height} onChange={(v) => patch((d) => (d.bars.stemCut.height = v))} />
           )}
 
+          {saveRun("Materials and reinforcement")}
+
           <h2>08 · Load Combinations</h2>
           <label>
             Combination set
@@ -873,9 +937,11 @@ export function RetainingWallWorkspace({
             overturning and sliding) · E: seismic increment and inertia.
           </p>
           <Numeric label="DCR limit" value={input.dcrLimit} onChange={(v) => patch((d) => (d.dcrLimit = v))} />
+          {saveRun("Loads")}
         </aside>
 
         <div className="slabCenter">
+          {analysis.stale && <StaleResultsNotice onRun={analysis.run} />}
           <div className="slabTabs" role="tablist" aria-label="Retaining wall view">
             {(
               [
@@ -901,7 +967,10 @@ export function RetainingWallWorkspace({
                   </label>
                 ))}
               </div>
-              {r ? (
+              {!r && preview ? (
+                <p className="slabMuted">Preview of the edited geometry. Pressures and bearing show after Run calculation.</p>
+              ) : null}
+              {drawResult ? (
                 <div className={styles.drawing} role="img" aria-label="Retaining wall section" dangerouslySetInnerHTML={{ __html: sectionSvg }} />
               ) : (
                 <p className="slabMuted">Complete valid inputs to draw the section.</p>
@@ -1027,9 +1096,10 @@ export function RetainingWallWorkspace({
               )}
             </section>
           )}
-          {tab === "3d" && r && (
+          {tab === "3d" && drawResult && (
             <section className="slabPanel slab3dPanel">
-              <RetainingWall3DView input={analysed} result={r} onSnapshot={setSnapshot3d} />
+              {!r && <p className="slabMuted">Preview of the edited geometry. Pressure arrows and the moment colour map are not run results until Run calculation.</p>}
+              <RetainingWall3DView input={drawInput} result={drawResult} onSnapshot={setSnapshot3d} />
               {snapshot3d && (
                 <p className="slabMuted">
                   A 3D snapshot will be included in the Complete PDF report. <button onClick={() => setSnapshot3d(null)}>Remove snapshot</button>
