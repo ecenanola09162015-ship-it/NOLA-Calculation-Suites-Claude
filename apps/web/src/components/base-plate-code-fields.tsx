@@ -14,7 +14,12 @@ import {
 
 type Codes = Pick<
   BasePlateInput,
-  "concreteCode" | "steelCode" | "designMethod" | "asdAlpha" | "otherCodes"
+  | "concreteCode"
+  | "steelCode"
+  | "designMethod"
+  | "asdAlpha"
+  | "asdAnchorBasis"
+  | "otherCodes"
 >;
 
 export function BasePlateCodeFields<T extends Codes>({
@@ -80,12 +85,17 @@ export function BasePlateCodeFields<T extends Codes>({
           Steel Design Method
           <select
             value={input.designMethod}
-            onChange={(e) =>
+            onChange={(e) => {
+              const m = e.target.value as SteelDesignMethod;
+              // Switching to ASD: ACI checks default to LRFD combinations.
               onChange({
                 ...input,
-                designMethod: e.target.value as SteelDesignMethod,
-              })
-            }
+                designMethod: m,
+                ...(m === "ASD" && input.designMethod !== "ASD"
+                  ? { asdAnchorBasis: "lrfd" as T["asdAnchorBasis"] }
+                  : {}),
+              });
+            }}
           >
             {steelDesignMethods.map((m) => (
               <option key={m} value={m}>
@@ -97,6 +107,25 @@ export function BasePlateCodeFields<T extends Codes>({
           </select>
         </label>
         {input.designMethod === "ASD" && (
+          <label title="ACI 318 has no ASD provisions">
+            ACI 318 checks (anchors, friction, lug concrete)
+            <select
+              value={input.asdAnchorBasis}
+              onChange={(e) =>
+                onChange({
+                  ...input,
+                  asdAnchorBasis: e.target.value as T["asdAnchorBasis"],
+                })
+              }
+            >
+              <option value="lrfd">
+                LRFD combinations (DG1 practice, recommended)
+              </option>
+              <option value="alpha">α × ASD demand</option>
+            </select>
+          </label>
+        )}
+        {input.designMethod === "ASD" && input.asdAnchorBasis === "alpha" && (
           <label title="ACI 318 has no ASD provisions: anchor checks use α × ASD demand vs φRn">
             Anchor check factor α (ACI 318 strength level)
             <input
@@ -140,7 +169,9 @@ export function BasePlateCodeFields<T extends Codes>({
         <p className="slabMuted">
           ASD: enter service-level (ASD) combinations. Steel checks use Rn/Ω;
           ACI 318-19 anchor checks use{" "}
-          {input.asdAlpha || ASD_TO_STRENGTH_DEFAULT} × ASD demand vs φRn.
+          {input.asdAnchorBasis === "lrfd"
+            ? "the LRFD combinations entered under Calculations & loads."
+            : `${input.asdAlpha || ASD_TO_STRENGTH_DEFAULT} × ASD demand vs φRn.`}
         </p>
       )}
       <label className="bpWideLabel">

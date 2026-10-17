@@ -1064,7 +1064,7 @@ select {
 }
 .suiteStructural {
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 3fr) minmax(0, 1fr) minmax(0, 2fr);
   gap: 10px;
   padding: 9px;
 }
@@ -1085,6 +1085,9 @@ select {
 }
 .groupConcrete .suiteCards {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.groupSteel .suiteCards {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .suiteModule {
   min-width: 0;
@@ -1272,6 +1275,9 @@ select {
   }
   .groupConcrete .suiteCards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .groupSteel .suiteCards {
+    grid-template-columns: 1fr;
   }
   .suiteGeoCards {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -4601,4 +4607,35 @@ tr.barSelected td {
 .bundleFix {
   margin-left: 8px;
   padding: 2px 8px;
+}
+
+.bpStiffChoices {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+.bpStiffChoices button {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  padding: 5px 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 1.2;
+  cursor: pointer;
+  text-align: center;
+}
+.bpStiffChoices button svg {
+  width: 64px;
+  height: 64px;
+  background: #fff;
+  border-radius: 4px;
+}
+.bpStiffChoices button[aria-checked="true"] {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary) inset;
 }

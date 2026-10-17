@@ -168,8 +168,9 @@ export const basePlateClauses = {
   bearing: () =>
     `${aisc("J8, Eq. J8-2, φc = 0.65 / Ωc = 2.31")}; ${dg1("4.3 uniform bearing")}`,
   plate: () =>
-    `${dg1("4.3–4.4 cantilever m, n, λn′; tension interface")}; ${aisc("φb = 0.90 / Ωb = 1.67")}`,
-  weld: () => aisc("J2.4, Table J2.5, φ = 0.75 / Ω = 2.00"),
+    `${dg1("4.3.1, 4.3.7 cantilevers m, n, λn′ (I only); Eq. 4-62 tension interface; Ex. 4.7-3 web")}; ${aisc("φb = 0.90 / Ωb = 1.67")}`,
+  weld: () =>
+    `${aisc("J2.4, Table J2.5, kds Eq. J2-5, φ = 0.75 / Ω = 2.00")}; ${dg1("Ex. 4.7-3, 4.7-9")}`,
   steelTension: () =>
     ref("17.6.1.2, futa ≤ min(1.9fya, 860 MPa)", "φ Table 17.5.3"),
   steelShear: () =>
@@ -207,11 +208,31 @@ export const basePlateClauses = {
   geometry: () => `${ref("17.9.1, 17.9.2")}; AISC Manual 16th Ed. Table 14-2`,
   memberThickness: () => ref("17.9.4"),
   seismic: () => ref("17.10.5.3(a), 17.10.5.4 (0.75 concrete tension)"),
-  friction: () => dg1("4.5 friction, φ = 0.75 / Ω = 2.00"),
-  lugBearing: () => ref("17.11.2.1, ψbrg,sl, φ = 0.65"),
-  lugBreakout: () => ref("17.11.3 (Vb upper-bound expression; verify)"),
+  friction: () =>
+    `${dg1("Eq. 4-30, μ = 0.4, φ = 0.65")}; ACI 349-13 D.6.1.4; ${ref("22.9.4.4 cap, φ = 0.75")}`,
+  lugBearing: () => ref("17.11.2.1, Aef depth ≤ 2tsl, ψbrg,sl, φ = 0.65"),
+  lugBreakout: () => ref("17.11.3, φ = 0.65 (17.11.1.1.6)"),
   lugFlexure: () =>
-    `${aisc("F11 plastic moment of plate, φb = 0.90 / Ωb = 1.67")}; ${dg1("4.5 shear lug")}`,
+    `${aisc("J4.5 Mn = Fy Z, J4.2 shear yielding")}; AISC Manual Eq. 9-1; ${dg1("Ex. 4.7-5")}`,
+  lugRupture: () =>
+    aisc("J4.2(b) shear rupture, J4.5 flexural rupture, φ = 0.75 / Ω = 2.00"),
+  lugWeld: () => `${aisc("J2.4, kds Eq. J2-5")}; ${dg1("Ex. 4.7-5")}`,
+  lugPlate: () => `${dg1("Ex. 4.7-5 local plate bending")}; ${aisc("J4.5")}`,
+  lugHef: () => ref("17.11.1.1.8: hef ≥ 2.5hsl, hef ≥ 2.5csl"),
+  rodAisc: () =>
+    `${aisc("J3.6, J3.7, J3.8 (Eq. J3-3), φ = 0.75 / Ω = 2.00")}; ${dg1("Eq. 4-26 to 4-28")}`,
+  biaxial: () => dg1("4.3.11 Eq. 4-69"),
   holes: () =>
     "AISC Manual 16th Ed. Table 14-2; AISC FAQ 7.2.3 (½ in clear to plate edge)",
+  stiffenedPlate: () =>
+    `Yield-line / strip panels on the ${dg1("4.3 critical lines")} (stiffened bases outside DG1 scope, Sec. 3.1); ${dg1("Ex. 4.7-7 tension, 45°")}; ${aisc("φb = 0.90 / Ωb = 1.67")}`,
+  stiffenerFlexure: () =>
+    aisc("F11 rectangular bar (LTB, Cb 1.0) or F9 tee", "φb = 0.90 / Ωb = 1.67"),
+  stiffenerShear: () => aisc("J4.2(a) shear yielding, φ = 1.00 / Ω = 1.50"),
+  stiffenerSlenderness: () =>
+    aisc("Table B4.1a case 1 limit 0.56√(E/Fy) applied to hc/ts (engine rule)"),
+  stiffenerWeld: () =>
+    `${aisc("J2.4, kds Eq. J2-5")}; ${dg1("Ex. 4.7-7")}`,
+  stiffenerColumn: () =>
+    aisc("J10.2 web local yielding, J10.3 web crippling (member end)"),
 } as const;

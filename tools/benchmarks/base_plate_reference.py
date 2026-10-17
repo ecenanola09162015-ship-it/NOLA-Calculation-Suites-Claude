@@ -53,7 +53,7 @@ Tu = q * Y - P
 mpl_b = fpmax * L * L / 2 if Y >= L else fpmax * Y * (L - Y / 2)
 tp_b = sqrt(4 * mpl_b / (0.9 * Fy))
 x = f - d / 2 + tf / 2
-beff = min(Bx, 2 * (2 * x))  # two rods 340 apart, 45° widths do not overlap
+beff = Bx  # DG1 Eq. 4-60/4-62: full plate width B (engine 0.4.0, decision D1)
 tp_t = sqrt(4 * Tu * x / beff / (0.9 * Fy))
 print("large ecrit", By / 2 - P / (2 * q), "Y", Y, "Tu_kN", Tu / 1e3, "tp_bearing", tp_b, "x", x, "beff", beff, "tp_tension", tp_t)
 

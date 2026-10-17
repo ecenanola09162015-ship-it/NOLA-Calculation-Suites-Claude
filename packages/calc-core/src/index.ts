@@ -34,6 +34,7 @@ export * from "./code-clauses";
 export * from "./anchor-rods";
 export * from "./modules/base-plate";
 export * from "./modules/base-plate-anchors";
+export * from "./modules/base-plate-stiffeners";
 export * from "./steel-shapes";
 export * from "./steel-design-method";
 

@@ -7,6 +7,7 @@ import {
   basePlateClauses,
   futaUsed,
   heavyHexBearingArea,
+  rodsCarryShear,
   type BasePlateInput,
   type BasePlateResult,
   type ComboResult,
@@ -45,7 +46,7 @@ export function basePlateSteps(
     if (c.case === "uplift") {
       s.push([
         `Axis ${ax}`,
-        `Net uplift: rod tensions Ti = −Pu/n − Mx·yi/Σy² − My·xi/Σx² (≥ 0); plate cantilever x = ${f(a.x, 1)} mm, beff by 45° spread`,
+        `Tension, e ≤ f (DG1 Eq. 4-67): Ti = −Pu/n − Mx·yi/Σy² − My·xi/Σx²; plate at the column face over B (Eq. 4-62), or about the web / flange / stiffener with 45° (Ex. 4.7-3) → tp,req = ${f(a.tpTension, 2)} mm`,
         basePlateClauses.plate(),
       ]);
       continue;
@@ -79,7 +80,13 @@ export function basePlateSteps(
         `(f + N/2)² < 2Pu(e + f)/qmax: no real solution — increase the plate or the rod lever arm.`,
         basePlateClauses.bearing(),
       ]);
-    if (Number.isFinite(a.tpBearing))
+    if (Number.isFinite(a.tpBearing) && c.stiffener)
+      s.push([
+        `Plate, bearing interface ${ax}`,
+        `Stiffened: max(DG1 cantilever of the unstiffened zones${a.case === "axial" ? " and λn′" : ""}, stiffened panels below) → tp,req = ${f(a.tpBearing, 2)} mm`,
+        basePlateClauses.stiffenedPlate(),
+      ]);
+    else if (Number.isFinite(a.tpBearing))
       s.push([
         `Plate, bearing interface ${ax}`,
         a.case === "axial"
@@ -87,11 +94,60 @@ export function basePlateSteps(
           : `ℓ = max(m, n) = ${f(Math.max(a.m, a.nCant), 1)} mm; Mpl = ${a.y >= Math.max(a.m, a.nCant) ? "fp ℓ²/2" : "fp Y (ℓ − Y/2)"}; tp,req = √(4Mpl/(${lrfd ? "0.90 Fy" : "Fy/1.67"})) = ${f(a.tpBearing, 2)} mm`,
         basePlateClauses.plate(),
       ]);
-    if (a.tpTension > 0)
+    if (a.tpTension > 0 && a.case !== "uplift")
       s.push([
         `Plate, tension interface ${ax}`,
-        `x = f − dcol/2 + tf/2 = ${f(a.x, 1)} mm; beff = ${f(a.beff, 0)} mm (45° from each rod); tp,req = √(4 T x/(${lrfd ? "0.90 Fy" : "Fy/1.67"} beff)) = ${f(a.tpTension, 2)} mm`,
+        `x = ${f(a.x, 1)} mm (I strong axis f − d/2 + tf/2; I weak axis f − 0.4bf; HSS f − b/2 + t/2); column-face rods: Mpl = T x / B (B = ${f(a.b, 0)} mm, DG1 Eq. 4-62); rods beside a web, flange or stiffener: 45° (below) → tp,req = ${f(a.tpTension, 2)} mm`,
         basePlateClauses.plate(),
+      ]);
+  }
+  if (c.biaxial)
+    s.push([
+      "Biaxial interaction (DG1 Eq. 4-69)",
+      `Mcx = ${f(c.biaxial.mcx, 1)} kN·m, Mcy = ${f(c.biaxial.mcy, 1)} kN·m at Pu (bisection over the bearing solution, plate, rod steel and ACI tension limit states); (Mx/Mcx)² + (My/Mcy)² = (${f(c.load.mx, 1)}/${f(c.biaxial.mcx, 1)})² + (${f(c.load.my, 1)}/${f(c.biaxial.mcy, 1)})² = ${f(c.biaxial.ratio, 3)}`,
+      basePlateClauses.biaxial(),
+    ]);
+  if (c.lugMoment)
+    s.push([
+      "Shear lug moment",
+      `e = tgrout + hsl/2 = ${f(c.lugMoment.e, 0)} mm; ΔMx = Vy·e = ${f(c.lugMoment.mx, 2)} kN·m, ΔMy = Vx·e = ${f(c.lugMoment.my, 2)} kN·m added to the base moment`,
+      basePlateClauses.lugPlate(),
+    ]);
+  for (const g of [...c.plateTension]
+    .filter((x) => !c.stiffener || !x.support.startsWith("S"))
+    .sort((p, q) => q.tpReq - p.tpReq)
+    .slice(0, 4))
+    s.push([
+      `Plate at rods ${g.rods.join(", ")} → ${g.support === "column" ? "column face" : g.support}`,
+      g.support === "column"
+        ? `x = ${g.levers.map((v) => f(v, 1)).join(", ")} mm; width B = ${f(g.beff, 0)} mm (DG1 Eq. 4-62); m = ΣT·x/B = ${f(g.m, 0)} N·mm/mm; tp,req = ${f(g.tpReq, 2)} mm`
+        : `a = ${g.levers.map((v) => f(v, 1)).join(", ")} mm to the face; beff = 2a = ${f(g.beff, 0)} mm (45°, clipped; DG1 Ex. 4.7-3/4.7-7); m = ΣT·a/beff = ${f(g.m, 0)} N·mm/mm; tp,req = ${f(g.tpReq, 2)} mm`,
+      basePlateClauses.plate(),
+    ]);
+  const sc = c.stiffener;
+  const fb = lrfd ? "0.90 Fy" : "Fy/1.67";
+  if (sc) {
+    const sf = i.stiffeners;
+    s.push([
+      "Stiffened plate",
+      `${sf.plateMethod === "strip" ? "Hillerborg strip method (45° to the nearest support)" : `Yield-line panels (fixed supports m′ = m) × ${1.1} corner allowance, ≤ unstiffened cantilever`}; unstiffened zones${c.case === "axial" ? " and λn′" : ""}: tp,req = ${f(sc.unstiffenedTp, 2)} mm`,
+      basePlateClauses.stiffenedPlate(),
+    ]);
+    const panels = [...sc.panels].sort((p, q) => q.tpReq - p.tpReq).slice(0, 4);
+    for (const p of panels)
+      s.push([
+        `Panel ${p.id} (${p.type})`,
+        `a = ${f(p.a, 1)}, b = ${f(p.b, 1)} mm, fp = ${f(p.fp, 3)} MPa; ${p.mechanism}; m = ${f(p.mReq, 0)} N·mm/mm; tp,req = √(4m/(${fb})) = ${f(p.tpReq, 2)} mm`,
+        basePlateClauses.stiffenedPlate(),
+      ]);
+    for (const g of [...sc.tension]
+      .filter((x) => x.support.startsWith("S"))
+      .sort((p, q) => q.tpReq - p.tpReq)
+      .slice(0, 4))
+      s.push([
+        `Plate at rods ${g.rods.join(", ")} → ${g.support}`,
+        `a = ${g.levers.map((v) => f(v, 1)).join(", ")} mm; beff = ${f(g.beff, 0)} mm (45°, clipped to the support); m = ΣT·a/beff = ${f(g.m, 0)} N·mm/mm; tp,req = ${f(g.tpReq, 2)} mm`,
+        basePlateClauses.stiffenedPlate(),
       ]);
   }
   s.push([
@@ -107,7 +163,7 @@ export function basePlateSteps(
     `Ase = ${f(a.ase, 1)} mm²; futa = min(${f(a.fu, 1)}, 1.9 × ${f(a.fy, 1)}, 860) = ${f(futa, 1)} MPa; φNsa = ${a.ductile ? "0.75" : "0.65"} × Ase × futa = ${kN(an.phiNsa)} kN; Nua = ${alpha !== 1 ? `${alpha} × Ta = ` : ""}${kN(an.nuaMax)} kN → DCR ${f(an.steelTensionDcr, 3)}`,
     basePlateClauses.steelTension(),
   ]);
-  if (i.shear.method === "anchors")
+  if (rodsCarryShear(i))
     s.push([
       "Rod steel shear",
       `Vsa = 0.6 Ase futa${i.grout.thickness > 0 ? " × 0.80 (grout pad)" : ""}; φVsa = ${kN(an.phiVsa)} kN; Vua = V/${c.shearRods.length} = ${kN(an.vuaMax)} kN → DCR ${f(an.steelShearDcr, 3)}`,
@@ -156,23 +212,69 @@ export function basePlateSteps(
     `${an.interaction.rule}: tension ${f(an.tensionRatio, 3)}, shear ${f(an.shearRatio, 3)} → ${f(an.interaction.ratio, 3)}`,
     basePlateClauses.interaction(),
   ]);
+  s.push([
+    "Rod as a bolt (AISC J3.8)",
+    `Ab = πda²/4, Z = da³/6; ft = T/Ab + M/Z = ${f(c.rodAisc.ft, 1)} MPa (M = V × ${f(c.rodAisc.lever, 1)} mm reverse curvature); fv = V/Ab = ${f(c.rodAisc.fv, 1)} MPa; ${lrfd ? "φF′nt" : "F′nt/Ω"} = ${f(c.rodAisc.ftAllow, 1)} MPa, ${lrfd ? "φFnv" : "Fnv/Ω"} = ${f(c.rodAisc.fvAllow, 1)} MPa (Fnt 0.75Fu, Fnv 0.45Fu) → DCR ${f(c.rodAisc.dcr, 3)}`,
+    basePlateClauses.rodAisc(),
+  ]);
   if (c.friction)
     s.push([
       "Friction",
-      `${lrfd ? "φμPu" : "μPa/Ω"} = ${fac(0.75, 2.0)} × ${i.shear.mu} × ${f(Math.max(L.pu, 0), 1)} = ${kN(c.friction.capacity)} kN vs V = ${kN(c.vResultant)} kN → DCR ${f(c.friction.dcr, 3)}`,
+      `φ0.65 μ P = 0.65 × ${i.shear.mu} × ${f(alpha * Math.max(L.pu, 0), 1)} kN ≤ 0.75 min(0.2f′c, 5.5 MPa) Ac (Ac = ${f(c.friction.ac / 1e6, 3)} m² → ${kN(c.friction.cap)} kN) = ${kN(c.friction.capacity)} kN vs V = ${kN(alpha * c.vResultant)} kN${i.shear.method === "friction-anchors" ? `; friction takes ${kN(c.friction.share)} kN, rods the rest` : ` → DCR ${f(c.friction.dcr, 3)}`}`,
       basePlateClauses.friction(),
     ]);
   if (c.lug)
-    s.push([
-      "Shear lug",
-      `${c.lug.direction.toUpperCase()}: φVbrg = 0.65 × 1.7f′c Aef ψbrg (${f(c.lug.psiBrg, 2)}) = ${kN(c.lug.phiVbrg)} kN; φVcb = ${kN(c.lug.phiVcb)} kN (ca1 ${f(c.lug.ca1, 0)} mm); φMn = ${f(c.lug.phiMn / 1e6, 2)} kN·m vs Mu ${f(c.lug.mu / 1e6, 2)} kN·m`,
-      `${basePlateClauses.lugBearing()}; ${basePlateClauses.lugFlexure()}`,
-    ]);
+    s.push(
+      [
+        "Shear lug, concrete",
+        `${c.lug.direction.toUpperCase()}: Aef = b × min(hsl, 2tsl) = ${f(c.lug.aef, 0)} mm²; φVbrg = 0.65 × 1.7f′c Aef ψbrg (${f(c.lug.psiBrg, 2)}) = ${kN(c.lug.phiVbrg)} kN → DCR ${f(c.lug.bearingDcr, 3)}; φVcb = 0.65 × ${kN(c.lug.phiVcb / 0.65)} kN (ca1 ${f(c.lug.ca1, 0)} mm) → DCR ${f(c.lug.breakoutDcr, 3)}`,
+        `${basePlateClauses.lugBearing()}; ${basePlateClauses.lugBreakout()}`,
+      ],
+      [
+        "Shear lug, steel",
+        `M = V e = ${f(c.lug.mu / 1e6, 2)} kN·m; M/φMn + (V/φVn)⁴ = ${f(c.lug.mu / 1e6, 2)}/${f(c.lug.phiMn / 1e6, 2)} + (${kN(c.lug.vu)}/${kN(c.lug.phiVy)})⁴ = ${f(c.lug.interaction, 3)}; rupture DCR ${f(c.lug.steelDcr, 3)}; weld ${f(c.lug.weldF, 0)} vs ${f(c.lug.weldCap, 0)} N/mm; plate at lug ${f(c.lug.plateM / 1e6, 2)} vs ${f(c.lug.plateMn / 1e6, 2)} kN·m`,
+        `${basePlateClauses.lugFlexure()}; ${basePlateClauses.lugWeld()}`,
+      ],
+    );
   s.push([
     "Column weld",
-    `fN = −Pu/Lw + Mx·ymax/Ix + My·xmax/Iy = ${f(c.weld.fN, 0)} N/mm; fV = V/Lw = ${f(c.weld.fV, 0)} N/mm; f = ${f(c.weld.f, 0)} N/mm vs ${lrfd ? "φRn" : "Rn/Ω"} = ${fac(0.75, 2.0)} × 0.6 × ${i.weld.fexx} × 0.707 × ${i.weld.size} = ${f(c.weld.capacity, 0)} N/mm → DCR ${f(c.weld.dcr, 3)}`,
+    `${c.weld.detail} vs ${lrfd ? "φRn" : "Rn/Ω"} ${f(c.weld.capacity, 0)} N/mm (${fac(0.75, 2.0)} × 0.6 × ${i.weld.fexx} × 0.707 × ${i.weld.size}${/kds/.test(c.weld.detail) ? " × 1.5" : ""}) → DCR ${f(c.weld.dcr, 3)}`,
     basePlateClauses.weld(),
   ]);
+  if (sc) {
+    const groups = new Map<string, (typeof sc.members)[number]>();
+    for (const m of sc.members) {
+      const worst = (x: typeof m) =>
+        Math.max(
+          x.flexure.dcr,
+          x.shear.dcr,
+          x.weldColumn.dcr,
+          x.weldPlate.dcr,
+          x.column?.dcr ?? 0,
+        );
+      const g = groups.get(m.group);
+      if (!g || worst(m) > worst(g)) groups.set(m.group, m);
+    }
+    const sf = i.stiffeners;
+    for (const m of groups.values()) {
+      s.push([
+        `Stiffener ${m.id} (${m.group})`,
+        `${sf.t} × ${sf.hc}/${sf.he} mm, Fy ${sf.fy}; ${m.kind} at the root: V = ${kN(m.vRoot)} kN, M = ${f(m.mRoot / 1e6, 2)} kN·m; flexure at ${f(m.flexure.xi, 0)} mm (h ${f(m.flexure.h, 0)}): Mu ${f(m.flexure.mu / 1e6, 2)} vs ${f(m.flexure.phiMn / 1e6, 2)} kN·m (${m.flexure.basis || "—"}) → DCR ${f(m.flexure.dcr, 3)}; shear ${kN(m.shear.vu)} vs ${kN(m.shear.phiVn)} kN → DCR ${f(m.shear.dcr, 3)}`,
+        `${basePlateClauses.stiffenerFlexure()}; ${basePlateClauses.stiffenerShear()}`,
+      ]);
+      s.push([
+        `Stiffener ${m.id} welds`,
+        `To column: √((V/2Lw)² + (6M/2Lw²)²) = ${f(m.weldColumn.f, 0)} vs ${f(m.weldColumn.capacity, 0)} N/mm (Lw ${f(m.weldColumn.length, 0)}) → DCR ${f(m.weldColumn.dcr, 3)}; to plate: ${f(m.weldPlate.f, 0)} vs ${f(m.weldPlate.capacity, 0)} N/mm → DCR ${f(m.weldPlate.dcr, 3)}`,
+        basePlateClauses.stiffenerWeld(),
+      ]);
+      if (m.column)
+        s.push([
+          `Column web at ${m.id}`,
+          `H = 1.5M/Lw = ${kN(m.column.h)} kN, lb = ${f(m.column.lb, 0)} mm; web yielding ${kN(m.column.phiRnWly)} kN, crippling ${kN(m.column.phiRnWcr)} kN → DCR ${f(m.column.dcr, 3)}`,
+          basePlateClauses.stiffenerColumn(),
+        ]);
+    }
+  }
   if (an.ductility)
     s.push([
       "Seismic ductility (17.10.5.3(a))",

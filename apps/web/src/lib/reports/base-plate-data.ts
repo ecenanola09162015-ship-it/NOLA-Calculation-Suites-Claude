@@ -8,6 +8,7 @@ import {
   designCheckStatus,
   futaUsed,
   getRodSpec,
+  stiffenerLayoutInfo,
   suggestPlateThickness,
   type BasePlateInput,
   type BasePlateResult,
@@ -57,11 +58,12 @@ const kindLabel: Record<string, string> = {
 };
 
 export const basePlateLimitations = [
-  "Exposed base plate with a rigid-plate, uniform bearing stress block (AISC DG1 3rd Ed. Ch. 4). Embedded and blockout bases, stiffened plates and plate flexibility are not covered.",
-  "Biaxial large-moment cases use DG1 per-axis analysis with full Pu and superposed rod tension (conservative); verify against the DG1 3rd Ed. biaxial procedure.",
+  "Exposed base plate with a rigid-plate, uniform bearing stress block (AISC DG1 3rd Ed. Ch. 4). Embedded and blockout bases and plate flexibility are not covered. Stiffened plates (engine 0.3.0) are outside the DG1 scope: yield-line or strip panels on the DG1 critical lines, DG1 Ex. 4.7-7 tension side, stiffener checked as a cantilever bracket; HSS-wall and flange-tip local checks are not calculated.",
+  "Biaxial large moment with compression: DG1 Eq. 4-69 when the shear is carried by a lug or friction; with rods in shear, per-axis analyses with full Pu and superposed rod tension (conservative). Biaxial moment with net tension is outside DG1 and is treated the same conservative way.",
   "Concrete breakout in shear parallel to an edge (17.7.2.1(c)) and edge-reinforcement ψc,V = 1.2 are not evaluated.",
   "Pedestal reinforcement, column stability and erection loads are not designed. Supplementary reinforcement is an input (Condition A/B), not detailed.",
-  "Shear lug breakout uses the 17.7.2.2.1 upper-bound Vb expression; lug-to-plate welds are not checked.",
+  "Shear lug local plate bending uses the lug moment alone and neglects the column (DG1 Ex. 4.7-5); plate washer bearing (J3.11) is not checked.",
+  "Friction (DG1 Eq. 4-30) uses the bearing area of each combination as Ac; it is not relied on for uplift or earthquake combinations.",
   "Post-installed anchor capacities depend on the product values entered from its evaluation report; verify the report number, edition and installation conditions.",
   "Clause references are to be confirmed against the licensed AISC 360-22 and ACI 318-19 texts before release.",
 ];
@@ -87,6 +89,7 @@ export function basePlateReportData(
       (id) => ["bearing", "plate", "weld"].includes(id),
     ],
     ["Anchor Steel", (id) => id.startsWith("rod-")],
+    ["Biaxial", (id) => id === "biaxial"],
     [
       "Anchor Concrete",
       (id) =>
@@ -95,13 +98,14 @@ export function basePlateReportData(
         ),
     ],
     ["Shear Transfer", (id) => /friction|lug/.test(id)],
+    ["Stiffeners", (id) => id.startsWith("stiffener-")],
     ["Geometry", (id) => id.startsWith("geo-")],
   ];
   const summary = [
     section("Column, Plate And Pedestal", [
       [
         "Design Codes / Method",
-        `Concrete ${i.concreteCode}; Steel ${i.steelCode}; ${i.designMethod}${i.designMethod === "ASD" ? ` (anchor checks at ${i.asdAlpha} × ASD demand)` : ""}`,
+        `Concrete ${i.concreteCode}; Steel ${i.steelCode}; ${i.designMethod}${i.designMethod === "ASD" ? (i.asdAnchorBasis === "lrfd" ? ` (ACI 318 checks from ${i.lrfdLoads.length} LRFD combinations)` : ` (ACI 318 checks at ${i.asdAlpha} × ASD demand)`) : ""}`,
       ],
       [
         "Column",
@@ -119,6 +123,14 @@ export function basePlateReportData(
         "Weld",
         `${f(i.weld.size, 0)} mm fillet all around, FEXX ${f(i.weld.fexx, 0)} MPa`,
       ],
+      ...(i.stiffeners.layout !== "none"
+        ? [
+            [
+              "Stiffeners",
+              `${stiffenerLayoutInfo[i.stiffeners.layout].label}; ${f(i.stiffeners.t, 0)} mm thick, hc ${f(i.stiffeners.hc, 0)} / he ${f(i.stiffeners.he, 0)} mm, snip ${f(i.stiffeners.clip, 0)} mm, Fy ${f(i.stiffeners.fy, 0)} MPa; fillets ${f(i.stiffeners.weldColumn, 0)} mm to column, ${f(i.stiffeners.weldPlate, 0)} mm to plate (both sides); ${i.stiffeners.section === "tee" ? "tee section" : "stiffener alone"}; plate panels by ${i.stiffeners.plateMethod === "strip" ? "strip method" : "yield-line"}`,
+            ] as (string | Cell)[],
+          ]
+        : []),
     ]),
     section("Anchor Rods", [
       [
@@ -146,8 +158,10 @@ export function basePlateReportData(
         i.shear.method === "anchors"
           ? "Anchor rods"
           : i.shear.method === "friction"
-            ? `Friction μ = ${i.shear.mu}`
-            : `Shear lug ${i.shear.lug.orientation}, ${f(i.shear.lug.width, 0)} × ${f(i.shear.lug.thickness, 0)} × ${f(i.shear.lug.depth, 0)} mm`,
+            ? `Friction μ = ${i.shear.mu} (DG1 Eq. 4-30)`
+            : i.shear.method === "friction-anchors"
+              ? `Friction μ = ${i.shear.mu} + anchor rods (ACI 349 D.6.1.4)`
+              : `Shear lug ${i.shear.lug.orientation}, ${f(i.shear.lug.width, 0)} × ${f(i.shear.lug.thickness, 0)} × ${f(i.shear.lug.depth, 0)} mm, Fy ${f(i.shear.lug.fy, 0)} / Fu ${f(i.shear.lug.fu, 0)} MPa, ${f(i.shear.lug.weld, 0)} mm fillets`,
       ],
     ]),
     section("Governing Results", [
