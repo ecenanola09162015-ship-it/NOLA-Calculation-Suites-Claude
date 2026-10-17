@@ -13,6 +13,20 @@ describe("launcher catalogue", () => {
     ]);
   });
 
+  it("lists Steel modules with connections before base plate and sheet piles last", () => {
+    expect(
+      uiCatalogue.filter((m) => m.group === "Steel").map((m) => m.name),
+    ).toEqual([
+      "Steel Column",
+      "Steel Beam",
+      "Beam to Column Connection",
+      "Beam to Beam Connection",
+      "Base Plate",
+      "Purlins",
+      "Sheet Pile Retaining Wall",
+    ]);
+  });
+
   it("uses unique slugs", () => {
     const slugs = uiCatalogue.map((m) => m.slug);
     expect(new Set(slugs).size).toBe(slugs.length);
