@@ -674,7 +674,7 @@ async function build(
         "Section-Strength Screening Only. Shear / Slenderness / Seismic Tie Compliance Not Evaluated.")
       : data.module === "Stairs"
         ? `${data.scopeNote ?? ""} Cracked And Long-Term Deflection Calculated; Detailing Screens Require Review.`
-        : data.module === "Concrete Retaining Wall"
+        : data.module === "Concrete Retaining Wall" || data.module === "Underground Tank"
           ? (data.scopeNote ?? "")
           : "Immediate Elastic Deflection Screen; Long-Term / Cracked Deflection And Full Anchorage Compliance Require Review.",
     ...(data.estimate

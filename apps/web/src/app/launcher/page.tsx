@@ -21,7 +21,7 @@ export default async function LauncherPage({
     ? await Promise.all([listProjects(userId), listCalculationDrafts(userId)])
     : [[], []];
   const requested = (await searchParams).module;
-  const workspaceModule = requested === "retaining-wall" ? requested : undefined;
+  const workspaceModule = requested === "retaining-wall" || requested === "underground-tank" ? requested : undefined;
   return (
     <SuiteWorkspace
       initialModule={

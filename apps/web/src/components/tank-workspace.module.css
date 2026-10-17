@@ -1,0 +1,101 @@
+/* Underground tank workspace: module-scoped additions to the shared slab layout. */
+.drawing {
+  width: 100%;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #fff;
+}
+.drawing svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.35rem 0;
+  font-size: 0.9rem;
+}
+.factor {
+  width: 4.2em;
+}
+.totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.5rem 1rem;
+  margin: 0.5rem 0 0.75rem;
+}
+.totals dt {
+  font-size: 0.8rem;
+  opacity: 0.75;
+}
+.totals dd {
+  margin: 0;
+  font-weight: 600;
+}
+/* Units stay as typed (mm, mm²/m): the shared .slabBars th capitalises. */
+.bars.bars th {
+  text-transform: none;
+}
+.barRow td:first-child {
+  border-left: 4px solid;
+  border-left-color: inherit;
+}
+.barRow {
+  border-left: 4px solid transparent;
+}
+.mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  background: #fff;
+}
+.keyBlock {
+  margin: 0.5rem 0 0.75rem;
+}
+.keyRow {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.keySketch {
+  width: 150px;
+  height: 86px;
+  flex: none;
+}
+.review {
+  margin-top: 1rem;
+}
+
+/* Select fields use the same small label style as the numeric fields
+   (12 px label, 13 px control), stacked label-over-control. */
+.inputs label:has(> select) {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  margin: 0 0 10px;
+}
+.inputs label:has(> select) > select {
+  width: 100%;
+  max-width: 320px;
+  font-size: 13px;
+  padding: 6px 8px;
+}
+.inputs .check {
+  font-size: 13px;
+}
+.inputs h2 {
+  margin-top: 22px;
+}
+.inputs h2:first-child {
+  margin-top: 0;
+}
+.subhead { font-size: 13px; font-weight: 600; margin: 16px 0 8px; }

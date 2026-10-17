@@ -7,6 +7,7 @@ describe("module registry", () => {
     expect(getPilotModules().map((module) => module.slug)).toEqual([
       "slab",
       "retaining-wall",
+      "underground-tank",
       "rc-column",
       "stairs",
       "steel-column",

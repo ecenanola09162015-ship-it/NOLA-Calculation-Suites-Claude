@@ -24,6 +24,17 @@ export const moduleRegistry = [
     initialCodes: ["ACI 318-19", "NSCP 2015 project / ACI 318-19 basis"],
   },
   {
+    slug: "underground-tank",
+    name: "Underground Tank",
+    discipline: "Concrete",
+    summary:
+      "Rectangular RC underground tanks to ACI 350-20: two-way wall, base and roof panels, Sd durability factor, direct tension, flotation and bearing.",
+    releasePhase: "Pilot",
+    priority: "P1",
+    verificationStatus: "verification-required",
+    initialCodes: ["ACI 350-20", "NSCP 2015 project / ACI 350-20 basis"],
+  },
+  {
     slug: "rc-column",
     name: "RC Column",
     discipline: "Concrete",

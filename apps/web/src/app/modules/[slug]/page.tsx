@@ -13,7 +13,7 @@ export default async function ModulePage({
 
   if (slug === "rc-column" || slug === "slab" || slug === "stairs")
     redirect(`/launcher?module=${slug}`);
-  if (slug === "retaining-wall") redirect(`/launcher?module=${slug}`);
+  if (slug === "retaining-wall" || slug === "underground-tank") redirect(`/launcher?module=${slug}`);
 
   return (
     <main className="workspacePage">

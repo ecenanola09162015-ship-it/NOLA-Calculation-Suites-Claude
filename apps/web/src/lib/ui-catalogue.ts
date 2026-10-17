@@ -42,6 +42,12 @@ export const uiCatalogue = [
     pilot: true,
   },
   {
+    slug: "underground-tank",
+    name: "Underground Tank",
+    group: "Concrete",
+    pilot: true,
+  },
+  {
     slug: "shallow-foundation",
     name: "Shallow Foundation",
     group: "Concrete",
