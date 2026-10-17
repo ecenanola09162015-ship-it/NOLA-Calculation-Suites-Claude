@@ -36,6 +36,8 @@ export interface ColumnBar {
   x: number;
   y: number;
   diameter: number;
+  /** Bundle id (bars sharing it are bundled, ACI 318-19 25.6.1); absent = single. */
+  bundle?: string | null;
 }
 export interface ColumnLoad {
   id: string;

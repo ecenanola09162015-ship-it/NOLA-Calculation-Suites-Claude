@@ -15,6 +15,7 @@ import {
   effectiveColumnQuantity,
   migrateColumnStorey,
   rebarDesignation,
+  rebarSizes,
   syncColumnQuantityTies,
   designColumnTransverse,
   adoptTieDesignToQuantity,
@@ -39,6 +40,7 @@ import {
 import { ColumnQuantityPanel } from "./column-quantity-panel";
 import { StoreyGeometryFields } from "./column-storey-panel";
 import { DesignCodeFields } from "./column-materials-fields";
+import { ColumnBundlePanel } from "./column-bundle-panel";
 import { ConcreteStrengthFields } from "./concrete-strength-fields";
 import { ColumnSectionDrawingButton } from "./column-section-drawing-button";
 import dynamic from "next/dynamic";
@@ -232,6 +234,8 @@ export function RectangularColumnWorkspace({
   const [saved, setSaved] = useState(Boolean(restored.success));
   // Edited since opened / last saved (unsaved-changes guard).
   const [dirty, setDirty] = useState(false);
+  // Bars picked for bundling (section picture / coordinates table).
+  const [selectedBars, setSelectedBars] = useState<number[]>([]);
   const markUnsaved = () => {
     setSaved(false);
     setDirty(true);
@@ -751,7 +755,15 @@ export function RectangularColumnWorkspace({
         </section>
         <section className="rcPanel">
           <h2>02 · Reinforcement Layout</h2>
-          <ColumnSection input={input} />
+          <ColumnSection
+            input={input}
+            selected={selectedBars}
+            onToggle={(i) =>
+              setSelectedBars((s) =>
+                s.includes(i) ? s.filter((k) => k !== i) : [...s, i],
+              )
+            }
+          />
           <p className="rcMuted">
             Initial values reproduce your workbook example. Bar coordinates are
             retained; cover and steel-ratio issues appear in results.
@@ -778,6 +790,18 @@ export function RectangularColumnWorkspace({
               Replace bar layout
             </button>
           </details>
+          <ColumnBundlePanel
+            input={input}
+            selected={selectedBars}
+            onSelect={setSelectedBars}
+            onChange={update}
+            minTie={
+              rebarSizes[standard]
+                .map((s) => s.calcDiameter)
+                .filter((d) => d >= (standard === "ASTM" ? 12.7 : 12) - 0.01)
+                .sort((a, b) => a - b)[0] ?? 12
+            }
+          />
         </section>
       </div>
       <details className="rcPanel">
@@ -790,7 +814,9 @@ export function RectangularColumnWorkspace({
           <table className="rcInputTable">
             <thead>
               <tr>
+                <th>Select</th>
                 <th>Bar</th>
+                <th>Bundle</th>
                 <th>x (mm)</th>
                 <th>y (mm)</th>
                 <th>Bar size</th>
@@ -799,8 +825,21 @@ export function RectangularColumnWorkspace({
             </thead>
             <tbody>
               {input.bars.map((bar, i) => (
-                <tr key={i}>
+                <tr key={i} className={selectedBars.includes(i) ? "barSelected" : ""}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      aria-label={`Select bar ${i + 1}`}
+                      checked={selectedBars.includes(i)}
+                      onChange={() =>
+                        setSelectedBars((s) =>
+                          s.includes(i) ? s.filter((k) => k !== i) : [...s, i],
+                        )
+                      }
+                    />
+                  </td>
                   <td>{i + 1}</td>
+                  <td>{bar.bundle ?? "—"}</td>
                   {(["x", "y"] as const).map((key) => (
                     <td key={key}>
                       <input
@@ -845,12 +884,13 @@ export function RectangularColumnWorkspace({
                   <td>
                     <button
                       aria-label={`Remove bar ${i + 1}`}
-                      onClick={() =>
+                      onClick={() => {
+                        setSelectedBars([]);
                         update({
                           ...input,
                           bars: input.bars.filter((_, j) => j !== i),
-                        })
-                      }
+                        });
+                      }}
                     >
                       ×
                     </button>
