@@ -95,6 +95,10 @@ describe("retaining wall: save and run actions", () => {
         expect(await page.getByText("Results out of date").count()).toBe(5);
         await page.waitForFunction(() => (window as unknown as { dirty: boolean[] }).dirty.at(-1) === true);
         expect(await leaveBlocked()).toBe(true);
+        // Geometry drawing stays live (like the other modules): a preview of
+        // the edited wall, pressures and bearing hidden until Run.
+        await page.getByText("Preview of the edited geometry. Pressures and bearing show after Run calculation.").waitFor();
+        expect(await page.locator('[aria-label="Retaining wall section"] svg').count()).toBe(1);
         // Run from the Geometry section.
         await page
           .getByRole("group", { name: "Geometry: save and run" })
@@ -103,6 +107,7 @@ describe("retaining wall: save and run actions", () => {
         const after = fmt3(retainingWallStatus(designRetainingWall({ ...i, heel }), i.dcrLimit).worst);
         await page.getByText(`Governing DCR ${after}`).first().waitFor();
         expect(await page.getByText("Results out of date").count()).toBe(0);
+        expect(await page.getByText("Preview of the edited geometry").count()).toBe(0);
         expect(errors).toEqual([]);
       } finally {
         await browser.close();
