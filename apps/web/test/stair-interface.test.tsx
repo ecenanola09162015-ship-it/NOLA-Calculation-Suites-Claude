@@ -128,9 +128,9 @@ describe("stairs workspace", () => {
     );
     expect(html).toContain("Mid landing (turn)");
     expect(html).toContain("Mid-landing support (far edge)");
-    expect(html).toContain(
-      "Project standard: NSCP 2015. Calculation basis: ACI 318-19.",
-    );
+    // Legacy NSCP 2015 draft opens on its ACI 318-19 basis (17 Oct 2026).
+    expect(html).toContain("Calculation basis: ACI 318-19.");
+    expect(html).toContain('value="NSCP 2015 (project standard)"');
     expect(html).toContain("SECTION · FLIGHT 2 STRIP");
     expect(html).toContain("DOG-LEG ELEVATION");
     expect(html).toContain("Flight 2 (behind)");

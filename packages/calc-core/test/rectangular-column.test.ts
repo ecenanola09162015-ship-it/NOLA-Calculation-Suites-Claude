@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  columnInputSchema,
   analyzeRectangularColumn,
   columnCapacityAt,
   columnCurve,
@@ -76,12 +77,15 @@ describe("rectangular tied-column development engine", () => {
       columnCapacityAt(input, columnCurve(input, "x", 1), 9000),
     ).toBeNull();
   });
-  it("uses identical ACI equations for the NSCP project workflow and exposes the basis", () => {
+  it("legacy NSCP 2015 drafts load as ACI 318-19 with identical results (17 Oct 2026)", () => {
     const aci = analyzeRectangularColumn(input);
-    const nscp = analyzeRectangularColumn({ ...input, code: "NSCP 2015" });
-    expect(nscp).toEqual(aci);
-    expect(nscp.calculationBasis).toBe("ACI 318-19");
-    expect(nscp.status).toBe("verification-required");
+    const legacy = columnInputSchema.parse({ ...input, code: "NSCP 2015" });
+    expect(legacy.code).toBe("ACI 318-19");
+    expect(legacy.otherCodes).toMatch(/^NSCP 2015 \(project standard\)/);
+    const upgraded = analyzeRectangularColumn(legacy as typeof input);
+    expect(upgraded).toEqual(aci);
+    expect(upgraded.calculationBasis).toBe("ACI 318-19");
+    expect(upgraded.status).toBe("verification-required");
   });
   it("rejects overlap and no included loads", () => {
     expect(() =>

@@ -10,7 +10,7 @@ export const moduleRegistry = [
     releasePhase: "Pilot",
     priority: "P0",
     verificationStatus: "verification-required",
-    initialCodes: ["ACI 318-19", "NSCP 2015 project / ACI 318-19 basis"],
+    initialCodes: ["ACI 318-19"],
   },
   {
     slug: "retaining-wall",
@@ -21,7 +21,7 @@ export const moduleRegistry = [
     releasePhase: "Pilot",
     priority: "P1",
     verificationStatus: "verification-required",
-    initialCodes: ["ACI 318-19", "NSCP 2015 project / ACI 318-19 basis"],
+    initialCodes: ["ACI 318-19"],
   },
   {
     slug: "rc-column",
@@ -31,7 +31,7 @@ export const moduleRegistry = [
     releasePhase: "Pilot",
     priority: "P0",
     verificationStatus: "interface-only",
-    initialCodes: ["ACI 318", "NSCP"],
+    initialCodes: ["ACI 318-19"],
   },
   {
     slug: "stairs",
@@ -42,7 +42,7 @@ export const moduleRegistry = [
     releasePhase: "Pilot",
     priority: "P1",
     verificationStatus: "verification-required",
-    initialCodes: ["ACI 318-19", "NSCP 2015 project / ACI 318-19 basis"],
+    initialCodes: ["ACI 318-19"],
   },
   {
     slug: "steel-column",
@@ -52,7 +52,7 @@ export const moduleRegistry = [
     releasePhase: "Pilot",
     priority: "P0",
     verificationStatus: "interface-only",
-    initialCodes: ["AISC 360", "NSCP"],
+    initialCodes: ["AISC 360-22"],
   },
   {
     slug: "base-plate",
@@ -67,7 +67,6 @@ export const moduleRegistry = [
       "AISC 360-22",
       "AISC DG1 3rd Ed.",
       "ACI 318-19",
-      "NSCP 2015 project / AISC-ACI basis",
     ],
   },
   {
@@ -78,7 +77,7 @@ export const moduleRegistry = [
     releasePhase: "Pilot",
     priority: "P0",
     verificationStatus: "interface-only",
-    initialCodes: ["ASCE 7", "NSCP"],
+    initialCodes: ["ASCE 7-22", "ASCE 7-16", "ASCE 7-10", "NSCP 2015"],
   },
   {
     slug: "soil-bearing-capacity",

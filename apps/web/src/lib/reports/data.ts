@@ -30,6 +30,8 @@ import {
   slabBeamSizes,
   psiToMpaExact,
   concreteStrengthNotes,
+  storeySides,
+  storeyDepths,
   bundleIssues,
   bundleSummary,
 } from "@nola/calc-core";
@@ -85,6 +87,13 @@ export type ReportData = {
   scopeNote?: string;
   /** Simple report page limit (Column 3; Slab 2 when omitted). */
   simplePageLimit?: 2 | 3;
+};
+/** "N 300×500, S 300×500, E none, W 300×450" */
+const sidesText = (s: NonNullable<RectangularColumnInput["storey"]>) => {
+  const r = storeySides(s).sides;
+  return (["north", "south", "east", "west"] as const)
+    .map((k) => `${k[0]!.toUpperCase()} ${r[k].beam ? `${r[k].width}×${r[k].depth}` : "none"}`)
+    .join(", ");
 };
 export const f = (n: number | null | undefined, d = 2) =>
   n == null || !Number.isFinite(n) ? "Not Evaluated" : n.toFixed(d);
@@ -226,6 +235,8 @@ export function columnReportData(
   remarks: DesignRemarks,
   tieDesign?: ColumnTieDesignInput,
   transverse?: TransverseResult | null,
+  /** 3D storey view snapshot (PNG data URL), Complete report only. */
+  storeySnapshot?: string | null,
 ): ReportData {
   const g = result.governing;
   const t = transverse ?? null;
@@ -246,7 +257,7 @@ export function columnReportData(
   const sh = storey ? storeyClearHeights(storey) : null;
   const storeyLine =
     storey && sh
-      ? `H ${f(storey.height, 0)}; beam ∥X ${f(storey.beamX, 0)} / ∥Y ${f(storey.beamY, 0)} mm${storey.capital ? `; capital ${f(storey.capital, 0)}` : ""}${storey.bottom ? `; bottom ${f(storey.bottom, 0)}` : ""}; ℓu,x ${f(sh.luX, 0)}${storey.luOverrideX !== null ? " (override)" : ""} / ℓu,y ${f(sh.luY, 0)}${storey.luOverrideY !== null ? " (override)" : ""} mm; joint ${f(sh.joint, 0)} mm`
+      ? `H ${f(storey.height, 0)}; beams ${sidesText(storey)}${storey.capital ? `; capital ${f(storey.capital, 0)}` : ""}${storey.bottom ? `; bottom ${f(storey.bottom, 0)}` : ""}; ℓu,x ${f(sh.luX, 0)}${storey.luOverrideX !== null ? " (override)" : ""} / ℓu,y ${f(sh.luY, 0)}${storey.luOverrideY !== null ? " (override)" : ""} mm; joint ${f(sh.joint, 0)} mm`
       : "";
   const checks = [...columnDesignChecks(result), ...columnTransverseChecks(t)];
   const slender = !!input.slenderness?.enabled;
@@ -680,10 +691,13 @@ export function columnReportData(
       // Storey figure: Complete report only.
       ...(storey
         ? [
-            {
-              ...columnStoreyFigure(storey, project?.reportSettings?.style),
-              completeOnly: true,
-            },
+            // 3D snapshot when taken ("Add 3D view to report"), else the 2D sketch.
+            storeySnapshot
+              ? { title: "Storey 3D View", svg: "", png: storeySnapshot, completeOnly: true }
+              : {
+                  ...columnStoreyFigure(storey, project?.reportSettings?.style),
+                  completeOnly: true,
+                },
           ]
         : []),
       ...(twoPages
@@ -759,8 +773,12 @@ export function columnReportData(
                   `${f(storey.height, 0)} mm`,
                 ],
                 [
-                  "Beam along X / along Y (depth)",
-                  `${f(storey.beamX, 0)} / ${f(storey.beamY, 0)} mm`,
+                  "Upper-floor beams N / S / E / W (width × depth); slab",
+                  `${sidesText(storey)}; slab ${storeySides(storey).slab} mm${storeySides(storey).assumedWidth ? " (beam widths assumed)" : ""}`,
+                ],
+                [
+                  "Governing depth for ℓu (shallower support per direction)",
+                  `N/S ${f(storeyDepths(storey).ns, 0)} mm → ℓu,x; E/W ${f(storeyDepths(storey).ew, 0)} mm → ℓu,y`,
                 ],
                 [
                   "Capital / drop / haunch; bottom deduction",

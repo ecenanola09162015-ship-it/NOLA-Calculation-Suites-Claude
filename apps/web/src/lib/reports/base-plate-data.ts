@@ -304,14 +304,14 @@ export function basePlateReportData(
         ? [["Other Codes (Reference Only)", i.otherCodes.trim()]]
         : []),
       [
-        `Concrete — ${i.concreteCode === "NSCP 2015" ? "NSCP 2015 project (ACI 318-19 basis)" : "ACI 318-19"}`,
+        `Concrete — ${i.concreteCode}`,
         "Ch. 17: 17.5 φ, 17.6 tension, 17.7 shear, 17.8 interaction, 17.9 edges, 17.10 seismic, 17.11 shear lugs" +
           (i.designMethod === "ASD"
             ? `; strength level = ${i.asdAlpha} × ASD demand`
             : ""),
       ],
       [
-        `Steel — ${i.steelCode === "NSCP 2015" ? "NSCP 2015 project (AISC 360-22 basis)" : "AISC 360-22"} (${i.designMethod})`,
+        `Steel — ${i.steelCode} (${i.designMethod})`,
         `B3.${i.designMethod === "LRFD" ? "1 LRFD φ" : "2 ASD Ω"}; J8 bearing; J2 welds; J9 anchor rods → ACI 318; AISC DG1 3rd Ed. Ch. 4; AISC Manual 16th Ed. Table 14-2`,
       ],
       ...(["C", "D", "E", "F"].includes(i.seismic.sdc)
@@ -326,14 +326,6 @@ export function basePlateReportData(
         "Materials",
         "ASTM F1554, A36, A193, A449, ISO 898-1 (specified minimum strengths); AISC Shapes Database v16.0",
       ],
-      ...(i.concreteCode === "NSCP 2015" || i.steelCode === "NSCP 2015"
-        ? [
-            [
-              "NSCP 2015",
-              "Project standard recorded; NSCP Sec. 417 / 510 are ACI 318-14 / AISC 360-10 based",
-            ],
-          ]
-        : []),
     ]),
     criticalNotes: r.notes,
     limitations: [...r.notes, ...basePlateLimitations],

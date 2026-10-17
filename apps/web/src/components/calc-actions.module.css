@@ -1,0 +1,103 @@
+/* Shared save / run actions (calc-actions.tsx). Green = Save changes;
+   brand purple = Run calculation; amber = results out of date. Kept apart
+   from the PASS green used in check tables. */
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: 14px 0 4px;
+  padding: 10px 0 0;
+  border-top: 1px dashed #d6dee6;
+}
+.save,
+.run {
+  border: 0;
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-weight: 700;
+  color: #fff;
+  cursor: pointer;
+}
+.save {
+  background: #1f6f43;
+}
+.save:hover:not(:disabled) {
+  background: #185a36;
+}
+.run {
+  background: #805277;
+}
+.run:hover {
+  background: #6b4463;
+}
+.runStale {
+  box-shadow: 0 0 0 3px #f2c66d;
+}
+.save:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.status {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #566577;
+}
+.stalePill {
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: #fff4dc;
+  color: #8a5a00;
+  font-weight: 700;
+  font-size: 12px;
+}
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid #f2c66d;
+  border-radius: 8px;
+  background: #fffaf0;
+}
+.notice p {
+  margin: 0;
+  flex: 1 1 240px;
+}
+.copy {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+.copyPanel {
+  display: grid;
+  gap: 8px;
+  min-width: min(100%, 320px);
+  padding: 12px;
+  border: 1px solid #d6dee6;
+  border-radius: 8px;
+  background: #fff;
+}
+.copyPanel select {
+  width: 100%;
+}
+.copyActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.hint {
+  margin: 0;
+  font-size: 13px;
+  color: #566577;
+}
+@media (max-width: 520px) {
+  .save,
+  .run {
+    flex: 1 1 140px;
+  }
+}

@@ -176,7 +176,7 @@ describe("slab panel 01 in the column format (15 Oct 2026)", () => {
     const order = [
       "01 · Slab Geometry &amp; Materials",
       "Primary Design Code",
-      "NSCP 2015 project — ACI 318-19 calculation basis",
+      "ACI 318-19",
       "Other Codes*",
       "Documentation only",
       "Slab Dimensions",
