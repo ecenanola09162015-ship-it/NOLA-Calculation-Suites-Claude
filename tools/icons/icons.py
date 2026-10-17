@@ -244,6 +244,106 @@ def purlins():            # I-15 rev 3: C purlins highlighted (blue) on a muted 
     return s
 
 
+def bolt_y(s, x, y, z, r=0.32, seed=0):
+    """Hex bolt head + nut face on a plane facing +y."""
+    hexp = [(x + r * math.cos(a), y + 0.02, z + r * math.sin(a)) for a in np.linspace(0, 2 * math.pi, 7)[:-1] + math.pi / 6]
+    s.face(hexp, (0, 1, 0), 'brass', seed)
+    s.face([(x - 0.12, y + 0.04, z - 0.12), (x + 0.12, y + 0.04, z - 0.12), (x + 0.12, y + 0.04, z + 0.12), (x - 0.12, y + 0.04, z + 0.12)], (0, 1, 0), 'steel_dark', seed + 1, outline=False)
+
+def bolt_x(s, x, y, z, r=0.32, seed=0):
+    hexp = [(x + 0.02, y + r * math.cos(a), z + r * math.sin(a)) for a in np.linspace(0, 2 * math.pi, 7)[:-1] + math.pi / 6]
+    s.face(hexp, (1, 0, 0), 'brass', seed)
+    s.face([(x + 0.04, y - 0.12, z - 0.12), (x + 0.04, y + 0.12, z - 0.12), (x + 0.04, y + 0.12, z + 0.12), (x + 0.04, y - 0.12, z + 0.12)], (1, 0, 0), 'steel_dark', seed + 1, outline=False)
+
+def ishape_y(s, xc, y0, y1, z0, bf, d, tf, tw, mat, seed=0, top_from=None):
+    """I-section along y centred on x=xc. top_from: start of top flange (cope)."""
+    s.box(xc - bf / 2, y0, z0, bf, y1 - y0, tf, mat, seed)
+    s.box(xc - tw / 2, y0, z0 + tf, tw, y1 - y0, d - 2 * tf, mat, seed + 1)
+    yt = top_from if top_from is not None else y0
+    s.box(xc - bf / 2, yt, z0 + d - tf, bf, y1 - yt, tf, mat, seed + 2)
+
+def beam_column_connection():  # I-26: beam into column flange, bolted extended end plate
+    """Column (flanges facing +y) + beam framing into the flange with an extended end plate, bolts highlighted."""
+    bf, d, tf, tw, H = 4.0, 3.6, 0.45, 0.4, 14.0
+    s = Scene((0, 0, 0), (bf, d + 10, H), margin=0.06)
+    s.contact_shadow([(0, 0), (bf, 0), (bf, d), (0, d)], 0, 0.3, 120)
+    s.box(0, 0, 0, bf, tf, H, 'muted', 1); s.box(bf / 2 - tw / 2, tf, 0, tw, d - 2 * tf, H, 'muted', 2); s.box(0, d - tf, 0, bf, tf, H, 'muted', 3)
+    xc, zb, db, bfb = bf / 2, 6.0, 4.2, 2.6
+    pw, pt = 3.4, 0.35; pz0, pz1 = zb - 1.2, zb + db + 1.2
+    s.box(xc - pw / 2, d, pz0, pw, pt, pz1 - pz0, 'steel_hi', 5)                       # extended end plate
+    for z in (pz0 + 0.6, zb + 1.3, zb + db - 1.3, pz1 - 0.6):
+        for x in (xc - 1.05, xc + 1.05):
+            bolt_y(s, x, d + pt, z, seed=10 + int(z * 3 + x))
+    ishape_y(s, xc, d + pt, d + 10, zb, bfb, db, 0.4, 0.35, 'muted', 20)
+    return s
+
+def beam_beam_connection():    # I-27: secondary into girder web, bolted fin plate, coped flanges
+    """Girder along x; secondary beam along y framing into the girder web.
+    Shear (fin) plate welded to the girder web, bolted to the secondary web between its flanges;
+    both secondary flanges coped clear of the girder flanges."""
+    bfg, dg, tfg, twg = 3.4, 5.2, 0.45, 0.4
+    yc, X0, X1 = 2.0, 1.5, 12.5
+    xs, ds, bfs, tfs, tws = 7.0, 4.2, 2.2, 0.4, 0.35
+    ye = yc + 8.5
+    s = Scene((X0, 0, 0), (X1, ye, dg), margin=0.06)
+    s.contact_shadow([(X0, yc - 2), (X1, yc - 2), (X1, yc + 2), (X0, yc + 2)], 0, 0.05, 90)
+    s.box(X0, yc - bfg / 2, 0, X1 - X0, bfg, tfg, 'muted', 1)
+    s.box(X0, yc - twg / 2, tfg, X1 - X0, twg, dg - 2 * tfg, 'muted', 2)
+    yw = yc + twg / 2                        # girder web face
+    zt = dg - ds                             # top flanges flush
+    ycope = yc + bfg / 2 + 0.3               # cope clears the girder flanges
+    s.box(xs - bfs / 2, ycope, zt, bfs, ye - ycope, tfs, 'muted', 10)
+    s.box(xs - tws / 2, yw + 0.15, zt + tfs, tws, ye - yw - 0.15, ds - 2 * tfs, 'muted', 11)
+    pt, pl = 0.28, 3.0                       # fin plate (welded to girder web, bolted to secondary web)
+    pz0, pz1 = zt + tfs + 0.25, zt + ds - tfs - 0.25
+    s.box(xs + tws / 2, yw, pz0, pt, pl, pz1 - pz0, 'steel_hi', 20)
+    for z in np.linspace(pz0 + 0.6, pz1 - 0.6, 3):
+        bolt_x(s, xs + tws / 2 + pt, yw + 1.35, z, r=0.3, seed=30 + int(z * 5))
+    s.box(X0, yc - bfg / 2, dg - tfg, X1 - X0, bfg, tfg, 'muted', 3)               # girder top flange
+    s.box(xs - bfs / 2, ycope, zt + ds - tfs, bfs, ye - ycope, tfs, 'muted', 12)
+    return s
+
+
+def prism_plan(s, sec, z0, z1, mat, seed=0):
+    """Plan section (x,y) extruded vertically z0..z1: visible vertical faces + top."""
+    area = sum(sec[i][0] * sec[(i + 1) % len(sec)][1] - sec[(i + 1) % len(sec)][0] * sec[i][1] for i in range(len(sec)))
+    fs = []
+    for i in range(len(sec)):
+        (xa, ya), (xb, yb) = sec[i], sec[(i + 1) % len(sec)]
+        dx, dy = xb - xa, yb - ya
+        nx, ny = (dy, -dx) if area > 0 else (-dy, dx)
+        if nx + ny <= 1e-9 or math.hypot(dx, dy) < 1e-9: continue
+        fs.append(((xa + xb + ya + yb) / 2, [(xa, ya, z0), (xb, yb, z0), (xb, yb, z1), (xa, ya, z1)], (nx, ny, 0)))
+    for k, (_, q, n) in enumerate(sorted(fs, key=lambda f: f[0])):
+        s.face(q, n, mat, seed + k)
+    s.face([(x, y, z1) for x, y in sec], (0, 0, 1), mat, seed + 99)
+
+def sheet_pile_wall():         # I-28: steel sheet pile wall retaining a soil bank, waler + tie-rod nuts
+    """Steel sheet pile wall (trapezoidal pans) retaining a high soil bank; excavation in front; steel waler."""
+    X, Yb, Yf, Hr, t = 14.0, 6.0, 7.0, 5.5, 0.22
+    yw = Yb
+    s = Scene((0, 0, -3), (X, Yb + Yf, Hr + 1.2), margin=0.06)
+    s.contact_shadow([(0, 0), (X, 0), (X, Yb + Yf), (0, Yb + Yf)], -3, 0.04, 90)
+    s.layered(0, 0, X, Yb, [(-3, 0, 'clay'), (0, Hr - 1.0, 'sand'), (Hr - 1.0, Hr, 'topsoil')], 0)   # retained
+    s.layered(0, Yb, X, Yf, [(-3, -1.0, 'clay'), (-1.0, 0, 'sand')], 40)                            # excavation
+    # corrugated wall in plan: pans along x, out-of-plane depth a
+    p, a = 3.5, 0.9
+    path = []
+    for k in range(int(X / p)):
+        x0 = k * p
+        path += [(x0, yw), (x0 + 0.35 * p, yw), (x0 + 0.5 * p, yw + a), (x0 + 0.85 * p, yw + a)]
+    path += [(X, yw)]
+    back = [(x, y - t) for x, y in path]
+    sec = path + list(reversed(back))
+    prism_plan(s, sec, 0, Hr + 1.2, 'steel_hi', 50)
+    # waler (channel) along the front of the outer pans + tie-rod nuts
+    s.box(0.6, yw + a + 0.02, Hr - 1.6, X - 1.2, 0.5, 0.7, 'steel_dark', 70)
+    for k in range(int(X / p)):
+        x = k * p + 0.675 * p
+        s.face([(x + 0.32 * math.cos(q), yw + a + 0.54, Hr - 1.25 + 0.32 * math.sin(q)) for q in np.linspace(0, 2 * math.pi, 7)[:-1] + math.pi / 6], (0, 1, 0), 'brass', 80 + k)
+    return s
+
+
 # ------------------------------------------------------------------ LOADS
 def gravity_loads():      # I-25: Gravity Load Planner - tributary area of the interior column + area load
     L, t, H = 12.0, 0.9, 5.0                # 2x2-bay floor on 9 columns
@@ -547,7 +647,8 @@ ICONS = {
     'rc-column': rc_column, 'slab': slab, 'rc-beam': rc_beam, 'stairs': stairs, 'shear-wall': shear_wall,
     'steel-deck': steel_deck, 'retaining-wall': retaining_wall, 'shallow-foundation': shallow_foundation,
     'pile-cap': pile_cap, 'driven-pile': driven_pile, 'bored-pile': bored_pile, 'steel-column': steel_column,
-    'steel-beam': steel_beam, 'base-plate': base_plate, 'purlins': purlins, 'gravity-loads': gravity_loads, 'seismic-loads': seismic_loads,
+    'steel-beam': steel_beam, 'base-plate': base_plate, 'purlins': purlins, 'beam-column-connection': beam_column_connection,
+    'beam-beam-connection': beam_beam_connection, 'sheet-pile-wall': sheet_pile_wall, 'gravity-loads': gravity_loads, 'seismic-loads': seismic_loads,
     'wind-loads': wind_loads, 'load-combinations': load_combinations, 'soil-bearing-capacity': soil_bearing,
     'pile-bearing-capacity': pile_bearing, 'settlement': settlement, 'slope-stability': slope_stability,
     'liquefaction': liquefaction, 'riprap': riprap,

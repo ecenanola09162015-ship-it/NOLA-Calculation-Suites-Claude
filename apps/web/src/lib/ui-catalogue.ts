@@ -102,6 +102,18 @@ export const uiCatalogue = [
     pilot: false,
   },
   {
+    slug: "beam-column-connection",
+    name: "Beam to Column Connection",
+    group: "Steel",
+    pilot: false,
+  },
+  {
+    slug: "beam-beam-connection",
+    name: "Beam to Beam Connection",
+    group: "Steel",
+    pilot: false,
+  },
+  {
     slug: "base-plate",
     name: "Base Plate",
     group: "Steel",
@@ -110,6 +122,12 @@ export const uiCatalogue = [
   {
     slug: "purlins",
     name: "Purlins",
+    group: "Steel",
+    pilot: false,
+  },
+  {
+    slug: "sheet-pile-wall",
+    name: "Sheet Pile Retaining Wall",
     group: "Steel",
     pilot: false,
   },
