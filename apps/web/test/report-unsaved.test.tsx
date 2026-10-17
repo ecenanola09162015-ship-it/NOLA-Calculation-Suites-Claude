@@ -72,6 +72,8 @@ describe("unsaved-changes guard", () => {
       entryPoints: [new URL("./browser/unsaved-entry.tsx", import.meta.url).pathname],
       bundle: true,
       write: false,
+      // The workspace imports a CSS module (calc-actions): JS + CSS outputs.
+      outdir: "/tmp/unsaved-test",
       format: "esm",
       jsx: "automatic",
       define: { "process.env.NODE_ENV": '"production"' },
@@ -85,7 +87,7 @@ describe("unsaved-changes guard", () => {
       const errors: string[] = [];
       page.on("pageerror", (e) => errors.push(e.message));
       await page.setContent(`<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body><div id="root"></div></body></html>`);
-      await page.addScriptTag({ content: out.outputFiles[0]!.text, type: "module" });
+      await page.addScriptTag({ content: out.outputFiles.find((f) => f.path.endsWith(".js"))!.text, type: "module" });
       await page.getByText("Column Dimensions").waitFor();
       const leaveBlocked = () =>
         page.evaluate(() => {

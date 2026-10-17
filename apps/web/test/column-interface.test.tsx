@@ -17,7 +17,8 @@ describe("column interface server render", () => {
     expect(html).toMatch(/<option disabled="">AS 3600 — Future Development/);
     expect(html).toContain("Clear cover to ties");
     expect(html).toContain("Paste From Excel");
-    expect(html).toContain("Calculate section");
+    expect(html).toContain("Run calculation");
+    expect(html).toContain("Save changes");
     expect(html).toContain("I have assessed slenderness");
     expect(html).not.toContain("Combination screening");
     expect(html).not.toContain("Enable Quantity Estimate");

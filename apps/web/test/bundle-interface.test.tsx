@@ -64,6 +64,8 @@ describe.skipIf(!CHROME)("bundled bars in a real browser", () => {
       entryPoints: [new URL("./browser/bundle-entry.tsx", import.meta.url).pathname],
       bundle: true,
       write: false,
+      // The workspace imports a CSS module (calc-actions): JS + CSS outputs.
+      outdir: "/tmp/bundle-test",
       format: "esm",
       jsx: "automatic",
       define: { "process.env.NODE_ENV": '"production"' },
@@ -77,7 +79,7 @@ describe.skipIf(!CHROME)("bundled bars in a real browser", () => {
       const errors: string[] = [];
       page.on("pageerror", (e) => errors.push(e.message));
       await page.setContent(`<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body><div id="root"></div></body></html>`);
-      await page.addScriptTag({ content: out.outputFiles[0]!.text, type: "module" });
+      await page.addScriptTag({ content: out.outputFiles.find((f) => f.path.endsWith(".js"))!.text, type: "module" });
       await page.getByText("Bundled Bars").waitFor();
       // Start from a generated layout (bars exactly at cover + tie + db/2).
       await page.getByText("Generate A Uniform Perimeter Layout").click();
