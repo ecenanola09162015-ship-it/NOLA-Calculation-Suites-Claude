@@ -222,6 +222,8 @@ export const basePlateClauses = {
   rodAisc: () =>
     `${aisc("J3.6, J3.7, J3.8 (Eq. J3-3), φ = 0.75 / Ω = 2.00")}; ${dg1("Eq. 4-26 to 4-28")}`,
   biaxial: () => dg1("4.3.11 Eq. 4-69"),
+  weakBase: () =>
+    `AISC 341-22 D2.6c(b); ${dg1("6.4.2, Ex. 6.4-1")}; ${ref("17.10.5.3(a), 17.10.5.4")}`,
   holes: () =>
     "AISC Manual 16th Ed. Table 14-2; AISC FAQ 7.2.3 (½ in clear to plate edge)",
   stiffenedPlate: () =>

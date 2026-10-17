@@ -278,6 +278,28 @@ describe.skipIf(!CHROME)("base plate workspace in a real browser", () => {
           fullPage: true,
         });
       await page.getByRole("tab", { name: "Plan & sections" }).click();
+      // Seismic design needs activation.
+      await page
+        .getByRole("button", { name: "Activate seismic design" })
+        .click();
+      expect(
+        await page.getByText("Activating seismic design will:").count(),
+      ).toBe(1);
+      await page.getByRole("button", { name: "Activate", exact: true }).click();
+      await page
+        .getByLabel("Base type (AISC 341-22 D2.6)")
+        .selectOption("weak");
+      expect(await page.getByLabel("UT reduced diameter").count()).toBe(1);
+      if (shots)
+        await shotOf(page, ".bpSeismic", `${shots}/bp-seismic-panel.png`);
+      await page
+        .getByRole("button", { name: "Turn off seismic design" })
+        .click();
+      expect(
+        await page
+          .getByRole("button", { name: "Activate seismic design" })
+          .count(),
+      ).toBe(1);
       // Switching to an HSS column resets the layout to none.
       const box = page.getByRole("combobox", { name: "Column shape" });
       await box.fill("hss8x8");

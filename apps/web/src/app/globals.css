@@ -4639,6 +4639,17 @@ tr.barSelected td {
   border-color: var(--primary);
   box-shadow: 0 0 0 2px var(--primary) inset;
 }
+.bpSeismic .bpSeismicConfirm {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 6px 0;
+  background: var(--surface);
+}
+.bpSeismicConfirm ul {
+  margin: 6px 0 10px 18px;
+  font-size: 12px;
+}
 
 /* Bundle Apply + section view (17 Oct 2026). */
 .rcSectionView {

@@ -275,6 +275,33 @@ export function basePlateSteps(
         ]);
     }
   }
+  const wb = c.weakBase;
+  if (wb) {
+    const u = i.seismic.ut;
+    s.push(
+      [
+        "Weak base (DG1 6.4.2)",
+        `${wb.scope}; n = ${wb.n} rods on the tension line, f = ${f(wb.f, 0)} mm; Tu = ${kN(wb.tu)} kN ≤ n φt Fy Ared = ${wb.n} × 0.90 × ${f(i.anchors.fy, 0)} × π${f(u.dReduced, 1)}²/4 = ${kN(wb.yieldCap)} kN → DCR ${f(wb.yieldDcr, 3)} (dreduced ≥ ${f(wb.dReq, 1)} mm)`,
+        basePlateClauses.weakBase(),
+      ],
+      [
+        "UT rod: threads and stretch",
+        `Treduced = Fu Ared = ${kN(wb.tReduced)} kN ≤ 0.75 Fu Ase = ${kN(wb.threadCap)} kN → DCR ${f(wb.threadDcr, 3)}; Lstretch ${f(u.lStretch, 0)} ≥ f ${f(wb.f, 0)} mm → DCR ${f(wb.stretchDcr, 3)}`,
+        basePlateClauses.weakBase(),
+      ],
+      [
+        "Concrete and plate for yielded rods",
+        `Rt Treduced = ${u.rt} × ${kN(wb.tReduced)} = ${kN(wb.rtT)} kN per rod (0.75 factor, 17.10.5.4): ${wb.concreteDetail} → DCR ${f(wb.concreteDcr, 3)}; tension-side plate tp,req = ${f(wb.tpTension, 2)} mm (Eq. 4-62); bearing side ${f(wb.tpBearing, 2)} mm reported only`,
+        basePlateClauses.weakBase(),
+      ],
+    );
+  }
+  if (c.earthquake && /·Mp$/.test(L.id))
+    s.push([
+      "Strong base (AISC 341 D2.6c(a))",
+      `Capacity combination: M = 1.1 Ry Fy Z / αs with Ry ${i.seismic.ry}, Fy ${f(i.column.fy, 0)} MPa (${i.seismic.columnGrade}); P and V from the E combination`,
+      "AISC 341-22 D2.6c(a)",
+    ]);
   if (an.ductility)
     s.push([
       "Seismic ductility (17.10.5.3(a))",

@@ -294,6 +294,58 @@ describe("stiffened base plate (engine 0.3.0)", () => {
   });
 });
 
+describe("seismic design (engine 0.5.0)", () => {
+  const render = (input: ReturnType<typeof defaultBasePlateInput>) =>
+    renderToStaticMarkup(
+      <BasePlateWorkspace
+        cloudReady={false}
+        onSaved={() => {}}
+        draft={
+          {
+            id: "d1",
+            projectId: "p1",
+            moduleSlug: "base-plate",
+            title: "BP seismic",
+            payload: { kind: "base-plate", version: 1, input },
+            createdAt: "",
+            updatedAt: "",
+          } as never
+        }
+      />,
+    );
+  it("is off with an activation button and no E column", () => {
+    const html = render(defaultBasePlateInput());
+    expect(html).toContain("Activate seismic design");
+    expect(html).not.toContain("includes earthquake");
+  });
+  it("active weak base shows inputs, steps and the report section", async () => {
+    const i = defaultBasePlateInput();
+    i.seismic = { ...i.seismic, active: true, sdc: "D", baseType: "weak" };
+    i.shear = { ...i.shear, method: "lug" };
+    const html = render(i);
+    expect(html).toContain("Turn off seismic design");
+    expect(html).toContain("UT reduced diameter");
+    expect(html).toContain("includes earthquake");
+    const r = analyzeBasePlate(i);
+    const lc3 = r.combos.find((c) => c.load.id === "LC3")!;
+    const steps = basePlateSteps(i, r, lc3).map((x) => x[0]);
+    expect(steps).toContain("Weak base (DG1 6.4.2)");
+    expect(basePlateSectionSvg(i, "A", lc3)).toContain("UT d 19.1");
+    const data = basePlateReportData(
+      undefined,
+      "BP-S",
+      i,
+      r,
+      defaultDesignCheckPolicy,
+      {},
+      null,
+    );
+    const text = JSON.stringify(data);
+    expect(text).toContain("moment-frame weak base");
+    expect(text).toContain("Weak Base – Rod Reduced Section Yields");
+  });
+});
+
 describe("base plate report", () => {
   it("builds Simple and Complete PDFs with AISC/ACI clauses on every check", async () => {
     const i = defaultBasePlateInput();
@@ -430,7 +482,12 @@ describe("drawing style and seismic note", () => {
   it("shows the AISC 341 note for SDC C–F", () => {
     const input = {
       ...defaultBasePlateInput(),
-      seismic: { sdc: "D" as const, option: "d" as const, stretchLength: 0 },
+      seismic: {
+        ...defaultBasePlateInput().seismic,
+        active: true,
+        sdc: "D" as const,
+        option: "d" as const,
+      },
     };
     const html = renderToStaticMarkup(
       <BasePlateWorkspace
@@ -447,7 +504,7 @@ describe("drawing style and seismic note", () => {
         }}
       />,
     );
-    expect(html).toContain("AISC 341-22 D2.6 column-base required strengths");
+    expect(html).toContain("AISC 341-22 D2.6 required strengths are not calculated");
     expect(html).toContain("Blueprint (screen only)");
   });
 });

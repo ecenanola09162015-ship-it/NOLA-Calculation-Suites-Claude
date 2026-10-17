@@ -336,7 +336,12 @@ describe("ACI 318-19 Chapter 17", () => {
   it("seismic E combinations reduce concrete tension by 0.75 (17.10.5.4)", () => {
     const i = {
       ...withLoads(load("E", 150, 90, 0, 0, 0, true)),
-      seismic: { sdc: "D" as const, option: "d" as const, stretchLength: 0 },
+      seismic: {
+        ...defaultBasePlateInput().seismic,
+        active: true,
+        sdc: "D" as const,
+        option: "d" as const,
+      },
     };
     const e = analyzeBasePlate(i).combos[0]!.anchor.breakout!;
     const n = analyzeBasePlate(withLoads(load("N", 150, 90))).combos[0]!.anchor

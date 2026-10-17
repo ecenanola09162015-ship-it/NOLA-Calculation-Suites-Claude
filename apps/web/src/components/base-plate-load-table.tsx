@@ -10,7 +10,9 @@ export function BasePlateLoadTable({
   onChange,
   caption,
   prefix = "U",
+  showE = true,
 }: {
+  showE?: boolean;
   loads: BasePlateLoad[];
   onChange: (loads: BasePlateLoad[]) => void;
   caption: string;
@@ -48,7 +50,7 @@ export function BasePlateLoadTable({
               <th>My kN·m</th>
               <th>Vx kN</th>
               <th>Vy kN</th>
-              <th>E</th>
+              {showE && <th>E</th>}
               <th></th>
             </tr>
           </thead>
@@ -88,14 +90,16 @@ export function BasePlateLoadTable({
                     />
                   </td>
                 ))}
-                <td>
-                  <input
-                    type="checkbox"
-                    aria-label={`${l.id} includes earthquake`}
-                    checked={l.seismic}
-                    onChange={(e) => edit(k, { seismic: e.target.checked })}
-                  />
-                </td>
+                {showE && (
+                  <td>
+                    <input
+                      type="checkbox"
+                      aria-label={`${l.id} includes earthquake`}
+                      checked={l.seismic}
+                      onChange={(e) => edit(k, { seismic: e.target.checked })}
+                    />
+                  </td>
+                )}
                 <td>
                   <button
                     className="suiteSecondary"

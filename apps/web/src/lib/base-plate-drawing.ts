@@ -614,6 +614,36 @@ export function basePlateSectionSvg(
       C.steel,
       0.5,
     );
+    // Weak base (DG1 Fig. 6-1): UT reduced shank over Lstretch below the
+    // concrete surface, and a leveling nut under the plate.
+    if (i.seismic.active && i.seismic.baseType === "weak") {
+      const dr = Math.min(i.seismic.ut.dReduced, a.da);
+      const z1 = zConc + 1.5 * a.da * s;
+      const ls = Math.min(i.seismic.ut.lStretch, a.hef - 3 * a.da) * s;
+      const side = ((a.da - dr) / 2) * s;
+      b += R(xr - (a.da / 2) * s, z1, side, ls, C.concrete);
+      b += R(xr + (a.da / 2) * s - side, z1, side, ls, C.concrete);
+      b += R(
+        xr - (F / 2) * s,
+        zPlateBot,
+        F * s,
+        Math.min(0.9 * a.da, i.grout.thickness) * s,
+        C.nut,
+        C.steel,
+        0.5,
+      );
+      if (u === coords[coords.length - 1])
+        b += T(
+          xr + 6,
+          z1 + ls / 2,
+          `UT d ${n1(dr)}, L ${n1(i.seismic.ut.lStretch)}`,
+          {
+            size: 7.5,
+            anchor: "start",
+            fill: C.dim,
+          },
+        );
+    }
     if (a.kind === "cast-in-hooked-bolt") {
       const dir = u <= 0 ? 1 : -1;
       b += `<path d="M${xr},${zTip} q0,${(2 * a.da * s).toFixed(1)} ${(dir * 2 * a.da * s).toFixed(1)},${(2 * a.da * s).toFixed(1)} l${(dir * a.eh * s).toFixed(1)},0" fill="none" stroke="${col}" stroke-width="${Math.max(a.da * s, 1.4).toFixed(1)}"/>`;
