@@ -205,6 +205,30 @@ function buildGroups(model: BasePlate3DModel) {
     ),
   );
   for (const l of model.lug) steel.add(box(l, colMat, 0x1f2933));
+  for (const sp of model.stiffeners) {
+    // Profile in the stiffener plane (u along its axis, z up), extruded by t.
+    const sh = new THREE.Shape(
+      sp.profile.map(([u, z]) => new THREE.Vector2(u, z)),
+    );
+    const g = new THREE.ExtrudeGeometry(sh, {
+      depth: sp.t,
+      bevelEnabled: false,
+    });
+    // (u, z, e) → three (X, Y up, Z = −north).
+    const m = new THREE.Matrix4();
+    if (sp.axis === "x")
+      m.set(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, -sp.pos - sp.t / 2, 0, 0, 0, 1);
+    else m.set(0, 0, 1, sp.pos - sp.t / 2, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 0, 1);
+    g.applyMatrix4(m);
+    const mesh = new THREE.Mesh(g, colMat);
+    mesh.add(
+      new THREE.LineSegments(
+        new THREE.EdgesGeometry(g, 20),
+        new THREE.LineBasicMaterial({ color: 0x1f2933 }),
+      ),
+    );
+    steel.add(mesh);
+  }
   const washerMat = new THREE.MeshStandardMaterial({
     color: 0x7c8894,
     roughness: 0.5,
