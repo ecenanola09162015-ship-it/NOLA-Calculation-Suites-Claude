@@ -61,7 +61,7 @@ function bench(): BasePlateInput {
   const d = defaultBasePlateInput();
   return {
     ...d,
-    plate: { bx: 450, by: 500, tp: 32, fy: 248 },
+    plate: { bx: 450, by: 500, tp: 32, fy: 248, fu: null },
     pedestal: { ...d.pedestal, px: 750, py: 800, height: 900 },
     anchors: {
       ...d.anchors,

@@ -33,6 +33,7 @@ import {
   type BasePlateLoad,
   type DesignRemarks,
   stiffenerLayoutInfo,
+  plateFu,
 } from "@nola/calc-core";
 import type { CalculationDraftRecord, ProjectRecord } from "@/lib/projects";
 import {
@@ -134,9 +135,9 @@ function Svg({ markup, label }: { markup: string; label: string }) {
   );
 }
 const plateSteels = [
-  { label: "ASTM A36 (Fy 248)", fy: 248 },
-  { label: "ASTM A572 Gr 50 (Fy 345)", fy: 345 },
-  { label: "SS400 / JIS G3101 (Fy 245)", fy: 245 },
+  { label: "ASTM A36 (Fy 248)", fy: 248, fu: 400 },
+  { label: "ASTM A572 Gr 50 (Fy 345)", fy: 345, fu: 450 },
+  { label: "SS400 / JIS G3101 (Fy 245)", fy: 245, fu: 400 },
 ];
 const defaultProduct = (
   kind: AnchorKind,
@@ -622,10 +623,12 @@ export function BasePlateWorkspace({
                   plateSteels.find((s) => s.fy === input.plate.fy)?.fy ??
                   "custom"
                 }
-                onChange={(e) =>
-                  e.target.value !== "custom" &&
-                  set("plate", { fy: Number(e.target.value) })
-                }
+                onChange={(e) => {
+                  const g = plateSteels.find(
+                    (x) => x.fy === Number(e.target.value),
+                  );
+                  if (g) set("plate", { fy: g.fy, fu: g.fu });
+                }}
               >
                 {plateSteels.map((s) => (
                   <option key={s.fy} value={s.fy}>
@@ -640,6 +643,13 @@ export function BasePlateWorkspace({
               unit="MPa"
               value={input.plate.fy}
               onChange={(v) => set("plate", { fy: v })}
+            />
+            <Numeric
+              label="Plate / washer Fu"
+              unit="MPa"
+              value={plateFu(input.plate)}
+              onChange={(v) => set("plate", { fu: v })}
+              title="AISC J3.11 bearing and tearout at the rod holes"
             />
             <Numeric
               label="Grout thickness"

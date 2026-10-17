@@ -217,6 +217,14 @@ export function basePlateSteps(
     `Ab = πda²/4, Z = da³/6; ft = T/Ab + M/Z = ${f(c.rodAisc.ft, 1)} MPa (M = V × ${f(c.rodAisc.lever, 1)} mm reverse curvature); fv = V/Ab = ${f(c.rodAisc.fv, 1)} MPa; ${lrfd ? "φF′nt" : "F′nt/Ω"} = ${f(c.rodAisc.ftAllow, 1)} MPa, ${lrfd ? "φFnv" : "Fnv/Ω"} = ${f(c.rodAisc.fvAllow, 1)} MPa (Fnt 0.75Fu, Fnv 0.45Fu) → DCR ${f(c.rodAisc.dcr, 3)}`,
     basePlateClauses.rodAisc(),
   ]);
+  if (c.holeBearing) {
+    const h = c.holeBearing;
+    s.push([
+      "Bearing / tearout at rod holes",
+      `${h.element}: t = ${f(h.t, 1)} mm, hole ${f(h.hole, 1)} mm, lc = ${f(h.lc, 1)} mm, Fu ${f(h.fu, 0)} MPa; ${lrfd ? "φRn" : "Rn/Ω"} = min(3.0 d t Fu, 1.5 lc t Fu) = min(${kN(h.bearing)}, ${kN(h.tearout)}) kN vs V ${kN(h.v)} kN/rod → DCR ${f(h.dcr, 3)}`,
+      basePlateClauses.holeBearing(),
+    ]);
+  }
   if (c.friction)
     s.push([
       "Friction",

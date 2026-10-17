@@ -100,7 +100,7 @@ function ex641(lug: boolean): BasePlateInput {
     zx: null,
     zy: null,
   };
-  i.plate = { bx: 20 * IN, by: 20 * IN, tp: 1.25 * IN, fy: 50 * KSI };
+  i.plate = { bx: 20 * IN, by: 20 * IN, tp: 1.25 * IN, fy: 50 * KSI, fu: 65 * KSI };
   i.pedestal = {
     ...i.pedestal,
     px: 120 * IN,
