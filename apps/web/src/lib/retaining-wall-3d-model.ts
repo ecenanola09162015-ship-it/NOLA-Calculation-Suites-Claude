@@ -6,6 +6,7 @@
  * calculations always agree.
  */
 import {
+  basementStoreys,
   clipPolygon,
   type RetainingWallInput,
   type RetainingWallResult,
@@ -122,13 +123,24 @@ export function buildRetainingWall3DModel(
       { x: g.backBase, y: tf },
       { x: -ext, y: tf },
     ]);
-    const ts = Math.max(0.15, tf);
+    const storeys = basementStoreys(i).storeys;
+    const ts = i.basement.levels.length >= 2 ? storeys[0]!.slab : Math.max(0.15, tf);
     add("top-slab", "slab", [
       { x: -ext, y: top },
       { x: g.backTop, y: top },
       { x: g.backTop, y: top + ts },
       { x: -ext, y: top + ts },
     ]);
+    storeys.slice(1).forEach((st, k) => {
+      const yl = tf + st.top,
+        xb = g.frontBase + ((g.frontTop - g.frontBase) * st.top) / i.height;
+      add(`floor-slab-${k}`, "slab", [
+        { x: -ext, y: yl - st.slab / 2 },
+        { x: xb, y: yl - st.slab / 2 },
+        { x: xb, y: yl + st.slab / 2 },
+        { x: -ext, y: yl + st.slab / 2 },
+      ]);
+    });
     add("backfill", "soil", [
       { x: g.backBase, y: tf },
       { x: g.backBase + 1.2, y: tf },

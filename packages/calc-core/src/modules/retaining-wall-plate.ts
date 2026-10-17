@@ -8,7 +8,7 @@
  * ACI 318-19 13.3.7.2†: the stem of a counterfort or buttressed wall is
  * designed as a two-way slab (Ch. 8). Moments are elastic (no redistribution).
  */
-import type { RetainingWallCombination, RetainingWallInput } from "./retaining-wall";
+import { basementStoreys, type RetainingWallCombination, type RetainingWallInput } from "./retaining-wall";
 import { stemThickness } from "./retaining-wall-geometry";
 import type { PressureComponent, PressureKind } from "./retaining-wall-pressure";
 import {
@@ -80,6 +80,7 @@ export function plateSupports(i: RetainingWallInput, flexuralRigidity?: number):
   if (i.wallType === "basement") {
     top = i.basement.top;
     base = i.basement.base;
+    horizontal.push(...basementStoreys(i).intermediate);
   } else if (i.wallType === "propped") {
     if (i.prop.height >= H - 1e-6) top = "pinned";
     else horizontal.push(i.prop.height);

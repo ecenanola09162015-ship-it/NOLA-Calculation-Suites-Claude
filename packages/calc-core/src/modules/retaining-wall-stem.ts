@@ -3,7 +3,8 @@
  * footing (m), pressure p(y) acting towards the front (kPa = kN/m per m).
  * Direct stiffness with Hermite elements (v, θ = dv/dy), EI from the tapered
  * thickness, consistent loads by Gauss integration. Supports: base fixed or
- * pinned; prop at hp (rigid or spring); top slab fixed or pinned.
+ * pinned; prop at hp (rigid or spring); top slab fixed or pinned; any number
+ * of rigid pinned intermediate supports (basement floor slabs).
  *
  * Internal actions come from statics on the free body above each section, using
  * the support reactions of the FE solution, so moments are exact for the load
@@ -21,6 +22,8 @@ export interface StemSupports {
   top: "fixed" | "pinned" | "none";
   /** Prop at height y (rigid when stiffness is null). */
   prop: { y: number; stiffness: number | null } | null;
+  /** Rigid pinned intermediate supports (basement floor slabs) at heights y. */
+  intermediate?: number[];
 }
 export interface StemLoad {
   p: (y: number) => number;
@@ -38,6 +41,8 @@ export interface StemSolution {
   baseMoment: number;
   /** Reaction at the prop (kN/m, resisting = positive) or null. */
   prop: number | null;
+  /** Reactions at the intermediate supports (kN/m, resisting = positive), same order as the input. */
+  intermediate: number[];
   /** Reaction at the top slab (kN/m, resisting = positive) or null. */
   topForce: number | null;
   /** Top fixed-end moment, tension back > 0. */
@@ -88,6 +93,7 @@ export function solveStem(
   const ys = new Set<number>();
   for (let k = 0; k <= divisions; k++) ys.add((H * k) / divisions);
   if (supports.prop) ys.add(Math.min(H, Math.max(0, supports.prop.y)));
+  for (const y of supports.intermediate ?? []) ys.add(Math.min(H, Math.max(0, y)));
   const nodes = [...ys].sort((a, b) => a - b).filter(
     (y, k, arr) => k === 0 || y - arr.at(k - 1)! > H * 1e-6,
   );
@@ -142,6 +148,8 @@ export function solveStem(
     if (supports.prop.stiffness === null) fixed.add(2 * propNode);
     else K[2 * propNode]![2 * propNode]! += supports.prop.stiffness;
   }
+  const midNodes = (supports.intermediate ?? []).map((y) => nodes.findIndex((v) => Math.abs(v - y) < H * 1e-6));
+  for (const m of midNodes) fixed.add(2 * m);
   const Korig = K.map((r) => [...r]);
   const free = [...Array(dof).keys()].filter((d) => !fixed.has(d));
   const u = new Array<number>(dof).fill(0);
@@ -171,6 +179,8 @@ export function solveStem(
   const pointForces: [number, number][] = [];
   if (propR !== null && supports.prop) pointForces.push([nodes.at(propNode)!, propR]);
   if (topR !== null) pointForces.push([H, topR]);
+  const midR = midNodes.map((m) => reaction(2 * m));
+  midNodes.forEach((m, k) => pointForces.push([nodes.at(m)!, midR[k]!]));
   const couple = (topM ?? 0) + (load.couple ?? 0);
   const moment = (y: number) => {
     const yy = Math.min(Math.max(y, 0), H);
@@ -190,6 +200,7 @@ export function solveStem(
     baseShear: shear(0),
     baseMoment: moment(0),
     prop: propR === null ? null : -propR,
+    intermediate: midR.map((r) => -r),
     topForce: topR === null ? null : -topR,
     topMoment: topM === null ? null : moment(H - 1e-9),
     moment,

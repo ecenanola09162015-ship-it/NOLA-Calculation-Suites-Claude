@@ -58,3 +58,21 @@ describe("Counterfort drawing and DXF", () => {
     expect(svg).toContain("φMn");
   });
 });
+
+describe("Multi-level basement drawings", () => {
+  const i = retainingWallInputSchema.parse({
+    ...base,
+    wallType: "basement",
+    height: 9,
+    stemTop: 0.3,
+    stemBase: 0.3,
+    footing: 0.5,
+    soil: { ...base.soil, theory: "at-rest" },
+    basement: { top: "pinned", base: "fixed", levels: [{ height: 3, slab: 0.2 }, { height: 3, slab: 0.2 }, { height: 3, slab: 0.25 }], stage: true },
+  });
+  const r = designRetainingWall(i);
+  it("draws every floor slab in the DXF", () => {
+    const dxf = sectionDrawingToDxf(retainingWallSectionDrawing(i, r));
+    for (const s of ["TOP SLAB", "B2 SLAB", "B3 SLAB"]) expect(dxf).toContain(s);
+  });
+});

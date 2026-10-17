@@ -6,6 +6,7 @@
  * action diagrams (Mu envelope against φMn, Vu).
  */
 import {
+  basementStoreys,
   barAreaPerMetre,
   keyOffset,
   rebarDesignation,
@@ -193,7 +194,8 @@ export function retainingWallSectionSvg(
       { x: g.backBase, y: tf },
       { x: x0 + 0.45, y: tf },
     ]);
-    const ts = Math.max(0.15, tf);
+    const storeys = basementStoreys(i).storeys;
+    const ts = i.basement.levels.length >= 2 ? storeys[0]!.slab : Math.max(0.15, tf);
     conc([
       { x: x0 + 0.45, y: top },
       { x: g.backTop, y: top },
@@ -201,6 +203,21 @@ export function retainingWallSectionSvg(
       { x: x0 + 0.45, y: top + ts },
     ]);
     text(X(x0 + 0.5), Y(top + ts) - 4, `Top slab (${i.basement.top})`, { size: fs * 0.85, color: RW_COLORS.dim });
+    // Intermediate floor slabs (pinned supports), centred on their level.
+    storeys.slice(1).forEach((st, k) => {
+      const yl = tf + st.top,
+        h = st.slab,
+        xb = g.frontBase + ((g.frontTop - g.frontBase) * st.top) / i.height;
+      conc([
+        { x: x0 + 0.45, y: yl - h / 2 },
+        { x: xb, y: yl - h / 2 },
+        { x: xb, y: yl + h / 2 },
+        { x: x0 + 0.45, y: yl + h / 2 },
+      ]);
+      const R = r.stem.serviceReactions.levels[k];
+      text(X(xb) - 4, Y(yl + h / 2) - 4 - (R !== undefined ? fs * 0.85 : 0), `${storeys[k]!.name}/${st.name} slab`, { size: fs * 0.8, anchor: "end", color: RW_COLORS.dim });
+      if (R !== undefined) text(X(xb) - 4, Y(yl + h / 2) - 4, `R ${n2(R, 1)} kN/m`, { size: fs * 0.8, anchor: "end", color: RW_COLORS.dim });
+    });
     text(X(x0 + 0.5), Y(0) + fs + 2, `Base slab (${i.basement.base})`, { size: fs * 0.85, color: RW_COLORS.dim });
   } else {
     conc(g.footing);
@@ -559,10 +576,16 @@ export function retainingWallStemSvg(
     { color: RW_COLORS.front, pts: step((s) => s.mFront), label: "Mu front", annotate: true },
     { color: RW_COLORS.front, pts: step((s) => -s.phiMnFront), dash: "5 3", label: "φMn front" },
   ], "kN·m/m");
+  let levels = "";
+  if (i.wallType === "basement")
+    for (const y of basementStoreys(i).intermediate) {
+      const yy = 40 + (1 - y / H) * (height - 90);
+      levels += `<line x1="40" y1="${yy.toFixed(1)}" x2="${(width - 10).toFixed(1)}" y2="${yy.toFixed(1)}" stroke="#8a96a3" stroke-width="1" stroke-dasharray="6 4"/><text x="${(width - 12).toFixed(1)}" y="${(yy - 4).toFixed(1)}" font-size="10.5" text-anchor="end" fill="#5b6670">slab ${n2(y)} m</text>`;
+    }
   const v = panel(width * 0.64, width * 0.36, "Stem shear Vu", [
     { color: "#6b5b95", pts: step((s) => s.v), label: "Vu envelope", annotate: true },
   ], "kN/m");
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" font-family="Century Gothic, Manrope, Arial, sans-serif" role="img" aria-label="Stem moment and shear"><rect width="${width}" height="${height}" fill="#ffffff"/>${m}${v}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" font-family="Century Gothic, Manrope, Arial, sans-serif" role="img" aria-label="Stem moment and shear"><rect width="${width}" height="${height}" fill="#ffffff"/>${levels}${m}${v}</svg>`;
 }
 
 export const rwStemThickness = stemThickness;
