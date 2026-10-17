@@ -114,6 +114,23 @@ describe.skipIf(!CHROME)("base plate workspace in a real browser", () => {
       expect(
         await page.getByText("Load Combinations (service, ASD)").count(),
       ).toBe(1);
+      // ASD: ACI checks default to a separate LRFD table (DG1 practice).
+      await page.getByRole("tab", { name: "Calculations & loads" }).click();
+      expect(
+        await page.getByText("LRFD Combinations for ACI 318 Checks").count(),
+      ).toBe(1);
+      await page
+        .getByRole("button", { name: "Start from ASD rows × 1.6" })
+        .click();
+      await page.waitForFunction(() =>
+        document.body.textContent?.includes("(LRFD Combinations)"),
+      );
+      if (shots)
+        await page.screenshot({
+          path: `${shots}/bp-asd-lrfd.png`,
+          fullPage: true,
+        });
+      await page.getByRole("tab", { name: "Plan & sections" }).click();
       await page.getByLabel("Steel Design Method").selectOption("LRFD");
       // Anchor type and specification dropdowns.
       await page.getByLabel("Anchor type").selectOption("adhesive");

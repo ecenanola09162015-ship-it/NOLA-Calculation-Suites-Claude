@@ -173,8 +173,23 @@ export interface StiffenerContext {
 
 export type StiffenerGroup =
   "web-line" | "flange-tip" | "web-side" | "mid-side" | "radial";
-export interface StiffenerPlate {
+/**
+ * A straight steel element the plate can bend about under rod tension:
+ * a stiffener, or the column web / flange for rods between the flanges.
+ */
+export interface SupportPlate {
   id: string;
+  axis: "x" | "y";
+  side: 1 | -1;
+  pos: number;
+  root: number;
+  tip: number;
+  /** Plate thickness (stiffener ts, web tw, flange tf), mm. */
+  t: number;
+  /** Only rods inside this half-size rectangle (|x|, |y|) may use it. */
+  insideOnly?: { hx: number; hy: number };
+}
+export interface StiffenerPlate extends SupportPlate {
   group: StiffenerGroup;
   /** Direction the plate runs (its length). */
   axis: "x" | "y";
@@ -257,6 +272,7 @@ export function stiffenerPlates(
           root,
           tip,
           length: tip - root,
+          t: s.t,
           loadFrom: Math.max(root, loadFrom),
           zoneStart: loadFrom,
           capNeg: 0,
@@ -824,11 +840,16 @@ function unionLength(iv: [number, number][]) {
 }
 /** Lever from a rod to a stiffener face, or null when the rod is not beside it. */
 export function stiffenerLever(
-  p: StiffenerPlate,
+  p: SupportPlate,
   ts: number,
   x: number,
   y: number,
 ) {
+  if (
+    p.insideOnly &&
+    !(Math.abs(x) < p.insideOnly.hx && Math.abs(y) < p.insideOnly.hy)
+  )
+    return null;
   const along = p.axis === "x" ? x : y;
   const across = p.axis === "x" ? y : x;
   if (Math.sign(along) !== p.side) return null;
@@ -841,12 +862,13 @@ export function stiffenerLever(
   };
 }
 /**
- * Plate bending at a line of tension rods: each rod to its nearest support
- * (DG1 column-face lever `columnLever`, or a stiffener face), 45° width.
- * `acrossWidth`: plate width across the line (for the column-face group).
+ * Plate bending at a line of tension rods: each rod to its nearest support.
+ * Column face (DG1 Eq. 4-60/4-62): lever `columnLever`, full plate width
+ * `acrossWidth` (B). Stiffener, web or flange face (DG1 Ex. 4.7-3, 4.7-7):
+ * clear lever a, 45° width 2a clipped to the support length.
  */
 export function tensionLine(
-  st: Stiffening,
+  plates: SupportPlate[],
   axis: "x" | "y",
   rods: TensionRod[],
   columnLever: number,
@@ -854,7 +876,6 @@ export function tensionLine(
   plateFy: number,
   fb: number,
 ) {
-  const ts = st.input.t;
   const groups = new Map<string, TensionGroup & { iv: [number, number][] }>();
   for (const r of rods) {
     if (!(r.t > 0)) continue;
@@ -866,20 +887,16 @@ export function tensionLine(
       iv: [number, number];
     } | null = null;
     if (columnLever > 0) {
-      const across = axis === "y" ? r.x : r.y;
       best = {
         key: "column",
         support: "column",
         lever: columnLever,
         xi: 0,
-        iv: [
-          Math.max(-acrossWidth / 2, across - columnLever),
-          Math.min(acrossWidth / 2, across + columnLever),
-        ],
+        iv: [-acrossWidth / 2, acrossWidth / 2],
       };
     }
-    for (const p of st.plates) {
-      const l = stiffenerLever(p, ts, r.x, r.y);
+    for (const p of plates) {
+      const l = stiffenerLever(p, p.t, r.x, r.y);
       if (!l || l.lever <= 0) continue;
       if (!best || l.lever < best.lever) {
         const at = l.xi + p.root;

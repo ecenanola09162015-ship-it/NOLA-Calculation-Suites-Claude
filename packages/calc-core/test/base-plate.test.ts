@@ -166,7 +166,7 @@ describe("AISC DG1 3rd Ed. plate design", () => {
     close(c.fp, 4.4444);
     close(c.tpRequired, 28.6607);
   });
-  it("large moment: Y, Tu and both interfaces (Tu 125.76 kN, tp 37.94 / 23.74 mm)", () => {
+  it("large moment: Y, Tu and both interfaces (Tu 125.76 kN, tp 37.94 / 15.89 mm, DG1 Eq. 4-62 full B)", () => {
     const i = withLoads(load("L", 150, 90));
     const a = dg1Axis(
       i,
@@ -181,9 +181,9 @@ describe("AISC DG1 3rd Ed. plate design", () => {
     close(a.y, 25.1164);
     close(a.tu, 125759.6);
     close(a.x, 50.4105);
-    close(a.beff, 201.642);
+    close(a.beff, 450);
     close(a.tpBearing, 37.9383);
-    close(a.tpTension, 23.7369);
+    close(a.tpTension, 15.8894);
     const c = analyzeBasePlate(i).combos[0]!;
     expect(c.rodTension.filter((t) => t > 0)).toHaveLength(2);
     close(

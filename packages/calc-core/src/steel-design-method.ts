@@ -22,8 +22,16 @@ export const aiscFactors = {
   plateFlexure: { phi: 0.9, omega: 1.67, source: "AISC 360-22 F11 / J10" },
   /** J2.4 fillet welds. */
   weld: { phi: 0.75, omega: 2.0, source: "AISC 360-22 J2.4" },
-  /** Friction between plate and grout (DG1 4.5). */
-  friction: { phi: 0.75, omega: 2.0, source: "AISC DG1 3rd Ed. 4.5" },
+  /** Friction, steel on grout (DG1 Eq. 4-30, ACI 349 D.6.1.4; LRFD only). */
+  friction: { phi: 0.65, omega: 2.31, source: "AISC DG1 3rd Ed. Eq. 4-30" },
+  /** Anchor rods as bolts: tension, shear, bending (J3.6, J3.7, DG1 Eq. 4-26). */
+  rod: { phi: 0.75, omega: 2.0, source: "AISC 360-22 J3.6–J3.8" },
+  /** Shear rupture / flexural rupture of connecting elements. */
+  elementRupture: {
+    phi: 0.75,
+    omega: 2.0,
+    source: "AISC 360-22 J4.2(b), J4.5",
+  },
   /** Shear yielding of connecting elements (stiffeners, lugs). */
   elementShear: { phi: 1.0, omega: 1.5, source: "AISC 360-22 J4.2(a)" },
   /** Web local yielding / crippling under concentrated forces. */

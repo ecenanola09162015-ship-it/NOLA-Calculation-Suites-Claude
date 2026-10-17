@@ -52,6 +52,7 @@ import { ConcreteStrengthFields } from "./concrete-strength-fields";
 import { BasePlateCodeFields } from "./base-plate-code-fields";
 import { BasePlateColumnFields } from "./base-plate-column-fields";
 import { BasePlateStiffenerFields } from "./base-plate-stiffener-fields";
+import { BasePlateLoadTable } from "./base-plate-load-table";
 
 // three.js is only downloaded when the 3D tab is opened (client-only).
 const BasePlate3DView = dynamic(() => import("./base-plate-3d-view"), {
@@ -1081,17 +1082,22 @@ export function BasePlateWorkspace({
               >
                 <option value="anchors">Anchor rods (ACI 17.7)</option>
                 <option value="friction">
-                  Friction (DG1, compression only)
+                  Friction only (DG1 Eq. 4-30, compression)
+                </option>
+                <option value="friction-anchors">
+                  Friction + anchor rods (ACI 349 D.6.1.4)
                 </option>
                 <option value="lug">Shear lug (ACI 17.11)</option>
               </select>
             </label>
-            {input.shear.method === "friction" && (
+            {(input.shear.method === "friction" ||
+              input.shear.method === "friction-anchors") && (
               <Numeric
                 label="Friction μ"
                 unit=""
                 value={input.shear.mu}
                 onChange={(v) => set("shear", { mu: v })}
+                title="Steel on grout or concrete: 0.4 (ACI 349-13, DG1)"
               />
             )}
           </div>
@@ -1144,7 +1150,28 @@ export function BasePlateWorkspace({
                   set("shear", { lug: { ...input.shear.lug, fy: v } })
                 }
               />
+              <Numeric
+                label="Lug Fu"
+                unit="MPa"
+                value={input.shear.lug.fu}
+                onChange={(v) =>
+                  set("shear", { lug: { ...input.shear.lug, fu: v } })
+                }
+              />
+              <Numeric
+                label="Lug weld (each side)"
+                value={input.shear.lug.weld}
+                onChange={(v) =>
+                  set("shear", { lug: { ...input.shear.lug, weld: v } })
+                }
+              />
             </div>
+          )}
+          {input.shear.method === "lug" && (
+            <p className="slabMuted">
+              DG1 Ex. 4.7-5: the lug moment V·(grout + embed/2) is added to the
+              base moment for bearing, plate and rods.
+            </p>
           )}
           <div className="slabFieldGrid">
             <Numeric
@@ -1469,9 +1496,55 @@ export function BasePlateWorkspace({
                 </p>
               )}
             </details>
+            {input.designMethod === "ASD" &&
+              input.asdAnchorBasis === "lrfd" && (
+                <section aria-label="LRFD combinations for ACI 318">
+                  <h2>LRFD Combinations for ACI 318 Checks</h2>
+                  <p className="slabMuted">
+                    ACI 318 has no ASD: the anchor, friction and shear-lug
+                    concrete checks use these factored combinations (DG1
+                    practice). Steel checks use the ASD combinations above.
+                  </p>
+                  <BasePlateLoadTable
+                    caption="LRFD combinations for ACI 318 checks"
+                    loads={input.lrfdLoads}
+                    onChange={(lrfdLoads) => update({ ...input, lrfdLoads })}
+                  />{" "}
+                  {input.lrfdLoads.length === 0 && (
+                    <button
+                      className="suiteSecondary"
+                      onClick={() =>
+                        update({
+                          ...input,
+                          lrfdLoads: input.loads.map((l) => ({
+                            ...l,
+                            id: `U-${l.id}`.slice(0, 30),
+                            pu: l.pu * 1.6,
+                            mx: l.mx * 1.6,
+                            my: l.my * 1.6,
+                            vx: l.vx * 1.6,
+                            vy: l.vy * 1.6,
+                          })),
+                        })
+                      }
+                      title="Starting point only: replace with the project's LRFD combinations"
+                    >
+                      Start from ASD rows × 1.6
+                    </button>
+                  )}
+                </section>
+              )}
             {r && (
               <>
                 <h2>Results by Combination</h2>
+                {r.anchorRun && (
+                  <p className="slabMuted">
+                    Steel columns use the ASD combinations. The design checks
+                    take the ACI 318 anchor, friction and lug-concrete results
+                    from the LRFD combinations (anchor columns here are α × ASD,
+                    for reference only).
+                  </p>
+                )}
                 <div className="slabTableWrap">
                   <table className="bpResults">
                     <thead>
