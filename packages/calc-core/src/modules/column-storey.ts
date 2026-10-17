@@ -19,6 +19,21 @@
 import { z } from "zod";
 
 const finite = z.number().finite();
+/**
+ * One upper-floor side of the column (17 Oct 2026): a beam framing into that
+ * face, or none (slab only). North/South beams run along Y and brace Mux;
+ * East/West beams run along X and brace Muy.
+ */
+export const storeySideSchema = z.object({
+  beam: z.boolean(),
+  width: finite.min(100).max(3000),
+  depth: finite.min(50).max(5000),
+});
+export type StoreySide = z.infer<typeof storeySideSchema>;
+export type StoreySideId = "north" | "south" | "east" | "west";
+export const STOREY_SIDES: StoreySideId[] = ["north", "south", "east", "west"];
+export const DEFAULT_BEAM_WIDTH = 300;
+export const DEFAULT_SLAB_THICKNESS = 150;
 export const columnStoreySchema = z.object({
   /** Floor-to-floor height H, top of slab to top of slab, mm. */
   height: finite.min(500).max(20000),
@@ -36,6 +51,17 @@ export const columnStoreySchema = z.object({
   /** Per-direction ℓu override (e.g. intermediate bracing), mm. */
   luOverrideX: finite.positive().max(50000).nullable().default(null),
   luOverrideY: finite.positive().max(50000).nullable().default(null),
+  /** Upper slab thickness, mm: the depth on sides without a beam; 3D view. */
+  slabThickness: finite.min(50).max(1000).optional(),
+  /** Beams N/S/E/W. Absent on older drafts: built from beamX / beamY. */
+  sides: z
+    .object({
+      north: storeySideSchema,
+      south: storeySideSchema,
+      east: storeySideSchema,
+      west: storeySideSchema,
+    })
+    .optional(),
 });
 export type ColumnStorey = z.infer<typeof columnStoreySchema>;
 
@@ -49,6 +75,15 @@ export function defaultColumnStorey(): ColumnStorey {
     luOverrideX: null,
     luOverrideY: null,
   };
+}
+/** New calculations: 300 × 500 beams on all four sides, 150 mm slab. */
+export function newColumnStorey(): ColumnStorey {
+  const beam = { beam: true, width: DEFAULT_BEAM_WIDTH, depth: 500 };
+  return withStoreySides(
+    defaultColumnStorey(),
+    { north: beam, south: beam, east: beam, west: beam },
+    DEFAULT_SLAB_THICKNESS,
+  );
 }
 
 export interface StoreyClearHeights {
@@ -64,9 +99,66 @@ export interface StoreyClearHeights {
   joint: number;
 }
 
+/**
+ * The four sides, resolved: stored sides, or (older drafts) N/S beams of
+ * depth beamY and E/W beams of depth beamX at the default width (assumed).
+ */
+export function storeySides(s: ColumnStorey): {
+  sides: Record<StoreySideId, StoreySide>;
+  slab: number;
+  assumedWidth: boolean;
+} {
+  const slab = s.slabThickness ?? DEFAULT_SLAB_THICKNESS;
+  if (s.sides) return { sides: s.sides, slab, assumedWidth: false };
+  const beam = (depth: number): StoreySide => ({
+    beam: true,
+    width: DEFAULT_BEAM_WIDTH,
+    depth,
+  });
+  return {
+    sides: {
+      north: beam(s.beamY),
+      south: beam(s.beamY),
+      east: beam(s.beamX),
+      west: beam(s.beamX),
+    },
+    slab,
+    assumedWidth: true,
+  };
+}
+/**
+ * Depths for ℓu (ACI 318-19 6.2.4), user decision 17 Oct 2026: in each
+ * direction the SHALLOWER support governs (longer ℓu, conservative for
+ * slenderness); a side without a beam counts as the slab thickness.
+ *   ns: N/S beams (along Y) → ℓu,x (Mux);  ew: E/W beams (along X) → ℓu,y.
+ *   joint: deepest member at the joint (estimate, 18.8.3).
+ */
+export function storeyDepths(s: ColumnStorey) {
+  const { sides, slab } = storeySides(s);
+  const eff = (k: StoreySideId) => (sides[k].beam ? sides[k].depth : slab);
+  return {
+    ns: Math.min(eff("north"), eff("south")),
+    ew: Math.min(eff("east"), eff("west")),
+    joint: Math.max(...STOREY_SIDES.map(eff)),
+  };
+}
+/** Store sides and keep beamX / beamY (governing depths) in step. */
+export function withStoreySides(
+  s: ColumnStorey,
+  sides: Record<StoreySideId, StoreySide>,
+  slabThickness: number,
+): ColumnStorey {
+  const next = { ...s, sides, slabThickness };
+  const d = storeyDepths(next);
+  return { ...next, beamX: d.ew, beamY: d.ns };
+}
+
 export function storeyClearHeights(s: ColumnStorey): StoreyClearHeights {
-  const derivedX = s.height - s.beamY - (s.capital ?? 0) - (s.bottom ?? 0);
-  const derivedY = s.height - s.beamX - (s.capital ?? 0) - (s.bottom ?? 0);
+  const d = s.sides
+    ? storeyDepths(s)
+    : { ns: s.beamY, ew: s.beamX, joint: Math.max(s.beamX, s.beamY) };
+  const derivedX = s.height - d.ns - (s.capital ?? 0) - (s.bottom ?? 0);
+  const derivedY = s.height - d.ew - (s.capital ?? 0) - (s.bottom ?? 0);
   const luX = s.luOverrideX ?? derivedX;
   const luY = s.luOverrideY ?? derivedY;
   return {
@@ -75,7 +167,7 @@ export function storeyClearHeights(s: ColumnStorey): StoreyClearHeights {
     luX,
     luY,
     loClear: Math.max(luX, luY),
-    joint: Math.max(s.beamX, s.beamY),
+    joint: d.joint,
   };
 }
 

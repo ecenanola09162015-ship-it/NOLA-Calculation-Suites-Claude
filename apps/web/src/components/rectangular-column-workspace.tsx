@@ -11,7 +11,7 @@ import {
   columnDraftSchema,
   defaultColumnQuantity,
   defaultColumnTieDesign,
-  defaultColumnStorey,
+  newColumnStorey,
   effectiveColumnQuantity,
   migrateColumnStorey,
   rebarDesignation,
@@ -77,7 +77,7 @@ import {
 /** New calculations start with Vux = Vuy = 400 kN (user decision); imports stay as pasted. */
 export const DEFAULT_SHEAR = 400;
 const initial: RectangularColumnInput = {
-  storey: defaultColumnStorey(),
+  storey: newColumnStorey(),
   code: "ACI 318-19",
   width: 600,
   depth: 800,
@@ -236,6 +236,8 @@ export function RectangularColumnWorkspace({
   const [dirty, setDirty] = useState(false);
   // Bars picked for bundling (section picture / coordinates table).
   const [selectedBars, setSelectedBars] = useState<number[]>([]);
+  // 3D storey snapshot for the Complete report (session only, like the slab).
+  const [storeySnapshot, setStoreySnapshot] = useState<string | null>(null);
   // Section view: zoom, bundles just applied (flash) and the magnified bundle.
   const sectionRef = useRef<HTMLDivElement>(null);
   const [sectionZoom, setSectionZoom] = useState(1);
@@ -624,6 +626,7 @@ export function RectangularColumnWorkspace({
               remarks,
               effectiveTie,
               transverse.design,
+              storeySnapshot,
             );
           }}
         />
@@ -739,7 +742,11 @@ export function RectangularColumnWorkspace({
               }
             />
           </div>
-          <StoreyGeometryFields input={input} onChange={update} />
+          <StoreyGeometryFields
+            input={input}
+            onChange={update}
+            onSnapshot={setStoreySnapshot}
+          />
           <label className="rcCheckbox">
             <input
               type="checkbox"
