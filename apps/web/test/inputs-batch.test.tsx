@@ -45,14 +45,16 @@ describe("Materials: diameter left, grade right", () => {
   });
 });
 
-describe("Calculate in both places and default shear", () => {
-  it("has a Calculate button in the toolbar and under the load table", () => {
+describe("Run calculation in both places and default shear", () => {
+  it("has Run calculation in the toolbar and under the load table", () => {
     const html = fresh();
     const note = html.indexOf("Pasting multiple cells");
-    const below = html.indexOf("Calculate section", note);
-    expect(html.indexOf("Calculate section")).toBeLessThan(note);
+    const below = html.indexOf("Run calculation", note);
+    expect(html.indexOf("Run calculation")).toBeLessThan(note);
     expect(below).toBeGreaterThan(note);
-    expect(html.indexOf("rcCalculateBar")).toBeGreaterThan(note);
+    expect(
+      html.indexOf('aria-label="Factored Load Combinations: save and run"'),
+    ).toBeGreaterThan(note);
   });
   it("a new calculation starts with Vux = Vuy = 400 kN on every combination", () => {
     const html = fresh();

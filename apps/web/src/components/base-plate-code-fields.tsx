@@ -2,8 +2,8 @@
 /**
  * Base plate panel 01: Concrete and Steel Primary Design Codes side by side,
  * the LRFD / ASD method (shared steel-module convention) and Other Codes.
- * Calculations stay on ACI 318-19 / AISC 360-22; NSCP 2015 is recorded as
- * the project standard.
+ * Code lists come from the shared catalogue (design-code-select.tsx,
+ * 17 Oct 2026): concrete ACI 318-19, steel AISC 360-22 + DG1.
  */
 import {
   ASD_TO_STRENGTH_DEFAULT,
@@ -11,6 +11,7 @@ import {
   type BasePlateInput,
   type SteelDesignMethod,
 } from "@nola/calc-core";
+import { DesignCodeSelect } from "./design-code-select";
 
 type Codes = Pick<
   BasePlateInput,
@@ -29,56 +30,24 @@ export function BasePlateCodeFields<T extends Codes>({
   input: T;
   onChange: (next: T) => void;
 }) {
-  const nscp =
-    input.concreteCode === "NSCP 2015" || input.steelCode === "NSCP 2015";
-  const differ =
-    (input.concreteCode === "NSCP 2015") !== (input.steelCode === "NSCP 2015");
   return (
     <div className="bpCodes">
       <div className="bpCodeRow">
-        <label>
-          Concrete Primary Design Code
-          <select
-            value={input.concreteCode}
-            onChange={(e) =>
-              onChange({
-                ...input,
-                concreteCode: e.target.value as T["concreteCode"],
-              })
-            }
-          >
-            <option value="ACI 318-19">ACI 318-19</option>
-            <option value="NSCP 2015">
-              NSCP 2015 project — ACI 318-19 calculation basis
-            </option>
-            <option disabled>ACI 318-14 — Future Development</option>
-            <option disabled>EN 1992-4 (anchorage) — Future Development</option>
-            <option disabled>AS 5216 / AS 3600 — Future Development</option>
-          </select>
-        </label>
-        <label>
-          Steel Primary Design Code
-          <select
-            value={input.steelCode}
-            onChange={(e) =>
-              onChange({
-                ...input,
-                steelCode: e.target.value as T["steelCode"],
-              })
-            }
-          >
-            <option value="AISC 360-22">
-              AISC 360-22 + AISC Design Guide 1, 3rd Ed.
-            </option>
-            <option value="NSCP 2015">
-              NSCP 2015 project — AISC 360-22 calculation basis
-            </option>
-            <option disabled>AISC 360-16 — Future Development</option>
-            <option disabled>EN 1993-1-8 — Future Development</option>
-            <option disabled>AS 4100 — Future Development</option>
-            <option disabled>CSA S16 — Future Development</option>
-          </select>
-        </label>
+        <DesignCodeSelect
+          discipline="concrete"
+          label="Concrete Primary Design Code"
+          value={input.concreteCode}
+          onChange={(concreteCode) => onChange({ ...input, concreteCode })}
+        />
+        <DesignCodeSelect
+          discipline="steel"
+          label="Steel Primary Design Code"
+          labels={{
+            "AISC 360-22": "AISC 360-22 + AISC Design Guide 1, 3rd Ed.",
+          }}
+          value={input.steelCode}
+          onChange={(steelCode) => onChange({ ...input, steelCode })}
+        />
       </div>
       <div className="bpCodeRow">
         <label>
@@ -145,26 +114,6 @@ export function BasePlateCodeFields<T extends Codes>({
           </label>
         )}
       </div>
-      {nscp && (
-        <p className="rcAlert">
-          Project standard: NSCP 2015. Calculation basis:{" "}
-          {input.concreteCode === "NSCP 2015"
-            ? "ACI 318-19 (concrete / anchorage)"
-            : ""}
-          {input.concreteCode === "NSCP 2015" && input.steelCode === "NSCP 2015"
-            ? " and "
-            : ""}
-          {input.steelCode === "NSCP 2015" ? "AISC 360-22 + DG1 (steel)" : ""}.
-          This does not confirm compliance with every NSCP 2015 provision (Sec.
-          417 / 510 are ACI 318-14 / AISC 360-10 based).
-        </p>
-      )}
-      {differ && (
-        <p className="slabMuted">
-          Concrete and steel primary codes differ; confirm the project's code
-          basis.
-        </p>
-      )}
       {input.designMethod === "ASD" && (
         <p className="slabMuted">
           ASD: enter service-level (ASD) combinations. Steel checks use Rn/Ω;

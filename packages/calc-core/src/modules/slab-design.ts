@@ -1,5 +1,6 @@
 import { designCheckPolicySchema, designRemarksSchema } from "../design-review";
 import { z } from "zod";
+import { designCodeSchema, upgradeLegacyProjectCode } from "../design-codes";
 import {
   FC_ENGINE_MAX,
   FC_ENGINE_MIN,
@@ -226,9 +227,12 @@ const barsSchema = z.object({
   "short-top": barSchema,
   "long-top": barSchema,
 });
-export const slabInputSchema = z
+/** Legacy "NSCP 2015" drafts load as ACI 318-19 (design-codes.ts). */
+export const slabInputSchema = z.preprocess(
+  (raw) => upgradeLegacyProjectCode(raw, { code: "ACI 318-19" }),
+  z
   .object({
-    code: z.enum(["ACI 318-19", "NSCP 2015"]),
+    code: designCodeSchema("concrete"),
     /** Other codes, documentation only (no effect on the calculation). */
     otherCodes: z.string().max(300).optional(),
     lx: z.number().min(0.5).max(30),
@@ -311,7 +315,8 @@ export const slabInputSchema = z
         );
       }),
     "Each local load must lie within the slab panel: point/area 0 ≤ x ± bx/2 ≤ Lx and 0 ≤ y ± by/2 ≤ Ly; line from its start along X or Y for its length, ± thickness/2 across.",
-  );
+  ),
+);
 export const slabDraftSchema = z.object({
   kind: z.literal("slab"),
   version: z.literal(1),
@@ -2281,10 +2286,6 @@ export function analyzeSlab(raw: SlabInput, suggestions = true): SlabResult {
   )
     warnings.push(
       `Minimum thickness assumes rigid edge supports (αfm > 2.0). Discontinuous (Pinned) edges ${minimumThickness.discontinuousEdges.join(", ")}: ACI 318-19 8.3.1.2.1 requires an edge beam with αf ≥ 0.80, or hmin increased by 10%.`,
-    );
-  if (i.code === "NSCP 2015")
-    warnings.push(
-      "Project standard: NSCP 2015. Calculation basis: ACI 318-19 by designer selection; this is not a separate NSCP code-compliance certification.",
     );
   if (i.dcrLimit > 1)
     warnings.push(

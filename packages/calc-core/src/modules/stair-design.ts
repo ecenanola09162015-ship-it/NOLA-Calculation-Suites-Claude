@@ -21,6 +21,7 @@
  *   0 = no landing, the waist bears one going beyond the last riser line.
  */
 import { z } from "zod";
+import { designCodeSchema, upgradeLegacyProjectCode } from "../design-codes";
 import { designCheckPolicySchema, designRemarksSchema } from "../design-review";
 import type { DesignCheck } from "../design-review";
 import {
@@ -142,10 +143,7 @@ export function stairCalculationBasis(
 }
 /** Label printed in the workspace and report. */
 export function stairCodeBasisLabel(i: Pick<StairsInput, "code">) {
-  const basis = stairCalculationBasis(i);
-  return i.code === "NSCP 2015"
-    ? `Project standard: NSCP 2015. Calculation basis: ${basis}.`
-    : `Calculation basis: ${basis}.`;
+  return `Calculation basis: ${stairCalculationBasis(i)}.`;
 }
 
 /* ------------------------------------------------------------------ schema */
@@ -241,9 +239,12 @@ export const stairLocalLoadSchema = z.discriminatedUnion("kind", [
 ]);
 export type StairLocalLoad = z.infer<typeof stairLocalLoadSchema>;
 
-export const stairsInputSchema = z
+/** Legacy "NSCP 2015" drafts load as ACI 318-19 (design-codes.ts). */
+export const stairsInputSchema = z.preprocess(
+  (raw) => upgradeLegacyProjectCode(raw, { code: "ACI 318-19" }),
+  z
   .object({
-    code: z.enum(["ACI 318-19", "NSCP 2015"]),
+    code: designCodeSchema("concrete"),
     /** Documentation only — does not change the calculation basis. */
     otherCodes: z.string().max(300).optional(),
     stairType: z.enum(stairTypes),
@@ -352,7 +353,8 @@ export const stairsInputSchema = z
   .refine(
     (i) => i.geometryLimits.blondelMax > i.geometryLimits.blondelMin,
     "2R + T limits must satisfy max > min.",
-  );
+  ),
+);
 export type StairsInput = z.infer<typeof stairsInputSchema>;
 
 export const stairsDraftSchema = z.object({

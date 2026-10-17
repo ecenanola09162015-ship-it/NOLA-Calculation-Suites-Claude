@@ -1,3 +1,4 @@
+import type { ConcreteDesignCode } from "../design-codes";
 import { FC_ENGINE_MAX, FC_ENGINE_MIN } from "../concrete-units";
 /** Development engine: rectangular tied sections, SI units, compression-positive. */
 import {
@@ -31,7 +32,7 @@ export function slendernessWithStorey(
   };
 }
 import type { RebarStandard } from "../rebar-catalogue";
-export type ColumnCode = "ACI 318-19" | "NSCP 2015";
+export type ColumnCode = ConcreteDesignCode;
 export interface ColumnBar {
   x: number;
   y: number;
@@ -150,7 +151,7 @@ export function tiedColumnPhi(tensionStrain: number, fy: number, es: number) {
   );
 }
 export function validateRectangularColumn(input: RectangularColumnInput) {
-  if (input.code !== "ACI 318-19" && input.code !== "NSCP 2015")
+  if (input.code !== "ACI 318-19")
     throw new Error(
       "Choose a supported project code. The calculation basis is ACI 318-19.",
     );

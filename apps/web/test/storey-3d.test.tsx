@@ -76,7 +76,8 @@ describe.skipIf(!CHROME)("3D storey view in a real browser", () => {
   it("renders, switches views, follows a beam change, no side scroll on a phone", async () => {
     const out = await build({
       entryPoints: [new URL("./browser/bundle-entry.tsx", import.meta.url).pathname],
-      bundle: true, write: false, format: "esm", jsx: "automatic",
+      // outdir: the workspace imports a CSS module (calc-actions).
+      bundle: true, write: false, outdir: "/tmp/storey-3d-test", format: "esm", jsx: "automatic",
       define: { "process.env.NODE_ENV": '"production"' }, logLevel: "silent",
       alias: { "@": new URL("../src", import.meta.url).pathname },
     });
@@ -87,7 +88,7 @@ describe.skipIf(!CHROME)("3D storey view in a real browser", () => {
       const errors: string[] = [];
       page.on("pageerror", (e) => errors.push(e.message));
       await page.setContent(`<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body><main class="rcWorkspace" style="padding:12px"><div id="root"></div></main></body></html>`);
-      await page.addScriptTag({ content: out.outputFiles[0]!.text, type: "module" });
+      await page.addScriptTag({ content: out.outputFiles.find((f) => f.path.endsWith(".js"))!.text, type: "module" });
       await page.locator(".storey3dCanvas canvas").waitFor();
       const view = page.locator(".storey3d");
       for (const v of ["Front (X)", "Side (Y)", "Plan", "3D"]) await view.getByRole("button", { name: v, exact: true }).click();

@@ -75,7 +75,7 @@ const tie: ColumnTieDesignInput = {
 };
 
 describe("shear and confinement panels", () => {
-  it("are not shown before Calculate section, like the estimate", () => {
+  it("are not shown before Run calculation, like the estimate", () => {
     const html = renderToStaticMarkup(
       <RectangularColumnWorkspace cloudReady={false} onSaved={() => {}} />,
     );
