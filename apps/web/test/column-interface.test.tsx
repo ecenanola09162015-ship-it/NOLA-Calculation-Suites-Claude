@@ -11,10 +11,12 @@ describe("column interface server render", () => {
     const html = renderToStaticMarkup(
       <RectangularColumnWorkspace cloudReady={false} onSaved={() => {}} />,
     );
-    expect(html).toContain("ACI 318-19");
-    expect(html).toContain("NSCP 2015");
-    expect(html).toMatch(/<option disabled="">BS EN 1992 — Future Development/);
-    expect(html).toMatch(/<option disabled="">AS 3600 — Future Development/);
+    expect(html).toContain('<option value="ACI 318-19" selected="">ACI 318-19');
+    expect(html).toMatch(
+      /<option value="future:NSCP 2015" disabled="">NSCP 2015 \(Vol. 1\) — Future Development/,
+    );
+    expect(html).toMatch(/disabled="">BS EN 1992-1-1 \(Eurocode 2\) — Future Development/);
+    expect(html).toMatch(/disabled="">AS 3600 — Future Development/);
     expect(html).toContain("Clear cover to ties");
     expect(html).toContain("Paste From Excel");
     expect(html).toContain("Calculate section");
@@ -68,10 +70,10 @@ describe("column interface server render", () => {
         }}
       />,
     );
-    expect(html).toContain('value="NSCP 2015" selected=""');
-    expect(html).toContain(
-      "Project standard: NSCP 2015. Calculation basis: ACI 318-19.",
-    );
+    // Legacy NSCP 2015 draft opens as ACI 318-19 (17 Oct 2026).
+    expect(html).toContain('<option value="ACI 318-19" selected="">');
+    expect(html).toContain('value="NSCP 2015 (project standard)"');
+    expect(html).not.toContain("Project standard: NSCP 2015.");
     expect(html).not.toContain("Numerical results await verification");
   });
   it("renders valid signed diagrams and handles incomplete section dimensions", () => {

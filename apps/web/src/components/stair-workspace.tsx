@@ -44,6 +44,7 @@ import {
 import { StairForceDiagrams, StairPlan, StairSection } from "./stair-diagrams";
 import styles from "./stair-workspace.module.css";
 import { stairBarColors } from "@/lib/stair-bar-styles";
+import { DesignCodeSelect } from "./design-code-select";
 
 // three.js is only downloaded when the 3D tab is opened (client-only).
 const Stair3DView = dynamic(() => import("./stair-3d-view"), {
@@ -511,29 +512,11 @@ export function StairWorkspace({
         <aside className="slabInputs slabPanel">
           <h2>01 · Stair Type & Geometry</h2>
           <div className="rcCodeBlock">
-            <label>
-              Primary Design Code
-              <select
-                value={input.code}
-                onChange={(e) =>
-                  set("code", e.target.value as StairsInput["code"])
-                }
-              >
-                <option>ACI 318-19</option>
-                <option value="NSCP 2015">
-                  NSCP 2015 project — ACI 318-19 calculation basis
-                </option>
-                <option disabled>ACI 318-14 — Future Development</option>
-                <option disabled>BS EN 1992 — Future Development</option>
-              </select>
-            </label>
-            {input.code === "NSCP 2015" && (
-              <p className="rcAlert">
-                Project standard: NSCP 2015. Calculation basis: ACI 318-19. This
-                option uses the same ACI stair design engine; it does not
-                confirm compliance with every NSCP 2015 provision.
-              </p>
-            )}
+            <DesignCodeSelect
+              discipline="concrete"
+              value={input.code}
+              onChange={(code) => set("code", code)}
+            />
             <label>
               Other Codes*
               <input

@@ -63,7 +63,7 @@ describe("base plate workspace", () => {
       "Concrete Primary Design Code",
       "Steel Primary Design Code",
       "AISC 360-22 + AISC Design Guide 1, 3rd Ed.",
-      "EN 1993-1-8 — Future Development",
+      "BS EN 1993-1-1 (Eurocode 3) — Future Development",
       "Steel Design Method",
       "ASD — service loads",
       "AISC database",
@@ -162,13 +162,14 @@ describe("custom section and ASD in the workspace", () => {
         }}
       />,
     );
+    // NSCP 2015 project option retired 17 Oct 2026: opens on its calculation
+    // basis with NSCP 2015 kept under Other Codes.
+    expect(html).toContain('<option value="ACI 318-19" selected="">ACI 318-19');
     expect(html).toContain(
-      '<option value="NSCP 2015" selected="">NSCP 2015 project — ACI 318-19',
+      '<option value="AISC 360-22" selected="">AISC 360-22 + AISC Design Guide 1',
     );
-    expect(html).toContain(
-      '<option value="NSCP 2015" selected="">NSCP 2015 project — AISC 360-22',
-    );
-    expect(html).toContain("Project standard: NSCP 2015.");
+    expect(html).toContain('value="NSCP 2015 (project standard)"');
+    expect(html).not.toContain('<option value="NSCP 2015"');
   });
 });
 

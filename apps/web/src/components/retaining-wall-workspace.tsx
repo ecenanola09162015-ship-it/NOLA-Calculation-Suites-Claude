@@ -368,8 +368,7 @@ export function RetainingWallWorkspace({
         />
       </div>
       <p className="slabPilot">
-        Development pilot · Calculation basis: ACI 318-19
-        {input.code === "NSCP 2015" ? "; project standard NSCP 2015 (combinations Sec. 203, stability Sec. 307, seismic Sec. 208)" : ""}. 1 m strip
+        Development pilot · Calculation basis: ACI 318-19. 1 m strip
         analysis. Independent engineering review required.
       </p>
       {!project && <p>Create or select a project to save this calculation.</p>}
@@ -390,7 +389,7 @@ export function RetainingWallWorkspace({
       <div className="slabGrid">
         <aside className={`slabInputs slabPanel ${styles.inputs}`}>
           <h2>01 · Wall Type & Code</h2>
-          <DesignCodeFields input={input} onChange={update} engine="slab" />
+          <DesignCodeFields input={input} onChange={update} />
           <label>
             Wall type
             <select

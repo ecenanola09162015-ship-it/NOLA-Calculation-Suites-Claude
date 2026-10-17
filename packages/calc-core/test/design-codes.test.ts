@@ -11,6 +11,7 @@ import {
   designCodeCatalogue,
   designCodeLabel,
   designCodeSchema,
+  upgradeLegacyProjectCode,
   type CodeDiscipline,
 } from "../src";
 
@@ -112,5 +113,48 @@ describe("design-code catalogue", () => {
   it("labels fall back to the stored id", () => {
     expect(designCodeLabel("loads", "ASCE 7-22")).toBe("ASCE/SEI 7-22");
     expect(designCodeLabel("concrete", "Unknown")).toBe("Unknown");
+  });
+});
+
+describe("legacy NSCP 2015 project option (retired 17 Oct 2026)", () => {
+  it("maps the code to its calculation basis and keeps NSCP 2015 under Other Codes", () => {
+    expect(
+      upgradeLegacyProjectCode({ code: "NSCP 2015" }, { code: "ACI 318-19" }),
+    ).toEqual({
+      code: "ACI 318-19",
+      otherCodes: "NSCP 2015 (project standard)",
+    });
+    expect(
+      upgradeLegacyProjectCode(
+        { code: "NSCP 2015", otherCodes: "ASCE 7-16" },
+        { code: "ACI 318-19" },
+      ),
+    ).toEqual({
+      code: "ACI 318-19",
+      otherCodes: "NSCP 2015 (project standard); ASCE 7-16",
+    });
+  });
+  it("does not duplicate an NSCP 2015 note already in Other Codes", () => {
+    expect(
+      upgradeLegacyProjectCode(
+        {
+          concreteCode: "NSCP 2015",
+          steelCode: "NSCP 2015",
+          otherCodes: "NSCP 2015; ASCE 7-16",
+        },
+        { concreteCode: "ACI 318-19", steelCode: "AISC 360-22" },
+      ),
+    ).toEqual({
+      concreteCode: "ACI 318-19",
+      steelCode: "AISC 360-22",
+      otherCodes: "NSCP 2015; ASCE 7-16",
+    });
+  });
+  it("leaves current drafts and non-objects untouched", () => {
+    const current = { code: "ACI 318-19", otherCodes: "" };
+    expect(upgradeLegacyProjectCode(current, { code: "ACI 318-19" })).toBe(
+      current,
+    );
+    expect(upgradeLegacyProjectCode(null, { code: "ACI 318-19" })).toBeNull();
   });
 });

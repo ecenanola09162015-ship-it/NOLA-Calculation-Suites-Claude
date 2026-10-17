@@ -524,11 +524,7 @@ export function BasePlateWorkspace({
         />
       </div>
       <p className="slabPilot">
-        Development pilot ·{" "}
-        {input.concreteCode === "NSCP 2015" || input.steelCode === "NSCP 2015"
-          ? "Project standard: NSCP 2015. "
-          : ""}
-        Calculation basis: concrete ACI 318-19 Ch. 17; steel AISC 360-22 + AISC
+        Development pilot · Calculation basis: concrete ACI 318-19 Ch. 17; steel AISC 360-22 + AISC
         Design Guide 1 3rd Ed. ({input.designMethod}). Independent engineering
         review required.
       </p>
