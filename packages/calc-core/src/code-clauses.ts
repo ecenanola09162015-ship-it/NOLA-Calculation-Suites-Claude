@@ -236,3 +236,20 @@ export const basePlateClauses = {
   stiffenerColumn: () =>
     aisc("J10.2 web local yielding, J10.3 web crippling (member end)"),
 } as const;
+
+/**
+ * Underground tank (engine tank-0.1.0): ACI 350-20 first. † = clause number to
+ * be confirmed against the licensed ACI 350-20 text before release.
+ */
+const aci350 = (...parts: string[]) => `ACI 350-20 ${parts.join("; ")}`;
+export const tankClauses = {
+  flexure: () => aci350("two-way slab Ch. 8 / walls Ch. 11", "22.2, 22.3", "Sd = φfy/(γ fs) ≥ 1.0 9.2.6†", "fs,max 24.3.2†", "Wood–Armer"),
+  flexureTension: () => aci350("22.2, 22.4 flexure + axial tension", "Sd 9.2.6† (direct-tension fs,max)", "Wood–Armer"),
+  shear: () => aci350("22.5.5.1 Vc = 0.17λ√f′c bd", "22.5.7.1† axial tension", "φ = 0.75 Table 21.2.1"),
+  shrinkage: () => aci350("Table 24.4.3.2† shrinkage and temperature steel by joint spacing"),
+  spacing: () => aci350("24.3.2† / 24.4.3.3† (≤ 300 mm)"),
+  cover: () => aci350("20.6.1.3† (50 mm, liquid and earth faces)"),
+  thickness: () => aci350("11.3.1.2† walls ≥ 3 m high in contact with liquid: 300 mm"),
+  flotation: () => "ACI 350.4R† / project criteria: FS ≥ input against flotation, empty tank",
+  bearing: () => "Allowable bearing (service), full tank",
+} as const;

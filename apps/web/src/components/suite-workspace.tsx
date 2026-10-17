@@ -22,6 +22,10 @@ const StairWorkspace = dynamic(
   () => import("./stair-workspace").then((m) => m.StairWorkspace),
   { loading: () => <p>Opening stairs workspace…</p> },
 );
+const TankWorkspace = dynamic(
+  () => import("./tank-workspace").then((m) => m.TankWorkspace),
+  { loading: () => <p>Opening underground tank workspace…</p> },
+);
 const RetainingWallWorkspace = dynamic(
   () =>
     import("./retaining-wall-workspace").then((m) => m.RetainingWallWorkspace),
@@ -532,6 +536,19 @@ export function SuiteWorkspace({
               draft={selectedDraft}
               cloudReady={cloudReady}
               onDirtyChange={onDirtyChange}
+              onSaved={(item) =>
+                setDrafts((previous) => [
+                  item,
+                  ...previous.filter((d) => d.id !== item.id),
+                ])
+              }
+            />
+          ) : module.slug === "underground-tank" ? (
+            <TankWorkspace
+              key={`${projectId}:${workspaceSession}`}
+              project={project}
+              draft={selectedDraft}
+              cloudReady={cloudReady}
               onSaved={(item) =>
                 setDrafts((previous) => [
                   item,

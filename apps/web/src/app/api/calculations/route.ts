@@ -17,6 +17,9 @@ import {
   missingJudgmentRemarks,
   defaultDesignCheckPolicy,
   retainingWallDraftSchema,
+  tankDraftSchema,
+  designTank,
+  tankDesignChecks,
   designRetainingWall,
   retainingWallDesignChecks,
 } from "@nola/calc-core";
@@ -124,6 +127,15 @@ export async function POST(request: Request) {
       );
     body.payload = parsed.data;
   }
+  if (body.moduleSlug === "underground-tank") {
+    const parsed = tankDraftSchema.safeParse(body.payload);
+    if (!parsed.success)
+      return NextResponse.json(
+        { error: "Invalid tank inputs. Check geometry, liquid, soil and reinforcement." },
+        { status: 400 },
+      );
+    body.payload = parsed.data;
+  }
   if (body.moduleSlug === "retaining-wall") {
     const parsed = retainingWallDraftSchema.safeParse(body.payload);
     if (!parsed.success)
@@ -157,7 +169,9 @@ export async function POST(request: Request) {
                 ? stairsDesignChecks(analyzeStairs(body.payload.input))
                 : body.moduleSlug === "retaining-wall"
                   ? retainingWallDesignChecks(designRetainingWall(body.payload.input))
-                  : [];
+                  : body.moduleSlug === "underground-tank"
+                    ? tankDesignChecks(designTank(body.payload.input))
+                    : [];
       if (missingJudgmentRemarks(checks, policy, remarks).length)
         return NextResponse.json(
           { error: "Add Remarks For Each Amber Design Check Before Saving." },

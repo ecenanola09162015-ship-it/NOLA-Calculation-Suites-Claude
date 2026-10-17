@@ -49,3 +49,5 @@ export * from "./modules/retaining-wall-quantity";
 export * from "./modules/retaining-wall-plate-fe";
 export * from "./modules/retaining-wall-plate";
 export * from "./modules/retaining-wall-counterfort";
+export * from "./modules/underground-tank";
+export * from "./modules/underground-tank-design";
