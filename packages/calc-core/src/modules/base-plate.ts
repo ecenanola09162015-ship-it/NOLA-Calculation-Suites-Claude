@@ -759,6 +759,99 @@ export function basePlateRods(i: Pick<BasePlateInput, "anchors">): Rod[] {
   return out;
 }
 
+/** AISC 360-22 Table J3.4 minimum edge distance (standard hole), mm. */
+export function j34EdgeDistance(da: number): number {
+  const inch: [number, number][] = [
+    [0.5, 0.75],
+    [0.625, 0.875],
+    [0.75, 1],
+    [0.875, 1.125],
+    [1, 1.25],
+    [1.125, 1.5],
+    [1.25, 1.625],
+  ];
+  const metric: [number, number][] = [
+    [16, 22],
+    [20, 26],
+    [22, 28],
+    [24, 30],
+    [27, 34],
+    [30, 38],
+    [36, 46],
+  ];
+  const hit = (t: [number, number][], d: number, f: number) =>
+    t.find(([x]) => Math.abs(x * f - d) < 0.3);
+  const u = hit(inch, da, 25.4);
+  if (u) return u[1] * 25.4;
+  const m = hit(metric, da, 1);
+  if (m) return m[1];
+  // Above the table (> 1¼ in / M36): 1.25 d; between sizes: next larger row.
+  const next = inch.find(([x]) => x * 25.4 >= da);
+  return next ? next[1] * 25.4 : 1.25 * da;
+}
+
+export interface MinimumPlate {
+  /** Rod centre to column outline: washer/2 (or hole/2) + weld + 6 mm. */
+  g: number;
+  /** Rod centre to plate edge and what governs it. */
+  e: number;
+  eGoverns: "hole + ½ in clear" | "washer" | "AISC J3.4";
+  eTerms: { hole: number; washer: number; j34: number };
+  /** Rod line spacing (grid) — null for custom coordinates. */
+  sx: number | null;
+  sy: number | null;
+  bx: number;
+  by: number;
+  /** False when the plate would exceed the pedestal (not applied). */
+  fitsPedestal: boolean;
+  note: string;
+}
+
+const up10 = (v: number) => Math.ceil(v / 10 - 1e-9) * 10;
+
+/**
+ * Preliminary plate from the column outline (engine 0.6.0): rods outside the
+ * column at g, plate edge at the minimum edge distance e, sizes rounded up
+ * to 10 mm so the minimum is never undercut.
+ */
+export function basePlateMinimumPlate(i: BasePlateInput): MinimumPlate {
+  const a = i.anchors;
+  const dims = basePlateColumnDims(i);
+  const g = Math.max(a.washer.size, a.hole) / 2 + i.weld.size + 6;
+  const eTerms = {
+    hole: a.hole / 2 + 12.7,
+    washer: a.washer.size / 2,
+    j34: j34EdgeDistance(a.da),
+  };
+  const e = Math.max(eTerms.hole, eTerms.washer, eTerms.j34);
+  const eGoverns =
+    e === eTerms.hole
+      ? "hole + ½ in clear"
+      : e === eTerms.washer
+        ? "washer"
+        : "AISC J3.4";
+  let sx: number | null = null,
+    sy: number | null = null,
+    bx: number,
+    by: number;
+  if (a.layout === "custom") {
+    const pts = a.points.length ? a.points : [{ x: 0, y: 0 }];
+    bx = up10(2 * (Math.max(...pts.map((p) => Math.abs(p.x))) + e));
+    by = up10(2 * (Math.max(...pts.map((p) => Math.abs(p.y))) + e));
+  } else {
+    const lx = up10(dims.x + 2 * g),
+      ly = up10(dims.y + 2 * g);
+    sx = lx / (a.nx - 1);
+    sy = ly / (a.ny - 1);
+    bx = up10(lx + 2 * e);
+    by = up10(ly + 2 * e);
+  }
+  const fitsPedestal = bx <= i.pedestal.px && by <= i.pedestal.py;
+  const f = (v: number) => v.toFixed(0);
+  const note = `Preliminary: g ${f(g)} mm, e ${f(e)} mm (${eGoverns} governs) → ${f(bx)} × ${f(by)} mm${fitsPedestal ? "" : ` — exceeds the ${f(i.pedestal.px)} × ${f(i.pedestal.py)} mm pedestal, not applied`}.`;
+  return { g, e, eGoverns, eTerms, sx, sy, bx, by, fitsPedestal, note };
+}
+
 /** Column outline dimensions along X and Y after rotation. */
 export function basePlateColumnDims(
   i: Pick<BasePlateInput, "column" | "rotation">,

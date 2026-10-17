@@ -25,6 +25,16 @@ Anchors → Layout offers **Grid**, **Perimeter** or **Custom coordinates**. Cus
 - Validation: ≥ 2 rods, unique IDs, every rod inside the plate; geo-hole-edge (½ in clear) and geo-clash apply per rod; the OSHA 1926.755 note appears below 4 rods.
 - Drawings, 3D and the PDF plot the actual coordinates; custom dimension strings show coordinates instead of sx / sy.
 
+## Minimum plate from column (engine 0.6.0)
+
+Section 02 button next to Plate Bx / By sets a preliminary plate (`basePlateMinimumPlate`):
+
+- Rod lines outside the column outline at g = max(washer, hole)/2 + weld + 6 mm (washer clear of the column fillet); sx = (outline x + 2g)/(nx − 1), sy likewise, rotation respected.
+- Edge e = max(hole/2 + ½ in, washer/2, AISC 360-22 Table J3.4 for the rod size).
+- Bx, By = rod line extent + 2e; extents and plate rounded up to 10 mm so the minimum is never undercut.
+- Custom coordinates keep their points; only the plate is sized (max |x|, |y| + e).
+- Not applied when the plate exceeds the pedestal (note shown). All checks then run as usual.
+
 ## Hole bearing / tearout (engine 0.5.0)
 
 When rods carry shear, AISC 360-22 J3.11 (Eq. J3-6b, J3-6d; DG1 4.5.3, Ex. 4.7-6): welded plate washers — washer thickness, J3.3 standard hole (da + 1/16 in, + 1/8 in for da ≥ 1 in), lc = (washer − hole)/2; otherwise the base plate hole with lc = smallest clear distance to the plate edge or the next hole. φ 0.75 / Ω 2.00; plate and washer Fu input (default from the plate grade).

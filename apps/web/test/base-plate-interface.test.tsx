@@ -618,3 +618,14 @@ describe("rod coordinates shown for every layout", () => {
     expect(JSON.stringify(data)).toContain("A1 -170, -195");
   });
 });
+
+describe("minimum plate button", () => {
+  it("sits with the plate dimensions", () => {
+    const html = renderToStaticMarkup(
+      <BasePlateWorkspace cloudReady={false} onSaved={() => {}} />,
+    );
+    const k = html.indexOf("Minimum plate from column");
+    expect(k).toBeGreaterThan(html.indexOf("Plate By"));
+    expect(k).toBeLessThan(html.indexOf("Thickness tp"));
+  });
+});

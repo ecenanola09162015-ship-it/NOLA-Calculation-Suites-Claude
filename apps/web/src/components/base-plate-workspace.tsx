@@ -12,6 +12,7 @@ import {
   anchorKinds,
   basePlateDesignChecks,
   basePlateDraftSchema,
+  basePlateMinimumPlate,
   basePlateRods,
   defaultBasePlateInput,
   defaultDesignCheckPolicy,
@@ -224,6 +225,7 @@ export function BasePlateWorkspace({
   }
   const [snapshot3d, setSnapshot3d] = useState<string | null>(null);
   const [comboId, setComboId] = useState<string>("");
+  const [minPlateNote, setMinPlateNote] = useState("");
   const [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
     [duplicate, setDuplicate] = useState<DraftDuplicate | null>(null),
@@ -349,6 +351,20 @@ export function BasePlateWorkspace({
     return basePlateRods({
       anchors: { ...anchors, layout: "grid" },
     }).map((r) => ({ id: r.id, x: r.x, y: r.y }));
+  }
+  /** Preliminary plate: minimum edge distance around the column. */
+  function applyMinimumPlate() {
+    const m = basePlateMinimumPlate(input);
+    setMinPlateNote(m.note);
+    if (!m.fitsPedestal) return;
+    update({
+      ...input,
+      plate: { ...input.plate, bx: m.bx, by: m.by },
+      anchors:
+        m.sx !== null && m.sy !== null
+          ? { ...anchors, sx: m.sx, sy: m.sy }
+          : anchors,
+    });
   }
   /** Rods of the current layout as points. */
   function currentPoints() {
@@ -626,6 +642,16 @@ export function BasePlateWorkspace({
               value={input.plate.by}
               onChange={(v) => set("plate", { by: v })}
             />
+            <div className="bpMinPlate">
+              <button
+                className="suiteSecondary"
+                onClick={applyMinimumPlate}
+                title="Rods at washer/2 + weld + 6 mm outside the column; plate edge at max(hole/2 + ½ in, washer/2, AISC J3.4); rounded up to 10 mm"
+              >
+                Minimum plate from column
+              </button>
+              {minPlateNote && <p className="slabHint">{minPlateNote}</p>}
+            </div>
             <Numeric
               label="Thickness tp"
               value={input.plate.tp}
