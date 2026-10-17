@@ -1,6 +1,6 @@
 "use client";
 import { useUnsavedGuard } from "../lib/unsaved";
-import { useDeferredValue, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   analyzeSlab,
   defaultDesignCheckPolicy,
@@ -73,6 +73,9 @@ import {
   type DraftDuplicate,
 } from "./duplicate-save-prompt";
 import { SlabQuantityPanel } from "./slab-quantity-panel";
+import { SaveRunBar, SaveToProject, StaleResultsNotice } from "./calc-actions";
+import { postCalculation } from "@/lib/calc-save";
+import { useCalculationRun } from "@/lib/use-calc-run";
 import { SlabSpacingSuggestions } from "./slab-spacing-suggestions";
 import { ConcreteStrengthFields } from "./concrete-strength-fields";
 import { DesignCodeFields } from "./column-materials-fields";
@@ -194,6 +197,10 @@ export function SlabWorkspace({
     [busy, setBusy] = useState(false),
     [duplicate, setDuplicate] = useState<DraftDuplicate | null>(null),
     [saved, setSaved] = useState(!!restored.success),
+    // Last save of this file (opened draft or this session), Manila time.
+    [savedAt, setSavedAt] = useState(
+      restored.success ? draft?.updatedAt : undefined,
+    ),
     // Edited since opened / last saved (unsaved-changes guard).
     [dirty, setDirty] = useState(false);
   const markUnsaved = () => {
@@ -211,23 +218,22 @@ export function SlabWorkspace({
   const [adoptHistory, setAdoptHistory] = useState<SlabInput[]>([]),
     [adoptedNote, setAdoptedNote] = useState("");
   const editVersion = useRef(0);
-  // Point loads add a plate FE solve (~0.1–0.5 s): defer the analysis so
-  // typing stays responsive; results follow the latest input when idle.
+  // Explicit Run calculation (17 Oct 2026): results belong to the last run
+  // and are withheld after any edit until the next run (run once on open).
   // Bounding beams: default 250 x 500 or custom per-edge sizes entered here;
   // they drive analysis (ℓ), drawings, 3D and the report. Estimate overrides
   // affect quantities only.
   const designInput = input;
-  const analysedInput = useDeferredValue(designInput);
-  const analysis = useMemo(() => {
-    try {
-      return { result: analyzeSlab(analysedInput, false), error: "" };
-    } catch (e) {
-      return {
-        result: null,
-        error: e instanceof Error ? e.message : "Check numerical inputs.",
-      };
-    }
-  }, [analysedInput]);
+  const analysis = useCalculationRun(designInput, (i) => analyzeSlab(i, false));
+  // Adopt / Undo of a suggested spacing come from the engine: run with them
+  // so the suggestions stay on screen for the next adopt.
+  const runAfterAdopt = useRef(false);
+  const runCalculation = analysis.run;
+  useEffect(() => {
+    if (!runAfterAdopt.current) return;
+    runAfterAdopt.current = false;
+    runCalculation();
+  }, [input, runCalculation]);
   const bars = useMemo(() => {
     try {
       return resolveSlabBars(input);
@@ -307,6 +313,7 @@ export function SlabWorkspace({
   function adoptSuggestion(next: SlabInput, note: string) {
     editVersion.current++;
     setAdoptHistory((h) => [...h, input]);
+    runAfterAdopt.current = true;
     setInput(next);
     markUnsaved();
     setAdoptedNote(note);
@@ -316,6 +323,7 @@ export function SlabWorkspace({
     if (!previous) return;
     editVersion.current++;
     setAdoptHistory((h) => h.slice(0, -1));
+    runAfterAdopt.current = true;
     setInput(previous);
     markUnsaved();
     setAdoptedNote(adoptHistory.length > 1 ? "Last adopt undone." : "");
@@ -458,72 +466,104 @@ export function SlabWorkspace({
       </div>
     );
   }
-  /** opts.overwrite: confirmed in the duplicate prompt; opts.title: save-as name. */
-  async function save(opts: { overwrite?: boolean; title?: string } = {}) {
-    if (!project) return;
+  /** Validated draft of the current inputs (save and Save to project). */
+  function buildPayload() {
+    const parsed = slabDraftSchema.safeParse({
+      kind: "slab",
+      version: 1,
+      input: designInput,
+      quantity,
+      designPolicy: policy,
+      remarks,
+      // Out-of-date results are saved as not calculated (no review).
+      reviewCompleted: !!r,
+    });
+    if (!parsed.success || !title.trim())
+      throw new Error(
+        "Complete valid inputs and a calculation title before saving.",
+      );
+    if (
+      r &&
+      missingJudgmentRemarks(slabDesignChecks(input, r), policy, remarks).length
+    )
+      throw Error("Add Remarks For Each Amber Design Check Before Saving.");
+    return parsed.data;
+  }
+  const unsaved = !(saved && savedPolicy === policyKey);
+  /**
+   * Save changes to this calculation file. opts.overwrite: confirmed in the
+   * duplicate prompt; opts.title: save-as name. Resolves true when saved.
+   */
+  async function save(
+    opts: { overwrite?: boolean; title?: string } = {},
+  ): Promise<boolean> {
+    if (!project) return false;
     const saveTitle = opts.title ?? title;
     const version = editVersion.current;
     setBusy(true);
     setMessage("");
     try {
-      const parsed = slabDraftSchema.safeParse({
-        kind: "slab",
-        version: 1,
-        input: designInput,
-        quantity,
-        designPolicy: policy,
-        remarks,
-        reviewCompleted: !!r,
+      const payload = buildPayload();
+      const res = await postCalculation({
+        id,
+        projectId: project.id,
+        moduleSlug: "slab",
+        title: saveTitle,
+        overwrite: opts.overwrite,
+        payload,
       });
-      if (!parsed.success || !title.trim())
-        throw new Error(
-          "Complete valid inputs and a calculation title before saving.",
-        );
-      if (
-        r &&
-        missingJudgmentRemarks(slabDesignChecks(input, r), policy, remarks)
-          .length
-      )
-        throw Error("Add Remarks For Each Amber Design Check Before Saving.");
-      const response = await fetch("/api/calculations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id,
-          projectId: project.id,
-          moduleSlug: "slab",
-          title: saveTitle,
-          overwrite: opts.overwrite === true,
-          payload: parsed.data,
-        }),
-      });
-      const body = await response.json();
-      if (response.status === 409 && body.duplicate) {
-        setDuplicate(body.duplicate);
+      if (!res.ok && res.duplicate) {
+        setDuplicate(res.duplicate);
         setMessage("");
-        return;
+        return false;
       }
       setDuplicate(null);
       if (opts.title) setTitle(opts.title);
-      if (!response.ok) throw new Error(body.error ?? "Save failed.");
-      setId(body.draft.id);
+      if (!res.ok) throw new Error(res.error);
+      setId(res.draft.id);
+      setSavedAt(res.draft.updatedAt);
       const clean =
         version === editVersion.current && livePolicy.current === policyKey;
       setSaved(clean);
       setDirty(!clean);
       setSavedPolicy(policyKey);
-      onSaved(body.draft);
+      onSaved(res.draft);
       setMessage(
         version === editVersion.current
-          ? "Slab inputs saved. Reopen this calculation from the project explorer."
+          ? r
+            ? "Changes saved to this calculation file."
+            : "Changes saved. Results were out of date: saved as not calculated; run the calculation to review."
           : "Earlier inputs saved; newer edits remain unsaved.",
       );
+      return true;
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Save failed.");
+      return false;
     } finally {
       setBusy(false);
     }
   }
+  /** Save to project: save this file first (nothing to do when unchanged). */
+  const saveChanges = () => (!unsaved && id ? Promise.resolve(true) : save());
+  const saveRunBar = (section: string) => (
+    <SaveRunBar
+      section={section}
+      dirty={unsaved}
+      busy={busy}
+      canSave={!!project && cloudReady && !!title.trim()}
+      saveBlockedReason={
+        !project
+          ? "Create or select a project to save this calculation."
+          : !cloudReady
+            ? "Cloud saving is not configured."
+            : "Enter a calculation title."
+      }
+      savedAt={savedAt}
+      onSave={() => void save()}
+      stale={analysis.stale}
+      onRun={runCalculation}
+    />
+  );
   function previewLoads(text: string) {
     setPaste(text);
     try {
@@ -550,7 +590,9 @@ export function SlabWorkspace({
     setLoadPreview(null);
     setPaste("");
     setPasteError("");
-    setMessage("Load combinations imported. Results updated.");
+    setMessage(
+      "Load combinations imported. Run calculation to update results.",
+    );
   }
   const maxDcr = r
     ? Math.max(...slabDesignChecks(input, r).map((c) => c.dcr ?? Infinity))
@@ -571,21 +613,23 @@ export function SlabWorkspace({
             }}
           />
         </label>
-        <button
-          className="suitePrimary"
-          onClick={() => save()}
-          disabled={busy || !project || !cloudReady || !r}
-        >
-          {busy
-            ? "Saving…"
-            : saved && savedPolicy === policyKey
-              ? "Saved"
-              : "Save slab"}
-        </button>
+        {saveRunBar("Calculation")}
+        <SaveToProject
+          currentProjectId={project?.id}
+          moduleSlug="slab"
+          title={title}
+          canCopy={!!project && cloudReady && !!title.trim()}
+          buildPayload={buildPayload}
+          saveChanges={saveChanges}
+        />
         <ReportExportControls
           moduleName="Slab Design"
           disabled={!r}
-          disabledReason="Complete valid slab inputs to enable export."
+          disabledReason={
+            analysis.stale
+              ? "Run calculation to enable export."
+              : "Complete valid slab inputs to enable export."
+          }
           hint={
             r &&
             missingJudgmentRemarks(slabDesignChecks(input, r), policy, remarks)
@@ -753,8 +797,10 @@ export function SlabWorkspace({
           </div>
           <h3 className="rcSubhead">Supports & Bounding Beams</h3>
           <p className="slabClassification">
-            Auto: {r?.type.toUpperCase() ?? "CHECK INPUTS"} · Long/short{" "}
-            {fmt(r?.ratio)} · Short span {r?.shortAxis ?? "—"}
+            Auto:{" "}
+            {r?.type.toUpperCase() ??
+              (analysis.stale ? "RUN CALCULATION" : "CHECK INPUTS")}{" "}
+            · Long/short {fmt(r?.ratio)} · Short span {r?.shortAxis ?? "—"}
           </p>
           <p className="slabMuted">
             Spans are the designer-selected analysis spans. Verify effective
@@ -859,6 +905,7 @@ export function SlabWorkspace({
             minimum thickness and the deflection limit is centre-to-centre
             (clear + beam widths / 2).
           </p>
+          {saveRunBar("Geometry & materials")}
           {cantilever && (
             <p className="slabMuted">
               Cantilever: Fixed {supportLayout.fixedEdge} edge, three Free
@@ -957,6 +1004,7 @@ export function SlabWorkspace({
               />
             </div>
           </details>
+          {saveRunBar("Reinforcement")}
         </aside>
         <div className="slabCenter">
           <div
@@ -1382,6 +1430,7 @@ export function SlabWorkspace({
                 </p>
               </>
             )}
+            {saveRunBar("Loads")}
           </section>
         </div>
         <aside className="slabPanel slabSummary">
@@ -1390,6 +1439,9 @@ export function SlabWorkspace({
             <DesignStatus dcr={maxDcr} policy={policy} />
             <span>Governing Strength DCR {fmt(maxDcr, 3)}</span>
           </div>
+          {analysis.stale ? (
+            <StaleResultsNotice onRun={runCalculation} />
+          ) : null}
           {r && (
             <>
               <dl>
@@ -1871,7 +1923,7 @@ export function SlabWorkspace({
           }}
         />
       ) : null}
-      {r ? (
+      {r || analysis.stale ? (
         <SlabQuantityPanel
           input={input}
           value={quantity}
