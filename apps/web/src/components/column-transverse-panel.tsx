@@ -905,26 +905,6 @@ export function ColumnConfinementPanel(props: Props) {
                 ) : null}
               </span>
             )}
-            {c.frame === "SMF" ? (
-              <>
-                <NumberField
-                  label="ΣMnb about x (optional)"
-                  unit="kN·m"
-                  value={c.sumMnbX ?? NaN}
-                  onChange={(v) =>
-                    set({ sumMnbX: Number.isFinite(v) ? v : null })
-                  }
-                />
-                <NumberField
-                  label="ΣMnb about y (optional)"
-                  unit="kN·m"
-                  value={c.sumMnbY ?? NaN}
-                  onChange={(v) =>
-                    set({ sumMnbY: Number.isFinite(v) ? v : null })
-                  }
-                />
-              </>
-            ) : null}
           </div>
           {c.frame === "SMF" ? (
             <label className="rcCheckbox">

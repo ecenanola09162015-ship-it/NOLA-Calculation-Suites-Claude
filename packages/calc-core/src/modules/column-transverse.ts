@@ -35,7 +35,7 @@ export const columnTieDesignSchema = z.object({
     clearHeightSource: z.enum(["storey", "manual"]).optional(),
     /** Supports a discontinued stiff member (18.7.5.6). */
     discontinuedSupport: z.boolean(),
-    /** ΣMnb of beams framing into the joint, kN·m (optional, 18.7.3.2). */
+    /** ΣMnb, kN·m: kept for older drafts; not used (SCWB check removed 18 Oct 2026). */
     sumMnbX: nullablePositive,
     sumMnbY: nullablePositive,
   }),
@@ -871,23 +871,12 @@ export function designColumnTransverse(
       notes.push(
         `Longitudinal bars ${grade.label} are weldable / low-alloy: 20.2.2.5 satisfied.`,
       );
-    for (const [axis, sum] of [
-      ["x", conf?.sumMnbX ?? null],
-      ["y", conf?.sumMnbY ?? null],
-    ] as const)
-      if (sum !== null) {
-        const ps = [...new Set(loads.map((l) => l.pu))];
-        const mnc = Math.min(
-          ...ps.map((p) => nominalMomentAtP(input, axis, p, 1)),
-        );
-        checks.push({
-          id: `smf:scwb:${axis}`,
-          label: `Strong column–weak beam about ${axis}`,
-          dcr: mnc > 0 ? (1.2 * sum) / (2 * mnc) : Infinity,
-          detail: `ΣMnc = 2 × ${mnc.toFixed(1)} kN·m (lowest over Pu, same column above and below)\n1.2ΣMnb = ${(1.2 * sum).toFixed(1)} kN·m`,
-          clause: "ACI 318-19 18.7.3.2",
-        });
-      }
+    // Strong column–weak beam (18.7.3.2) is removed for now (user decision
+    // 18 Oct 2026); a dedicated SCWB analysis will follow. Stored ΣMnb values
+    // in older drafts are kept but not used.
+    notes.push(
+      "Strong column–weak beam (ACI 318-19 18.7.3.2: ΣMnc ≥ 6/5 ΣMnb) is not checked in this build — verify separately.",
+    );
     if (puMin < (ag * fc) / 20000)
       notes.push(
         "At least one combination has Pu < Ag f′c/20: Vc = 0 within lo for that combination (18.7.6.2.1).",
