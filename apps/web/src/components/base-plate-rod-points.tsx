@@ -171,3 +171,49 @@ export function BasePlateRodPoints({
     </div>
   );
 }
+
+/** Read-only coordinates of the grid / perimeter rods with an edit switch. */
+export function BasePlateRodCoordinates({
+  points,
+  onEdit,
+}: {
+  points: RodPoint[];
+  onEdit: () => void;
+}) {
+  const n0 = (v: number) => (Math.abs(v) < 0.05 ? "0" : v.toFixed(1));
+  return (
+    <details className="bpRodPoints" open>
+      <summary>Rod coordinates ({points.length} rods)</summary>
+      <p className="slabHint">
+        Rod centres from the column centroid, mm (x east, y north).
+      </p>
+      <div className="slabTableWrap">
+        <table className="bpLoads" aria-label="Anchor rod coordinates">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>x mm</th>
+              <th>y mm</th>
+            </tr>
+          </thead>
+          <tbody>
+            {points.map((p) => (
+              <tr key={p.id}>
+                <td>{p.id}</td>
+                <td>{n0(p.x)}</td>
+                <td>{n0(p.y)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <button
+        className="suiteSecondary"
+        onClick={onEdit}
+        title="Switch the layout to Custom coordinates, starting from these rods"
+      >
+        Edit coordinates
+      </button>
+    </details>
+  );
+}

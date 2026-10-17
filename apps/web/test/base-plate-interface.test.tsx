@@ -593,3 +593,28 @@ describe("pasting rod coordinates", () => {
     expect(parseRodPoints("x y")).toBeNull();
   });
 });
+
+describe("rod coordinates shown for every layout", () => {
+  it("grid: read-only table, edit switch, plan labels and report", () => {
+    const i = defaultBasePlateInput();
+    const html = renderToStaticMarkup(
+      <BasePlateWorkspace cloudReady={false} onSaved={() => {}} />,
+    );
+    expect(html).toContain("Rod coordinates (4 rods)");
+    expect(html).toContain("Edit coordinates");
+    const r = analyzeBasePlate(i);
+    const plan = basePlatePlanSvg(i, r.combos[0]);
+    expect(plan).toContain("(-170, -195)");
+    expect(plan).toContain("(170, 195)");
+    const data = basePlateReportData(
+      undefined,
+      "BP-G",
+      i,
+      r,
+      defaultDesignCheckPolicy,
+      {},
+      null,
+    );
+    expect(JSON.stringify(data)).toContain("A1 -170, -195");
+  });
+});

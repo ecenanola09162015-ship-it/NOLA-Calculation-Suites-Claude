@@ -56,7 +56,10 @@ import { BasePlateColumnFields } from "./base-plate-column-fields";
 import { BasePlateStiffenerFields } from "./base-plate-stiffener-fields";
 import { BasePlateLoadTable } from "./base-plate-load-table";
 import { BasePlateSeismicFields } from "./base-plate-seismic-fields";
-import { BasePlateRodPoints } from "./base-plate-rod-points";
+import {
+  BasePlateRodCoordinates,
+  BasePlateRodPoints,
+} from "./base-plate-rod-points";
 
 // three.js is only downloaded when the 3D tab is opened (client-only).
 const BasePlate3DView = dynamic(() => import("./base-plate-3d-view"), {
@@ -346,6 +349,10 @@ export function BasePlateWorkspace({
     return basePlateRods({
       anchors: { ...anchors, layout: "grid" },
     }).map((r) => ({ id: r.id, x: r.x, y: r.y }));
+  }
+  /** Rods of the current layout as points. */
+  function currentPoints() {
+    return basePlateRods(input).map((r) => ({ id: r.id, x: r.x, y: r.y }));
   }
   function autoSpacing() {
     const clear = 25;
@@ -871,13 +878,21 @@ export function BasePlateWorkspace({
               onFromGrid={() => set("anchors", { points: gridPoints() })}
             />
           ) : (
-            <button
-              className="suiteSecondary"
-              onClick={autoSpacing}
-              title="Outer rods at hole/2 + 25 mm clear from the plate edges"
-            >
-              Spread rods to the plate edges
-            </button>
+            <>
+              <button
+                className="suiteSecondary"
+                onClick={autoSpacing}
+                title="Outer rods at hole/2 + 25 mm clear from the plate edges"
+              >
+                Spread rods to the plate edges
+              </button>
+              <BasePlateRodCoordinates
+                points={currentPoints()}
+                onEdit={() =>
+                  set("anchors", { layout: "custom", points: currentPoints() })
+                }
+              />
+            </>
           )}
           <div className="slabFieldGrid">
             <label className="slabNumeric">

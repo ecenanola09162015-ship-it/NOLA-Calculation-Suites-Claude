@@ -76,6 +76,11 @@ const W = { heavy: 1.6, medium: 1.0, light: 0.6 };
 const esc = (s: string) =>
   s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 const nn = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1));
+/** Coordinate to 0.1 mm without trailing zeros ("−170", "42.5", "0"). */
+const xy = (v: number) => {
+  const r = Math.round(v * 10) / 10;
+  return (r === 0 ? 0 : r).toString();
+};
 const n1 = (v: number) => (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1));
 const T = (
   x: number,
@@ -87,9 +92,11 @@ const T = (
     fill?: string;
     bold?: boolean;
     rotate?: number;
+    /** White outline behind the glyphs (labels over hatching). */
+    halo?: boolean;
   } = {},
 ) =>
-  `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" font-size="${o.size ?? 9}" text-anchor="${o.anchor ?? "middle"}" fill="${o.fill ?? C.text}"${o.bold ? ' font-weight="700"' : ""}${o.rotate ? ` transform="rotate(${o.rotate} ${x.toFixed(1)} ${y.toFixed(1)})"` : ""}>${esc(s)}</text>`;
+  `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" font-size="${o.size ?? 9}" text-anchor="${o.anchor ?? "middle"}" fill="${o.fill ?? C.text}"${o.bold ? ' font-weight="700"' : ""}${o.halo ? ' stroke="#fff" stroke-width="2" paint-order="stroke" stroke-linejoin="round"' : ""}${o.rotate ? ` transform="rotate(${o.rotate} ${x.toFixed(1)} ${y.toFixed(1)})"` : ""}>${esc(s)}</text>`;
 const L = (
   x1: number,
   y1: number,
@@ -335,8 +342,16 @@ export function basePlatePlanSvg(
     b += T(X(r.x) + ws / 2 + 2, Y(r.y) - ws / 2, r.id, {
       size: 7,
       anchor: "start",
-      fill: C.dim,
+      fill: C.text,
+      halo: true,
     });
+    // Rod centre from the column centroid (x, y), mm.
+    b += T(
+      X(r.x) + ws / 2 + 2,
+      Y(r.y) - ws / 2 + 7,
+      `(${xy(r.x)}, ${xy(r.y)})`,
+      { size: 6, anchor: "start", fill: C.text, halo: true },
+    );
     if (t > 0)
       b += T(X(r.x), Y(r.y) + ws / 2 + 9, `${(t / 1e3).toFixed(1)} kN`, {
         size: 7.5,
