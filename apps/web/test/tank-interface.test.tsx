@@ -10,7 +10,7 @@ import { uiCatalogue } from "../src/lib/ui-catalogue";
 describe("underground tank workspace", () => {
   it("renders the input panels, the section view and the review", () => {
     const html = renderToStaticMarkup(<TankWorkspace cloudReady={false} onSaved={() => {}} />);
-    for (const t of ["01 · Code &amp; Exposure", "02 · Geometry", "03 · Liquid, Soil &amp; Groundwater", "04 · Materials &amp; Factors", "05 · Reinforcement", "Panel moments", "Calculation basis: ACI 350-20", "Flotation FS"])
+    for (const t of ["01 · Code &amp; Exposure", "02 · Geometry", "03 · Liquid, Soil &amp; Groundwater", "04 · Materials &amp; Factors", "05 · Seismic (ACI 350.3-20)", "06 · Reinforcement", "Panel moments", "Seismic", "3D view", "Calculation basis: ACI 350-20", "Flotation FS"])
       expect(html).toContain(t);
     expect(html).toContain("Tank section");
     expect(html).not.toContain("NaN");
@@ -32,5 +32,33 @@ describe("underground tank workspace", () => {
   });
   it("is a Pilot card under Concrete", () => {
     expect(uiCatalogue.find((m) => m.slug === "underground-tank")).toMatchObject({ group: "Concrete", pilot: true });
+  });
+});
+
+import DxfParser from "dxf-parser";
+import { buildTank3DModel } from "../src/lib/tank-3d-model";
+import { tankSectionDrawing } from "../src/lib/cad/tank-section-drawing";
+import { sectionDrawingToDxf } from "../src/lib/cad/section-dxf";
+
+describe("underground tank 3D model and DXF", () => {
+  const i = defaultTankInput(),
+    r = designTank(i);
+  it("builds walls, base, roof, liquid and soil boxes at true size", () => {
+    const m = buildTank3DModel(i, r);
+    const base = m.boxes.find((b) => b.id === "base")!;
+    expect(base.x1 - base.x0).toBeCloseTo(r.geometry.baseX, 9);
+    expect(m.boxes.filter((b) => b.id.startsWith("wall"))).toHaveLength(4);
+    expect(m.boxes.some((b) => b.kind === "roof")).toBe(true);
+    expect(m.vmax).toBeGreaterThan(0);
+  });
+  it("exports the section and plan as a parseable DXF on the office layers", () => {
+    const d = tankSectionDrawing(i, r, "T-01");
+    const parsed = new DxfParser().parseSync(sectionDrawingToDxf(d))!;
+    const layers = new Set(parsed.entities.map((e) => e.layer));
+    for (const l of ["S-CONC", "S-REBR-MAIN", "S-DIMS", "S-ANNO"]) expect(layers.has(l)).toBe(true);
+    expect(d.fileName).toBe("T-01.dxf");
+  });
+  it("shows the seismic tab and table", () => {
+    expect(r.seismic?.x.pi).toBeGreaterThan(0);
   });
 });

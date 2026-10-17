@@ -32,6 +32,7 @@ export function tankReportData(
   r: TankResult,
   policy: DesignCheckPolicy,
   remarks: DesignRemarks,
+  snapshot3d?: string | null,
 ): ReportData {
   const g = r.geometry;
   const bar = (b: TankBar) => `Ø${b.diameter} @ ${b.spacing} mm (${f(tankBarArea(b), 0)} mm²/m)`;
@@ -88,6 +89,7 @@ export function tankReportData(
       { title: "Long Wall — Vertical Moment, Outside Face", svg: tankPanelSvg(r, "long", "backY"), completeOnly: true },
       { title: "Long Wall — Horizontal Moment, Inside Face (Leak Test)", svg: tankPanelSvg(r, "long", "frontX"), completeOnly: true },
       { title: "Base Slab — Bottom Bars", svg: tankPanelSvg(r, "base", "backY"), completeOnly: true },
+      ...(snapshot3d ? [{ title: "3D View (snapshot)", svg: "", png: snapshot3d, completeOnly: true }] : []),
     ],
     checks: section(
       "DCR Design Checks And Engineering Remarks",
@@ -97,10 +99,32 @@ export function tankReportData(
       ]),
       ["Check", "Code Reference", "DCR", "Status / Remarks"],
     ),
-    sections: [peaks, flot],
+    sections: [
+      peaks,
+      flot,
+      ...(r.seismic
+        ? [
+            section(
+              `Seismic — ACI 350.3-20 (SDS ${f(r.seismic.sds, 3)}, SD1 ${f(r.seismic.sd1, 3)}, I ${i.seismic.importance}, Ri ${f(r.seismic.ri, 2)}, Rc ${f(r.seismic.rc, 1)})`,
+              (
+                [
+                  ["Wi, Wc, kN (9.2.1)", (d) => `${f(d.wi, 0)}, ${f(d.wc, 0)} of WL ${f(d.wl, 0)}`],
+                  ["hi, hc / hi′, hc′, m (9.2.2–9.2.3)", (d) => `${f(d.hi)}, ${f(d.hc)} / ${f(d.hiIbp)}, ${f(d.hcIbp)}`],
+                  ["ε; Ti, Tc s; Ci, Cc", (d) => `${f(d.eps, 3)}; ${d.ti > 0 ? f(d.ti, 3) : "rigid"}, ${f(d.tc, 3)}; ${f(d.ci, 3)}, ${f(d.cc, 3)}`],
+                  ["Pw, Pr, Pi, Pc, Peg, kN (4.1.1, R8.1)", (d) => `${f(d.pw, 1)}, ${f(d.pr, 1)}, ${f(d.pi, 1)}, ${f(d.pc, 1)}, ${f(d.peg, 1)}`],
+                  ["V kN; Mb / Mo kN·m (4.1.2–4.1.3)", (d) => `${f(d.v, 1)}; ${f(d.mb, 1)} / ${f(d.mo, 1)}`],
+                  ["d_max / freeboard, m (7.1a)", (d) => `${f(d.dmax, 3)} / ${f(d.freeboard, 3)}${d.kr > 0 ? `; R7.1 k_r ${f(d.kr, 3)}, roof uplift ${f(d.uplift, 1)} kPa over ${f(d.li)} m` : ""}`],
+                ] as [string, (d: NonNullable<TankResult["seismic"]>["x"]) => string][]
+              ).map(([label, fn]) => [label, fn(r.seismic!.x), fn(r.seismic!.y)]),
+              ["Quantity", "Motion along Lx", "Motion along Ly"],
+            ),
+          ]
+        : []),
+    ],
     references: section("References", [
       ["ACI 350-20", "Code Requirements for Environmental Engineering Concrete Structures and Commentary (clause numbers marked † to be confirmed)"],
       ["ACI 318-19", "Strength provisions referenced by ACI 350-20"],
+      ["ACI 350.3-20", "Code Requirements for Seismic Analysis and Design of Liquid-Containing Concrete Structures and Commentary"],
       ["Timoshenko & Woinowsky-Krieger", "Theory of Plates and Shells — plate benchmarks"],
       ["PCA", "Rectangular Concrete Tanks (moment coefficients, for comparison)"],
     ]),

@@ -88,6 +88,7 @@ describe("Panel benchmarks", () => {
       roof: { ...defaultTankInput().roof, enabled: false },
       liquid: { depth: 4, gamma: 10 },
       soil: { ...defaultTankInput().soil, water: 0 },
+      seismic: { ...defaultTankInput().seismic, enabled: false },
       divisions: 16,
     });
     const r = designTank(i);

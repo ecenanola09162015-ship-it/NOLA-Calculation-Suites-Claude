@@ -30,16 +30,46 @@ Factors are editable (ACI 350-20 Table 5.3.1†).
 - Flotation FS ≥ input (default 1.10), empty tank: concrete, roof cover, and soil plus water over the projection.
 - Bearing (full tank, service).
 
+## Seismic (ACI 350.3-20, `underground-tank-seismic.ts`)
+One direction of motion at a time (along Lx loads the short walls, along Ly the long walls).
+- **Response factors:** SDS = ⅔SsFa, SD1 = ⅔S1Fv (9.4.1). I from Table 4.1.1a. Ri from Table 4.1.1b (fixed or hinged base: 2.25 on grade, 3.25 buried, interpolated by liquid level against ground); Rc = 1.0.
+- **Dynamic properties:**
+  - Wi, Wc (9.2.1); hi, hc (9.2.2); hi′, hc′ (9.2.3); ε (9.6.1).
+  - Ti: rigid under a roof (Ci = SDS), or the R9.2.4 cantilever stiffness when open.
+  - Tc (9.2.4d–f); Ci, Cc (9.4.1–9.4.2); Ct = Ci (9.4.3b).
+- **Forces and moments:** Pw, Pw′, Pr, Pi, Pc (4.1.1); ü_v (4.1.4); Peg by R8.1 (non-yielding by default, k_hw with groundwater, resultant at 0.6H); V (4.1.2); Mb, Mo (4.1.3).
+- **Wall pressures:**
+  - On walls perpendicular to the motion: ½Pi and ½Pc by the R5.3.1 linear distributions, plus Pw′ uniform and p_vy, combined per 5.3.2.
+  - On the trailing wall: dynamic earth pressure as an inverted trapezoid.
+  - Two new design cases:
+    - seismic full: 1.2F + 1.0E outward, with direct tension;
+    - seismic empty: 1.6H + 1.0E + 0.5L inward. Backfill is never used to reduce liquid effects (8.2).
+- **Freeboard:**
+  - d_max = (L/2)·Cc·I (7.1a), compared with the gap to the roof soffit or wall top.
+  - When a covered tank has inadequate freeboard, the R7.1 method applies:
+    - confined fraction k_r = acos(h_o/d_max)/π added to the impulsive mass;
+    - convective force × (1 − k_r);
+    - roof uplift C_LF·γL(d_max/I − h_o) over Li = (L/π)·acos(h_o/d_max) from each wall, designed with 0.9D + 1.0E.
+- **Sd = 1.0† in cases with E.**
+
 ## Not in this release (warned)
-- Seismic: ACI 350.3 hydrodynamic and sloshing pressures, and dynamic earth pressure.
 - Circular tanks.
 - Internal partition walls.
 - The operating case (full + backfilled).
 - Corner moment iteration between panels.
-- 3D view and DXF.
+- In-plane shear of the walls parallel to the motion, the IBP floor pressure, and tank overturning / sliding (reported, not designed).
 - Joints and waterstops.
 
-## Verification (`packages/calc-core/test/underground-tank.test.ts`)
+3D view (three.js, lazy) and DXF (section + plan, AC1021, 1:20) are in the workspace.
+
+## Verification (`packages/calc-core/test/underground-tank.test.ts`, `underground-tank-seismic.test.ts`)
+- Seismic:
+  - 9.2.1–9.2.4 and 9.6.1 by hand and against Figs. 9.2.1–9.2.4;
+  - 9.4 coefficients;
+  - R5.3.1 distributions integrate to P/2 at h;
+  - 4.1.1 / 4.1.2 / R8.1 forces by hand, with Peg resultant at 0.6H;
+  - R7.1 confined mass and uplift;
+  - Table 4.1.1b Ri.
 - fs,max by hand (25.95 ksi for Ø16 @ 200, h 300), the caps, Sd, and the shrinkage table.
 - Section strength = slab strength at N = 0; tension reduces capacity, down to zero.
 - Simply supported roof with b/a = 1.5: Timoshenko 0.0812 (ν 0.3) → 0.0784 (ν 0.2), within 1 %.

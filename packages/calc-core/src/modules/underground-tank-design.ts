@@ -28,7 +28,8 @@ import { tankClauses as clauses } from "../code-clauses";
 import { slabSqrtFc } from "./slab-design";
 import { atRestK0, rankineKa } from "./retaining-wall-pressure";
 import { solveWallPlate, woodArmer, type PlateEdge, type PlateField } from "./retaining-wall-plate-fe";
-import { TANK_ENGINE, tankBarArea, type TankBar, type TankInput } from "./underground-tank";
+import { TANK_ENGINE, tankBarArea, tankResponseFactor, type TankBar, type TankInput } from "./underground-tank";
+import { tankSeismicDirection, type TankSeismicDirection } from "./underground-tank-seismic";
 
 const KSI = 6.894757;
 
@@ -126,11 +127,23 @@ export interface TankResult {
   panels: TankPanelResult[];
   flotation: { uplift: number; resisting: number; fs: number; required: number; items: { label: string; weight: number }[] };
   bearing: { q: number; allowable: number };
+  /** ACI 350.3-20 seismic results per direction of motion (x: along Lx, y: along Ly). */
+  seismic: { sds: number; sd1: number; ri: number; rc: number; x: TankSeismicDirection; y: TankSeismicDirection } | null;
   checks: TankCheck[];
   warnings: string[];
 }
 
-type LoadCase = { id: string; label: string; q: ((x: number, y: number) => number)[]; factors: number[]; service: number[] };
+type LoadCase = {
+  id: string;
+  label: string;
+  q: ((x: number, y: number) => number)[];
+  factors: number[];
+  service: number[];
+  /** Apply the environmental durability factor Sd (false for seismic cases, Sd = 1†). */
+  durability?: boolean;
+  /** Walls carry the direct tension from the edge shear of the adjacent walls. */
+  tension?: boolean;
+};
 
 export function designTank(i: TankInput): TankResult {
   const warnings: string[] = [];
@@ -163,10 +176,64 @@ export function designTank(i: TankInput): TankResult {
   const surcharge = (_x: number, y: number) => (yc(y) <= ground ? k * s.surcharge : 0);
   const liquid = (_x: number, y: number) => -i.liquid.gamma * Math.max(0, i.liquid.depth - Math.max(0, yc(y)));
   const f = i.factors;
-  const wallCases: LoadCase[] = [
-    { id: "leak", label: `Leak test: ${f.liquid}F`, q: [liquid, earth, water, surcharge], factors: [f.liquid, 0, 0, 0], service: [1, 0, 0, 0] },
-    { id: "empty", label: `Empty, backfilled: ${f.earth}H + ${f.live}L`, q: [liquid, earth, water, surcharge], factors: [0, f.earth, f.earth, f.live], service: [0, 1, 1, 1] },
-  ];
+
+  // ---- Seismic (ACI 350.3-20), one direction at a time --------------------------------
+  const se = i.seismic;
+  const seismicOn = se.enabled;
+  const gcW = i.concreteWeight;
+  const wallWeight = gcW * 2 * (i.lx + 2 * tw + i.ly) * tw * H;
+  const roofWeight = i.roof.enabled ? gcW * (i.lx + 2 * tw) * (i.ly + 2 * tw) * tr + s.gamma * i.roof.cover * (i.lx + 2 * tw) * (i.ly + 2 * tw) : 0;
+  const sds = (2 / 3) * se.ss * se.fa,
+    sd1 = (2 / 3) * se.s1 * se.fv;
+  const ri = tankResponseFactor(i);
+  const dir = (L: number, B: number): TankSeismicDirection =>
+    tankSeismicDirection({
+      sds,
+      sd1,
+      tl: se.tl,
+      importance: se.importance,
+      ri,
+      rc: 1,
+      b: se.b,
+      ec: 4700 * Math.sqrt(i.fc),
+      gammaC: gcW,
+      gammaL: i.liquid.gamma,
+      L,
+      B,
+      hl: i.liquid.depth,
+      hw: H,
+      tw,
+      wallWeight,
+      roofWeight,
+      roofThickness: tr,
+      roof: i.roof.enabled,
+      soilHeight: Math.min(ground, H),
+      gammaSoil: s.gamma,
+      gammaSat: s.gammaSat,
+      gammaW: gw,
+      groundwater: hwClear > 0,
+      yielding: se.yielding,
+      clf: se.clf,
+    });
+  const seismic = seismicOn ? { sds, sd1, ri, rc: 1, x: dir(i.lx, i.ly), y: dir(i.ly, i.lx) } : null;
+  // Long walls are perpendicular to motion along y; short walls to motion along x.
+  const hydroOf = (d: TankSeismicDirection | undefined) => (_x: number, y: number) => (d ? -d.hydro(Math.max(0, yc(y))) : 0);
+  const earthOf = (d: TankSeismicDirection | undefined) => (_x: number, y: number) => (d ? d.earth(Math.max(0, yc(y))) : 0);
+  const wallCasesFor = (d: TankSeismicDirection | undefined): LoadCase[] => {
+    const q = [liquid, earth, water, surcharge, hydroOf(d), earthOf(d)];
+    const out: LoadCase[] = [
+      { id: "leak", label: `Leak test: ${f.liquid}F`, q, factors: [f.liquid, 0, 0, 0, 0, 0], service: [1, 0, 0, 0, 0, 0], tension: true },
+      { id: "empty", label: `Empty, backfilled: ${f.earth}H + ${f.live}L`, q, factors: [0, f.earth, f.earth, f.live, 0, 0], service: [0, 1, 1, 1, 0, 0] },
+    ];
+    if (d)
+      out.push(
+        { id: "seisFull", label: `Seismic, full: ${se.factorF}F + ${se.factorE}E`, q, factors: [se.factorF, 0, 0, 0, se.factorE, 0], service: [1, 0, 0, 0, 1, 0], durability: false, tension: true },
+        { id: "seisEmpty", label: `Seismic, empty backfilled: ${f.earth}H + ${se.factorE}E + ${se.factorL}L`, q, factors: [0, f.earth, f.earth, se.factorL, 0, se.factorE], service: [0, 1, 1, 1, 0, 1], durability: false },
+      );
+    return out;
+  };
+  const longCases = wallCasesFor(seismic?.y),
+    shortCases = wallCasesFor(seismic?.x);
 
   // ---- Section capacities --------------------------------------------------------
   const b = i.bars,
@@ -191,12 +258,12 @@ export function designTank(i: TankInput): TankResult {
   const solvePanel = (L: number, Hh: number, edges: typeof wallEdges, loads: ((x: number, y: number) => number)[]) =>
     solveWallPlate(L, Hh, 0.2, { ...edges, vertical: [], horizontal: [] }, loads.map((q) => ({ q })), i.divisions);
   const wallSols = {
-    long: solvePanel(lc, hPlate, wallEdges, wallCases[0]!.q),
-    short: solvePanel(wc, hPlate, wallEdges, wallCases[0]!.q),
+    long: solvePanel(lc, hPlate, wallEdges, longCases[0]!.q),
+    short: solvePanel(wc, hPlate, wallEdges, shortCases[0]!.q),
   };
-  // Direct tension in a wall from the edge shear of the adjacent wall (leak test only).
+  // Direct tension in a wall from the edge shear of the adjacent wall (liquid cases).
   const edgeTension = (adjacent: ReturnType<typeof solvePanel>, y: number, lcse: LoadCase) =>
-    lcse.id === "leak" ? Math.abs(lcse.factors.reduce((sum, fac, n) => sum + fac * adjacent.at(n, 0, y).qx, 0)) : 0;
+    lcse.tension ? Math.abs(lcse.factors.reduce((sum, fac, n) => sum + fac * adjacent.at(n, 0, y).qx, 0)) : 0;
 
   const combine = (fields: PlateField[], fac: number[]) => {
     let mx = 0,
@@ -227,32 +294,36 @@ export function designTank(i: TankInput): TankResult {
     tension: ((y: number, c: LoadCase) => number) | null,
     edges: typeof wallEdges,
   ): TankPanelResult => {
-    const peaks: TankPeak[] = [];
-    for (const face of faces) {
-      let best: TankPeak | null = null;
-      for (let a = 0; a <= nx; a++)
-        for (let bb = 0; bb <= ny; bb++) {
-          const x = (L * a) / nx,
-            y = (Hh * bb) / ny;
-          const fields = cases[0]!.q.map((_, n) => sol.at(n, x, y));
-          for (const lc of cases) {
-            const fu = combine(fields, lc.factors),
-              fsv = combine(fields, lc.service);
-            const mu = woodArmer(fu.mx, fu.my, fu.mxy)[face],
-              ms = woodArmer(fsv.mx, fsv.my, fsv.mxy)[face];
+    const best: Partial<Record<TankFace, TankPeak>> = {};
+    for (let a = 0; a <= nx; a++)
+      for (let bb = 0; bb <= ny; bb++) {
+        const x = (L * a) / nx,
+          y = (Hh * bb) / ny;
+        const fields = cases[0]!.q.map((_, n) => sol.at(n, x, y));
+        for (const lc of cases) {
+          const fu = combine(fields, lc.factors),
+            fsv = combine(fields, lc.service);
+          const wu = woodArmer(fu.mx, fu.my, fu.mxy),
+            ws = woodArmer(fsv.mx, fsv.my, fsv.mxy);
+          for (const face of faces) {
+            const mu = wu[face],
+              ms = ws[face];
             if (mu <= 1e-9) continue;
             const sec = section(face);
             const nu = tension && (face === "frontX" || face === "backX") ? tension(y, lc) : 0;
             const gamma = ms > 1e-9 ? mu / ms : 1.6;
             const fsMax = Math.min(tankFsMax(i.exposure, "flexure", sec.h, sec.bar), nu > 0 ? tankFsMax(i.exposure, "tension", sec.h, sec.bar) : Infinity);
-            const sd = tankSd(i.fy, gamma, fsMax);
+            const sd = lc.durability === false ? 1 : tankSd(i.fy, gamma, fsMax);
+            // Capacity depends only on the section and the axial force: skip the solve when it cannot govern.
+            const prev = best[face];
+            if (prev && nu === 0 && prev.nu === 0 && sd * mu <= prev.dcr * prev.phiMn && sec.t.as > 0) continue;
             const cap = sectionStrength(i.fc, i.fy, i.es, sec.h, sec.t, sec.cmp, sd * nu).phiMn;
             const dcr = cap > 0 ? (sd * mu) / cap : Infinity;
-            if (!best || dcr > best.dcr) best = { panel: id, face, case: lc.label, x, y, mu, ms, nu, gamma, sd, fsMax, phiMn: cap, dcr };
+            if (!prev || dcr > prev.dcr) best[face] = { panel: id, face, case: lc.label, x, y, mu, ms, nu, gamma, sd, fsMax, phiMn: cap, dcr };
           }
         }
-      if (best) peaks.push(best);
-    }
+      }
+    const peaks = faces.map((f) => best[f]).filter((p): p is TankPeak => !!p);
     return {
       id,
       label,
@@ -271,8 +342,8 @@ export function designTank(i: TankInput): TankResult {
   };
   const panels: TankPanelResult[] = [];
   panels.push(
-    panelDesign("long", `Long wall (${lc.toFixed(2)} m span)`, lc, hPlate, wallSols.long, wallCases, wallSection, (y, lcse) => edgeTension(wallSols.short, y, lcse), wallEdges),
-    panelDesign("short", `Short wall (${wc.toFixed(2)} m span)`, wc, hPlate, wallSols.short, wallCases, wallSection, (y, lcse) => edgeTension(wallSols.long, y, lcse), wallEdges),
+    panelDesign("long", `Long wall (${lc.toFixed(2)} m span)`, lc, hPlate, wallSols.long, longCases, wallSection, (y, lcse) => edgeTension(wallSols.short, y, lcse), wallEdges),
+    panelDesign("short", `Short wall (${wc.toFixed(2)} m span)`, wc, hPlate, wallSols.short, shortCases, wallSection, (y, lcse) => edgeTension(wallSols.long, y, lcse), wallEdges),
   );
 
   // ---- Weights -------------------------------------------------------------------------
@@ -334,11 +405,21 @@ export function designTank(i: TankInput): TankResult {
     const roofEdges = slabEdges(i.roof.edge);
     const dRoof = () => gc * tr + s.gamma * i.roof.cover,
       lRoof = () => i.roof.live;
-    const roofSol = solvePanel(lc, wc, roofEdges, [dRoof, lRoof]);
+    // Sloshing uplift (R7.1) over Li from the walls perpendicular to the motion, upward = negative.
+    const sx = seismic?.x,
+      sy = seismic?.y;
+    const sloshX = (x: number) => (sx && sx.uplift > 0 && (x <= sx.li || x >= lc - sx.li) ? -sx.uplift : 0);
+    const sloshY = (_x: number, y: number) => (sy && sy.uplift > 0 && (y <= sy.li || y >= wc - sy.li) ? -sy.uplift : 0);
+    const rq = [dRoof, lRoof, sloshX, sloshY];
+    const roofSol = solvePanel(lc, wc, roofEdges, rq);
     const roofCases: LoadCase[] = [
-      { id: "roof", label: `Roof: ${f.dead}D + ${f.live}L`, q: [dRoof, lRoof], factors: [f.dead, f.live], service: [1, 1] },
-      { id: "roof14", label: "Roof: 1.4D", q: [dRoof, lRoof], factors: [1.4, 0], service: [1, 0] },
+      { id: "roof", label: `Roof: ${f.dead}D + ${f.live}L`, q: rq, factors: [f.dead, f.live, 0, 0], service: [1, 1, 0, 0] },
+      { id: "roof14", label: "Roof: 1.4D", q: rq, factors: [1.4, 0, 0, 0], service: [1, 0, 0, 0] },
     ];
+    if (sx && sx.uplift > 0)
+      roofCases.push({ id: "sloshX", label: `Sloshing uplift (x): ${f.deadMin}D + ${se.factorE}E`, q: rq, factors: [f.deadMin, 0, se.factorE, 0], service: [1, 0, 1, 0], durability: false });
+    if (sy && sy.uplift > 0)
+      roofCases.push({ id: "sloshY", label: `Sloshing uplift (y): ${f.deadMin}D + ${se.factorE}E`, q: rq, factors: [f.deadMin, 0, 0, se.factorE], service: [1, 0, 0, 1], durability: false });
     const hR = tr * 1000;
     // Load downward = positive: front face = bottom (span), back face = top (supports).
     const roofSection = (face: TankFace) =>
@@ -354,6 +435,25 @@ export function designTank(i: TankInput): TankResult {
     checks.push({ ...ck, dcr: ck.dcr === undefined ? (ck.capacity > 0 ? ck.demand / ck.capacity : Infinity) : ck.dcr });
   if (uplift > 0)
     push({ id: "flotation", group: "Stability", label: "Flotation (empty tank, groundwater)", demand: flotation.required, capacity: flotation.fs, unit: "FS", detail: `FS = ΣW / U = ${resisting.toFixed(0)} / ${uplift.toFixed(0)} = ${flotation.fs.toFixed(2)} kN (required ${flotation.required.toFixed(2)})`, clause: clauses.flotation() });
+  if (seismic)
+    for (const [k, d] of [
+      ["x", seismic.x],
+      ["y", seismic.y],
+    ] as const)
+      if (d.dmax > 0)
+        push({
+          id: `freeboard:${k}`,
+          group: "Stability",
+          label: `Freeboard, sloshing along ${k === "x" ? "Lx" : "Ly"}`,
+          demand: d.dmax,
+          capacity: d.freeboard,
+          unit: "m",
+          // Covered tank with inadequate freeboard: accommodated by the R7.1 roof uplift and confined impulsive mass.
+          dcr: d.uplift > 0 ? null : d.freeboard > 0 ? d.dmax / d.freeboard : Infinity,
+          ...(d.uplift > 0 ? { invalidLabel: "Inadequate — R7.1 applied" } : {}),
+          detail: `d_max = (L/2)·Cc·I = (${d.L.toFixed(2)}/2)·${d.cc.toFixed(3)}·${se.importance} = ${d.dmax.toFixed(3)} m vs ${i.roof.enabled ? "roof soffit" : "wall top"} ${d.freeboard.toFixed(3)} m above the liquid${d.uplift > 0 ? `; roof designed for sloshing uplift ${d.uplift.toFixed(1)} kPa over Li ${d.li.toFixed(2)} m and k_r ${d.kr.toFixed(3)} of the liquid treated as impulsive (R7.1)` : ""}`,
+          clause: clauses.freeboard(),
+        });
   push({ id: "bearing", group: "Stability", label: "Bearing pressure (full tank, service)", demand: bearing.q, capacity: bearing.allowable, unit: "kPa", detail: `q = ΣW / A − uplift = ${bearing.q.toFixed(1)} kPa`, clause: clauses.bearing() });
   const faceLabel: Record<TankFace, string> = {
     frontY: "vertical / y bars, inside face",
@@ -413,8 +513,8 @@ export function designTank(i: TankInput): TankResult {
   };
   const wallD = dH(b.horizontalInside, b.verticalInside);
   for (const [p, sol, cases, d, h, tension] of [
-    [panels[0]!, wallSols.long, wallCases, wallD, hW, (y: number, lcse: LoadCase) => edgeTension(wallSols.short, y, lcse)],
-    [panels[1]!, wallSols.short, wallCases, wallD, hW, (y: number, lcse: LoadCase) => edgeTension(wallSols.long, y, lcse)],
+    [panels[0]!, wallSols.long, longCases, wallD, hW, (y: number, lcse: LoadCase) => edgeTension(wallSols.short, y, lcse)],
+    [panels[1]!, wallSols.short, shortCases, wallD, hW, (y: number, lcse: LoadCase) => edgeTension(wallSols.long, y, lcse)],
     [panels[2]!, baseSol, baseCases, hB - c - b.baseBottom.diameter * 1.5, hB, null],
   ] as const) {
     const v = shear(p, sol, cases as LoadCase[], d, h, tension);
@@ -446,7 +546,13 @@ export function designTank(i: TankInput): TankResult {
   if (s.water > 0)
     warnings.push("Flotation uses the empty tank without live load; uplift on the base projection is balanced by the water and buoyant soil above it.");
   warnings.push("Wall corners are fixed (monolithic); base and roof span between wall centrelines. Panel interaction at the corners is not iterated.");
-  warnings.push("Seismic (ACI 350.3 hydrodynamic pressures, sloshing and dynamic earth pressure) is not included in this release.");
+  if (seismic) {
+    warnings.push(
+      `Seismic per ACI 350.3-20: SDS ${sds.toFixed(3)}, SD1 ${sd1.toFixed(3)}, I ${se.importance}, Ri ${ri.toFixed(2)}, Rc 1.0; walls perpendicular to each direction carry ½Pi + ½Pc + Pw′ + vertical acceleration (5.3.2), the trailing wall the dynamic earth pressure (R8.1); backfill is not relied on to reduce liquid effects (8.2).`,
+    );
+    warnings.push("Seismic cases use Sd = 1.0† (durability factor not applied to load combinations with E; confirm against ACI 350-20). In-plane shear of the walls parallel to the motion, the floor IBP pressure and overturning / sliding of the whole tank are reported, not designed.");
+    if (!i.roof.enabled) warnings.push("Open tank: the impulsive period uses the R9.2.4 cantilever stiffness of a fixed-base wall.");
+  } else warnings.push("Seismic (ACI 350.3-20) is switched off.");
   warnings.push("fs,max for two-way action uses the one-way flexure expression; combined flexure and tension uses the direct-tension limit.");
   warnings.push("Joints, waterstops, construction sequence and leakage testing criteria (ACI 350.1) require separate review.");
 
@@ -456,13 +562,14 @@ export function designTank(i: TankInput): TankResult {
     panels,
     flotation,
     bearing,
+    seismic,
     checks,
     warnings,
   };
 }
 
 export function tankDesignChecks(r: TankResult): DesignCheck[] {
-  return r.checks.map(({ id, label, dcr, detail, clause }) => ({ id, label, dcr, detail, clause }));
+  return r.checks.map(({ id, label, dcr, detail, clause, invalidLabel }) => ({ id, label, dcr, detail, clause, ...(invalidLabel ? { invalidLabel } : {}) }));
 }
 
 export const tankSectionOrder: TankCheck["group"][] = ["Stability", "Walls", "Base Slab", "Roof Slab", "Detailing"];
