@@ -27,7 +27,9 @@ describe("3D storey model (metres; x east, y north, z up)", () => {
   it("pieces and dimensions from the storey, hand-checked", () => {
     const m = buildStorey3DModel(storey, { width: 600, depth: 800 });
     const get = (id: string) => m.pieces.find((p) => p.id === id)!;
-    expect(get("column").box).toMatchObject({ x0: -0.3, x1: 0.3, y0: -0.4, y1: 0.4, z0: 0.3, z1: 3.3 });
+    expect(get("column").box).toMatchObject({ x0: -0.3, x1: 0.3, y0: -0.4, y1: 0.4, z0: 0.3, z1: 3.5 });
+    // Tops aligned: column, beams and slab all at H = 3.5 m.
+    for (const id of ["column", "slab", "north", "south", "west"]) expect(get(id).box.z1).toBe(3.5);
     expect(get("north").box).toMatchObject({ x0: -0.15, x1: 0.15, y0: 0.4, z0: 2.9, z1: 3.5 });
     expect(get("west").box).toMatchObject({ y0: -0.125, y1: 0.125, x1: -0.3, z0: 3.0 });
     expect(m.pieces.some((p) => p.id === "east")).toBe(false); // slab only

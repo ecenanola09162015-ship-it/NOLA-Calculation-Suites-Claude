@@ -65,7 +65,9 @@ export function buildStorey3DModel(
     id: "column",
     label: `Column ${column.width} × ${column.depth}`,
     kind: "column",
-    box: { x0: -b / 2, x1: b / 2, y0: -h / 2, y1: h / 2, z0: zBot, z1: H - t },
+    // Column runs through the joint: its top is flush with the slab and
+    // beam tops (top of slab = H), as built.
+    box: { x0: -b / 2, x1: b / 2, y0: -h / 2, y1: h / 2, z0: zBot, z1: H },
   });
   pieces.push({
     id: "slab",
