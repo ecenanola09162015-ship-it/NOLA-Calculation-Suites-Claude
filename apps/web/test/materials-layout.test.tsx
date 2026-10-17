@@ -45,10 +45,12 @@ describe("panel 01 layout", () => {
     expect(order.every((i) => i > -1), JSON.stringify(order)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
-  it("Primary Design Code keeps NSCP 2015 and the future codes (D1)", () => {
+  it("Primary Design Code: ACI 318-19 only, others Future Development (17 Oct 2026)", () => {
     const html = panel01(fresh());
-    expect(html).toContain("NSCP 2015 project — ACI 318-19 calculation basis");
-    expect(html).toContain("BS EN 1992 — Future Development");
+    expect(html).toContain('<option value="ACI 318-19" selected="">ACI 318-19');
+    expect(html).not.toContain("NSCP 2015 project");
+    expect(html).toContain("NSCP 2015 (Vol. 1) — Future Development");
+    expect(html).toContain("BS EN 1992-1-1 (Eurocode 2) — Future Development");
     expect(html).toContain("AS 3600 — Future Development");
   });
   it("new calculation starts at 5000 psi = 34.5 MPa; Es 200 000 not flagged", () => {

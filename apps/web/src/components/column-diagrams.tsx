@@ -1,4 +1,6 @@
 import {
+  bundleUnits,
+  rebarDesignation,
   biaxialContour,
   biaxialSection,
   columnCapacityAt,
@@ -11,11 +13,14 @@ export function ColumnSection({
   input,
   selected = [],
   onToggle,
+  flash = [],
 }: {
   input: RectangularColumnInput;
   /** Bars picked for bundling (highlighted); click toggles via onToggle. */
   selected?: number[];
   onToggle?: (bar: number) => void;
+  /** Bundle ids just applied: outlined in orange for a moment. */
+  flash?: string[];
 }) {
   if (
     ![
@@ -111,17 +116,63 @@ export function ColumnSection({
               fill={bar.bundle ? "#5b3a8a" : "#8058a4"}
             />
           </g>
-          <text
-            x={170 + bar.x * scale + 9}
-            y={155 - bar.y * scale - 5}
-            fontSize="10"
-            fill="#49405a"
-            pointerEvents="none"
-          >
-            {i + 1}
-          </text>
+          {/* Bundled bars carry one label per bundle instead. */}
+          {!bar.bundle && (
+            <text
+              x={170 + bar.x * scale + 9}
+              y={155 - bar.y * scale - 5}
+              fontSize="10"
+              fill="#49405a"
+              pointerEvents="none"
+            >
+              {i + 1}
+            </text>
+          )}
         </g>
       ))}
+      {/* Bundles (25.6.1): true-scale bars, an outline and one label each. */}
+      {bundleUnits(input.bars)
+        .filter((u) => u.bundle)
+        .map((u) => {
+          const cx = 170 + u.x * scale,
+            cy = 155 - u.y * scale;
+          const reach = Math.max(
+            ...u.bars.map((k) => {
+              const b = input.bars[k]!;
+              return Math.hypot(b.x - u.x, b.y - u.y) + b.diameter / 2;
+            }),
+          );
+          // Label towards the section centre, clear of the outline.
+          const len = Math.hypot(u.x, u.y) || 1;
+          const off = reach * scale + 16;
+          const lx = cx - (u.x / len) * off,
+            ly = cy + (u.y / len) * off;
+          const d = input.bars[u.bars[0]!]!.diameter;
+          return (
+            <g key={u.bundle!} pointerEvents="none">
+              <circle
+                cx={cx}
+                cy={cy}
+                r={reach * scale + 2.5}
+                fill="none"
+                stroke={flash.includes(u.bundle!) ? "#e07000" : "#5b3a8a"}
+                strokeWidth={flash.includes(u.bundle!) ? 2.5 : 1}
+                strokeDasharray={flash.includes(u.bundle!) ? undefined : "3 2"}
+                className={flash.includes(u.bundle!) ? "bundleFlash" : undefined}
+              />
+              <text
+                x={lx}
+                y={ly + 3}
+                fontSize="9"
+                textAnchor="middle"
+                fill="#3d2a63"
+                fontWeight="700"
+              >
+                {u.bundle} · {u.bars.length}-{rebarDesignation(input.rebarStandard ?? "PNS49", d)}
+              </text>
+            </g>
+          );
+        })}
       <path
         d="M170 155h45m-5 -4 5 4 -5 4M170 155v-45m-4 5 4 -5 4 5"
         stroke="#64737d"

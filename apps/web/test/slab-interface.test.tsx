@@ -15,7 +15,7 @@ describe("slab workspace and diagrams", () => {
     expect(html).toContain("Elevation z mm");
     expect(html).toContain("Auto");
     expect(html).toContain("DCR Criterion");
-    expect(html).toContain("BS EN 1992 — Future Development");
+    expect(html).toContain("BS EN 1992-1-1 (Eurocode 2) — Future Development");
     expect(html).toContain("AS 3600 — Future Development");
     expect(html).toContain("Paste From Excel");
     expect(html).toContain("Support anchorage");
@@ -52,7 +52,8 @@ describe("slab workspace and diagrams", () => {
   });
   it("restores saved inputs, code and elevations without returning to defaults", () => {
     const input = defaultSlabInput();
-    input.code = "NSCP 2015";
+    // Legacy draft saved with the retired NSCP 2015 project option.
+    (input as { code: string }).code = "NSCP 2015";
     input.topCover = 30;
     input.main["short-bottom"].elevation = 32;
     const html = renderToStaticMarkup(
@@ -70,7 +71,8 @@ describe("slab workspace and diagrams", () => {
         }}
       />,
     );
-    expect(html).toContain('value="NSCP 2015" selected=""');
+    expect(html).toContain('<option value="ACI 318-19" selected="">');
+    expect(html).toContain('value="NSCP 2015 (project standard)"');
     expect(html).toContain("Override");
     expect(html).toContain('value="32"');
     expect(html).toContain("SL-02");
