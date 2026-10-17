@@ -163,7 +163,7 @@ function dg1Ex477(): BasePlateInput {
     tw: 0.515 * IN,
     fy: 344.74,
   };
-  i.plate = { bx: 14 * IN, by: 34 * IN, tp: 1.75 * IN, fy: 344.74 };
+  i.plate = { bx: 14 * IN, by: 34 * IN, tp: 1.75 * IN, fy: 344.74, fu: 448.2 };
   i.pedestal = { ...i.pedestal, px: 40 * IN, py: 60 * IN, height: 40 * IN };
   i.anchors = {
     ...i.anchors,

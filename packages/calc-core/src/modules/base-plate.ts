@@ -262,7 +262,14 @@ const basePlateInputObject = z
     otherCodes: z.string().max(300).default(""),
     column: basePlateColumnSchema,
     rotation: z.union([z.literal(0), z.literal(90)]).default(0),
-    plate: z.object({ bx: pos, by: pos, tp: pos, fy: pos }),
+    /** fu: plate and plate-washer Fu (J3.11); null = from Fy (engine table). */
+    plate: z.object({
+      bx: pos,
+      by: pos,
+      tp: pos,
+      fy: pos,
+      fu: z.number().finite().positive().nullable().default(null),
+    }),
     pedestal: z.object({
       px: pos,
       py: pos,
@@ -345,7 +352,9 @@ const basePlateInputObject = z
        * braced frame, moment-frame strong base (D2.6c(a)) or weak base
        * (D2.6c(b), DG1 6.4.2).
        */
-      baseType: z.enum(["general", "braced", "strong", "weak"]).default("general"),
+      baseType: z
+        .enum(["general", "braced", "strong", "weak"])
+        .default("general"),
       /** Column Ry (AISC 341 Table A3.2) and grade label. */
       ry: z.number().finite().min(1).max(2).default(1.1),
       columnGrade: z.string().max(40).default("ASTM A992"),
@@ -580,7 +589,7 @@ export function defaultBasePlateInput(): BasePlateInput {
       zy: 275302.6752,
     },
     rotation: 0,
-    plate: { bx: 450, by: 500, tp: 40, fy: 248 },
+    plate: { bx: 450, by: 500, tp: 40, fy: 248, fu: 400 },
     pedestal: {
       px: 900,
       py: 950,
@@ -1078,6 +1087,8 @@ export interface ComboResult {
   };
   /** Tension-side plate bending by support (column face, web, stiffener). */
   plateTension: TensionGroup[];
+  /** AISC J3.11 bearing / tearout at the rod holes (plate or welded washer). */
+  holeBearing: HoleBearing | null;
   /** DG1 Eq. 4-69 when it applies (compression, biaxial, large moment). */
   biaxial: { mcx: number; mcy: number; ratio: number; basis: string } | null;
   /** Stiffened plate: panels, tension supports and stiffener members. */
@@ -2323,12 +2334,17 @@ export interface WeakBaseResult {
 }
 
 /** DG1 6.4.2 / Ex. 6.4-1 checks for one E combination. */
-function weakBaseCheck(env: Env, ps: PlateState, alpha: number): WeakBaseResult {
+function weakBaseCheck(
+  env: Env,
+  ps: PlateState,
+  alpha: number,
+): WeakBaseResult {
   const { i, rods } = env;
   const a = i.anchors,
     u = i.seismic.ut;
   const large = ps.axes.filter((x) => x.case === "large");
-  const applies = ps.kase === "large" && large.length === 1 && ps.axes.length === 1;
+  const applies =
+    ps.kase === "large" && large.length === 1 && ps.axes.length === 1;
   const ax = large[0];
   const n = ax ? ax.tensionRods.length : 0;
   const f = ax ? ax.f : 0;
@@ -2419,6 +2435,79 @@ function seismicNotes(i: BasePlateInput, on: boolean): string[] {
       "ACI 17.10.3 exemption declared: earthquake share ≤ 20 % of the factored anchor forces, so 17.10.5 / 17.10.6 are not applied (designer to confirm).",
     );
   return out;
+}
+
+/** Plate Fu: input, or from Fy (A36 400, A572 Gr 50 / A992 450, else 1.3 Fy). */
+export function plateFu(p: Pick<BasePlateInput["plate"], "fy" | "fu">) {
+  if (p.fu) return p.fu;
+  if (p.fy <= 250) return 400;
+  if (p.fy <= 345) return 450;
+  return 1.3 * p.fy;
+}
+export interface HoleBearing {
+  element: "welded plate washer" | "base plate";
+  t: number;
+  hole: number;
+  lc: number;
+  fu: number;
+  /** min(3.0 d t Fu, 1.5 lc t Fu) × φ (or ÷ Ω), N per rod. */
+  bearing: number;
+  tearout: number;
+  capacity: number;
+  v: number;
+  dcr: number;
+}
+/**
+ * AISC 360-22 J3.11 (Eq. J3-6b, J3-6d — deformation at the hole not a
+ * design consideration, DG1 Ex. 4.7-6) for rods carrying shear. Welded
+ * plate washers: washer thickness, standard hole (J3.3: da + 1.6 mm,
+ * + 1/8 in for da ≥ 1 in), lc = (washer − hole)/2. Otherwise the base
+ * plate hole with lc = smallest clear distance to the plate edge or to the
+ * next hole.
+ */
+function holeBearingCheck(
+  i: BasePlateInput,
+  rods: Rod[],
+  shearRodIds: string[],
+  v: number,
+): HoleBearing | null {
+  if (!(v > 0)) return null;
+  const a = i.anchors;
+  const fu = plateFu(i.plate);
+  const welded = a.weldedWashers;
+  const hole = welded ? a.da + (a.da >= 25.4 ? 3.175 : 1.5875) : a.hole;
+  const t = welded ? a.washer.thickness : i.plate.tp;
+  let lc: number;
+  if (welded) lc = (a.washer.size - hole) / 2;
+  else {
+    const sr = rods.filter((r) => shearRodIds.includes(r.id));
+    lc = Infinity;
+    for (const r of sr) {
+      lc = Math.min(
+        lc,
+        i.plate.bx / 2 - Math.abs(r.x) - hole / 2,
+        i.plate.by / 2 - Math.abs(r.y) - hole / 2,
+      );
+      for (const q of rods)
+        if (q !== r) lc = Math.min(lc, Math.hypot(q.x - r.x, q.y - r.y) - hole);
+    }
+  }
+  const k = designFactor(aiscFactors.rod, i.designMethod);
+  const bearing = k * 3.0 * a.da * t * fu;
+  const tearout = k * 1.5 * Math.max(lc, 0) * t * fu;
+  const capacity = Math.min(bearing, tearout);
+  return {
+    element: welded ? "welded plate washer" : "base plate",
+    t,
+    hole,
+    lc,
+    fu,
+    bearing,
+    tearout,
+    capacity,
+    v,
+    dcr: capacity > 0 ? v / capacity : Infinity,
+  };
 }
 
 /** Full analysis of all included combinations. */
@@ -2598,6 +2687,12 @@ export function analyzeBasePlate(
     const rodShear = rods.map((r) =>
       vRods > 0 && shearRodIds.includes(r.id) ? vRods / shearRodIds.length : 0,
     );
+    const holeBearing = holeBearingCheck(
+      i,
+      rods,
+      shearRodIds,
+      Math.max(0, ...rodShear),
+    );
     const rodAisc = rodAiscCheck(
       i,
       Math.max(0, ...tension),
@@ -2656,6 +2751,7 @@ export function analyzeBasePlate(
       weakBase,
       lugMoment,
       rodAisc,
+      holeBearing,
       biaxial,
       plateTension: ps.groups,
       stiffener,
@@ -3133,6 +3229,19 @@ function designChecksOf(i: BasePlateInput, r: BasePlateResult): DesignCheck[] {
       clause: basePlateClauses.rodAisc(),
       detail: `${ra.c.load.id}: ft = T/Ab + M/Z = ${ra.t.ft.toFixed(1)} vs ${ra.t.ftAllow.toFixed(1)} MPa; fv = ${ra.t.fv.toFixed(1)} vs ${ra.t.fvAllow.toFixed(1)} MPa (T ${kN(ra.t.t)} kN, V ${kN(ra.t.v)} kN, M = V × ${ra.t.lever.toFixed(1)} mm; Fnt 0.75Fu, Fnv 0.45Fu).`,
     });
+  const hb = governing(
+    cs,
+    (c) => c.holeBearing,
+    (x) => x.dcr,
+  );
+  if (hb)
+    push({
+      id: "rod-hole-bearing",
+      label: "Bearing / Tearout at Rod Holes (J3.11)",
+      dcr: hb.dcr,
+      clause: basePlateClauses.holeBearing(),
+      detail: `${hb.c.load.id}: ${hb.t.element}, t ${hb.t.t.toFixed(1)} mm, hole ${hb.t.hole.toFixed(1)} mm, lc ${hb.t.lc.toFixed(1)} mm, Fu ${hb.t.fu.toFixed(0)} MPa: ${i.designMethod === "LRFD" ? "φ" : "1/Ω ×"} min(3.0 d t Fu = ${kN(hb.t.bearing)}, 1.5 lc t Fu = ${kN(hb.t.tearout)}) kN vs V ${kN(hb.t.v)} kN/rod.`,
+    });
   const bx = governing(
     cs,
     (c) => c.biaxial,
@@ -3278,11 +3387,7 @@ function designChecksOf(i: BasePlateInput, r: BasePlateResult): DesignCheck[] {
   // Weak base (AISC 341 D2.6c(b), DG1 6.4.2 / Ex. 6.4-1).
   if (r.combos.some((c) => c.weakBase)) {
     const wb = <T>(pick: (w: WeakBaseResult) => T, dcr: (t: T) => number) =>
-      governing(
-        cs,
-        (c) => (c.weakBase ? pick(c.weakBase) : null),
-        dcr,
-      );
+      governing(cs, (c) => (c.weakBase ? pick(c.weakBase) : null), dcr);
     const u = i.seismic.ut;
     const sc = wb(
       (w) => w,
@@ -3418,6 +3523,7 @@ function designChecksOf(i: BasePlateInput, r: BasePlateResult): DesignCheck[] {
 
 const anchorIds = new Set([
   "rod-aisc",
+  "rod-hole-bearing",
   "rod-tension",
   "rod-shear",
   "breakout-tension",

@@ -67,7 +67,13 @@ function ex(o: {
     tw: o.col.tw * IN,
     fy: 50 * KSI,
   };
-  i.plate = { bx: o.B * IN, by: o.N * IN, tp: (o.tp ?? 2) * IN, fy: 50 * KSI };
+  i.plate = {
+    bx: o.B * IN,
+    by: o.N * IN,
+    tp: (o.tp ?? 2) * IN,
+    fy: 50 * KSI,
+    fu: 65 * KSI,
+  };
   const ped = o.confined ? 4 : 1;
   i.pedestal = {
     ...i.pedestal,
@@ -405,5 +411,42 @@ describe("friction and ASD anchor basis", () => {
     i.designMethod = "ASD";
     i.asdAnchorBasis = "lrfd";
     expect(() => analyzeBasePlate(i)).toThrow(/LRFD combinations/);
+  });
+});
+
+describe("DG1 Ex. 4.7-6 plate washer bearing (AISC J3.11)", () => {
+  it("1½ in rod, ⅜ in A572 Gr 50 washer 4 in: φRn = min(82.5, 32.6) kips vs 9.50 kips", () => {
+    const i = defaultBasePlateInput();
+    i.plate = { ...i.plate, fy: 50 * KSI, fu: 65 * KSI };
+    i.shear = { ...i.shear, method: "anchors" };
+    i.anchors = {
+      ...i.anchors,
+      da: 1.5 * IN,
+      weldedWashers: true,
+      washer: { size: 4 * IN, thickness: 0.375 * IN },
+    };
+    i.loads = [
+      {
+        id: "V",
+        pu: 100,
+        mx: 0,
+        my: 0,
+        vx: 38 * KIP,
+        vy: 0,
+        seismic: false,
+        included: true,
+      },
+    ];
+    const h = analyzeBasePlate(i).combos[0]!.holeBearing!;
+    close(h.lc / IN, 1.1875, 1e-6);
+    close(h.bearing / 1e3 / KIP, 82.5, 0.005);
+    close(h.tearout / 1e3 / KIP, 32.6, 0.005);
+    close(h.v / 1e3 / KIP, 9.5, 1e-6);
+    close(h.dcr, 9.5 / 32.6, 0.005);
+  });
+  it("no rod shear (friction or lug): no bearing check", () => {
+    const i = defaultBasePlateInput();
+    i.shear = { ...i.shear, method: "lug" };
+    expect(analyzeBasePlate(i).combos[0]!.holeBearing).toBeNull();
   });
 });

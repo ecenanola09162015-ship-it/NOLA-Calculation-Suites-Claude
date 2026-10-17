@@ -16,6 +16,10 @@ Two primary codes: **Concrete** (ACI 318-19, or NSCP 2015 project on the ACI 318
 
 **LRFD / ASD** (shared `steel-design-method.ts`, reused by later steel modules): LRFD applies φ (bearing 0.65, plate 0.90, weld 0.75, friction 0.75) to factored combinations; ASD applies 1/Ω (2.31, 1.67, 2.00, 2.00) to service combinations (AISC 360-22 B3.2). ACI 318-19 has no ASD, so under ASD the anchor checks (Ch. 17, incl. lug bearing/breakout) use α × ASD demand against φRn, α = 1.6 by default (editable 1.4–2.0, printed in the report).
 
+## Hole bearing / tearout (engine 0.5.0)
+
+When rods carry shear, AISC 360-22 J3.11 (Eq. J3-6b, J3-6d; DG1 4.5.3, Ex. 4.7-6): welded plate washers — washer thickness, J3.3 standard hole (da + 1/16 in, + 1/8 in for da ≥ 1 in), lc = (washer − hole)/2; otherwise the base plate hole with lc = smallest clear distance to the plate edge or the next hole. φ 0.75 / Ω 2.00; plate and washer Fu input (default from the plate grade).
+
 ## Seismic design (engine 0.5.0)
 
 Off by default: panel 04 shows **Activate seismic design**, which first lists what will be applied. While off, no SDC, E flags (the E column is hidden), ACI 318-19 17.10 or AISC 341 checks apply. Drafts saved before 0.5.0 with SDC C–F open active. Decisions S1–S5 at defaults (17 Oct 2026): pinned base deferred; ASD allowed with the seismic and ACI checks on the LRFD combinations (required); ACI 17.10.3 "E ≤ 20 %" checkbox; E column hidden when off.
