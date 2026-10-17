@@ -1,5 +1,5 @@
 /**
- * Steel column base plate & anchor rod design (engine base-plate-0.3.0).
+ * Steel column base plate & anchor rod design (engine base-plate-0.4.0).
  *
  * Basis: AISC 360-22 J8 (bearing), J2 (welds), J9 (anchor rods → ACI 318);
  * AISC Design Guide 1, 3rd Ed. (2024) Ch. 4 exposed base plates (uniform
@@ -77,10 +77,11 @@ import {
   type StiffenerContext,
   type StiffenerMemberResult,
   type Stiffening,
+  type SupportPlate,
   type TensionGroup,
 } from "./base-plate-stiffeners";
 
-export const BASE_PLATE_ENGINE = "base-plate-0.3.0";
+export const BASE_PLATE_ENGINE = "base-plate-0.4.0";
 
 export const columnFamilies = ["I", "HSS-RECT", "HSS-ROUND"] as const;
 /** User-defined column sections and the engine family each maps to. */
@@ -222,6 +223,13 @@ const basePlateInputObject = z
       .min(1.4)
       .max(2)
       .default(ASD_TO_STRENGTH_DEFAULT),
+    /**
+     * ASD only — demand for the ACI 318 checks (anchors, friction, lug
+     * concrete): "lrfd" uses a separate LRFD combination table (DG1, ACI
+     * strength design); "alpha" uses α × ASD demand.
+     */
+    asdAnchorBasis: z.enum(["alpha", "lrfd"]).default("alpha"),
+    lrfdLoads: z.array(basePlateLoadSchema).max(100).default([]),
     /** Documentation only (as Slab / Column). */
     otherCodes: z.string().max(300).default(""),
     column: basePlateColumnSchema,
@@ -272,14 +280,22 @@ const basePlateInputObject = z
       product: basePlateProductSchema.nullable(),
     }),
     shear: z.object({
-      method: z.enum(["anchors", "friction", "lug"]),
+      /**
+       * anchors | friction (DG1 Eq. 4-30) | friction-anchors (friction
+       * added to the rods, ACI 349 D.6.1.4) | lug (ACI 17.11).
+       */
+      method: z.enum(["anchors", "friction", "friction-anchors", "lug"]),
       mu: z.number().finite().min(0.2).max(1),
       lug: z.object({
         orientation: z.enum(["x", "y", "cross"]),
         width: pos,
         thickness: pos,
+        /** Embedment into the concrete below the grout, hsl. */
         depth: pos,
         fy: pos,
+        fu: pos.default(400),
+        /** Fillet size each side of the lug to the plate. */
+        weld: pos.default(8),
       }),
     }),
     weld: z.object({ size: pos, fexx: pos }),
@@ -334,6 +350,17 @@ const basePlateInputObject = z
   .refine(
     (i) => isCastIn(i.anchors.kind) || i.anchors.product !== null,
     "Post-installed anchors need a product record (ICC-ES ESR / ETA values).",
+  )
+  .refine(
+    (i) =>
+      i.designMethod !== "ASD" ||
+      i.asdAnchorBasis !== "lrfd" ||
+      i.lrfdLoads.some((l) => l.included),
+    "ASD with LRFD anchor demands: enter the LRFD combinations for the ACI 318 checks, or choose α × ASD.",
+  )
+  .refine(
+    (i) => new Set(i.lrfdLoads.map((l) => l.id)).size === i.lrfdLoads.length,
+    "LRFD combination labels must be unique.",
   );
 export const basePlateInputSchema = z.preprocess(
   migrateBasePlateInput,
@@ -469,6 +496,8 @@ export function defaultBasePlateInput(): BasePlateInput {
     steelCode: "AISC 360-22",
     designMethod: "LRFD",
     asdAlpha: ASD_TO_STRENGTH_DEFAULT,
+    asdAnchorBasis: "alpha",
+    lrfdLoads: [],
     otherCodes: "",
     column: {
       designation: "W12X40",
@@ -524,13 +553,15 @@ export function defaultBasePlateInput(): BasePlateInput {
     },
     shear: {
       method: "anchors",
-      mu: 0.55,
+      mu: 0.4,
       lug: {
         orientation: "cross",
         width: 150,
         thickness: 25,
         depth: 100,
         fy: 248,
+        fu: 400,
+        weld: 8,
       },
     },
     weld: { size: 8, fexx: 482 },
@@ -759,24 +790,6 @@ const plateFactor = (i: Pick<BasePlateInput, "designMethod">) =>
 const tpFromMpl = (mpl: number, fy: number, fb: number) =>
   Math.sqrt((4 * Math.max(mpl, 0)) / (fb * fy));
 
-/** Union length of [p−x, p+x] intervals clipped to [−B/2, B/2] (45° spread). */
-function effectiveWidth(positions: number[], x: number, b: number) {
-  if (x <= 0) return b;
-  const iv = positions
-    .map((p) => [Math.max(-b / 2, p - x), Math.min(b / 2, p + x)] as const)
-    .sort((a, c) => a[0] - c[0]);
-  let total = 0,
-    cur: [number, number] | null = null;
-  for (const [a, c] of iv) {
-    if (!cur || a > cur[1]) {
-      if (cur) total += cur[1] - cur[0];
-      cur = [a, c];
-    } else cur[1] = Math.max(cur[1], c);
-  }
-  if (cur) total += cur[1] - cur[0];
-  return Math.min(b, total);
-}
-
 /**
  * DG1 uniaxial analysis of one axis with the uniform bearing block.
  * axis "y": bending from Mx, plate length By. axis "x": from My, length Bx.
@@ -810,16 +823,21 @@ export function dg1Axis(
   const qmax = cap.fpMax * b;
   const P = pu * 1e3,
     M = Math.abs(mu) * 1e6;
-  const e = P > 0 ? M / P : Infinity;
+  const e = P !== 0 ? M / Math.abs(P) : Infinity;
   const ecrit = n / 2 - P / (2 * qmax);
   const fy = i.plate.fy;
-  // Tension interface lever arm to the column face (I: flange centre, HSS: wall centre).
+  // Tension interface lever (DG1 Eq. 4-61): I strong axis to the flange
+  // centre, x = f − d/2 + tf/2; I weak axis to the 0.80bf line (Ex. 4.7-14,
+  // y = n − edge); HSS to the wall centre.
   const flangeAlong =
     i.column.family === "I" ? (axis === "y") === dims.flangesFaceY : true;
-  const tFace =
-    i.column.family === "I" ? (flangeAlong ? i.column.tf : 0) : i.column.tf;
-  const x = f - colAlong / 2 + tFace / 2;
-  const beff = effectiveWidth(line.map(across), x, b);
+  const x =
+    i.column.family === "I" && !flangeAlong
+      ? f - (kAlong * colAlong) / 2
+      : f - colAlong / 2 + i.column.tf / 2;
+  // DG1 Eq. 4-60/4-62: full plate width B at the tension interface.
+  const beff = b;
+  void across;
   const base = {
     axis,
     n,
@@ -851,7 +869,7 @@ export function dg1Axis(
   // DG1 4.3: bearing interface with l = max(m, n); Y < l uses fp Y (l − Y/2).
   const bendBearing = (fp: number, y: number) =>
     tpFromMpl(bearingMpl(fp, y, Math.max(m, nCant)), fy, plateFactor(i));
-  if (e <= ecrit) {
+  if (P > 0 && e <= ecrit) {
     const y = n - 2 * e;
     const fp = P / (y * b);
     return {
@@ -865,8 +883,10 @@ export function dg1Axis(
       tpTension: 0,
     };
   }
+  // Large moment: DG1 Eq. 4-58 (P > 0), 4-32 (P = 0) and 4-65 (P < 0,
+  // e > f) are one quadratic with signed P: Y² − 2(f + N/2)Y + 2(M + P f)/qmax = 0.
   const k = f + n / 2;
-  const disc = k * k - (2 * P * (e + f)) / qmax;
+  const disc = k * k - (2 * (M + P * f)) / qmax;
   if (disc < 0)
     return {
       ...base,
@@ -910,8 +930,8 @@ export function dg1LambdaNp(
   );
   const lambda =
     X >= 1 ? 1 : Math.min(1, (2 * Math.sqrt(X)) / (1 + Math.sqrt(1 - X)));
-  // √(d bf)/4 for I and rectangular HSS; D/4 for round sections (engine assumption).
-  const np = c.family === "HSS-ROUND" ? d / 4 : Math.sqrt(d * bf) / 4;
+  // DG1 4.3.1: λn′ (n′ = √(d bf)/4) is not used for HSS and pipe.
+  const np = c.family === "I" ? Math.sqrt(d * bf) / 4 : 0;
   return { X, lambda, np, lambdaNp: lambda * np };
 }
 
@@ -945,10 +965,40 @@ export interface ComboResult {
     capacity: number;
     dcr: number;
     length: number;
+    /** Governing weld limit state and its basis (DG1 / J2.4). */
+    detail: string;
   };
-  friction: { capacity: number; dcr: number } | null;
+  /**
+   * Friction (DG1 Eq. 4-30): φ0.65 μP ≤ 0.75 min(0.2f′c, 5.5 MPa) Ac,
+   * strength-level (ASD: α × demand). `share` = shear taken by friction.
+   */
+  friction: {
+    capacity: number;
+    cap: number;
+    ac: number;
+    share: number;
+    dcr: number;
+  } | null;
   lug: LugCheck | null;
   seismicApplies: boolean;
+  /** Moment from the shear-lug eccentricity added to the base (DG1 Ex. 4.7-5). */
+  lugMoment: { mx: number; my: number; e: number } | null;
+  /** AISC 360-22 J3.8 rod check with bending (DG1 Eq. 4-26 to 4-28). */
+  rodAisc: {
+    t: number;
+    v: number;
+    mRod: number;
+    lever: number;
+    ft: number;
+    fv: number;
+    ftAllow: number;
+    fvAllow: number;
+    dcr: number;
+  };
+  /** Tension-side plate bending by support (column face, web, stiffener). */
+  plateTension: TensionGroup[];
+  /** DG1 Eq. 4-69 when it applies (compression, biaxial, large moment). */
+  biaxial: { mcx: number; mcy: number; ratio: number; basis: string } | null;
   /** Stiffened plate: panels, tension supports and stiffener members. */
   stiffener: ComboStiffener | null;
 }
@@ -1002,7 +1052,11 @@ export interface AnchorChecks {
 export interface LugCheck {
   direction: "x" | "y";
   vu: number;
+  /** Lug eccentricity e = tgrout + hsl/2 and moment at the plate, N·mm. */
+  e: number;
   psiBrg: number;
+  /** Effective bearing area (depth ≤ 2tsl, ACI 17.11.2.1.1), mm². */
+  aef: number;
   phiVbrg: number;
   bearingDcr: number;
   ca1: number;
@@ -1011,6 +1065,20 @@ export interface LugCheck {
   phiMn: number;
   mu: number;
   flexureDcr: number;
+  /** J4.2 shear yielding / rupture, J4.5 flexural rupture, Manual Eq. 9-1. */
+  phiVy: number;
+  phiVr: number;
+  phiMr: number;
+  steelDcr: number;
+  interaction: number;
+  /** Lug-to-plate fillets (DG1 Ex. 4.7-5, kds 1.5). */
+  weldF: number;
+  weldCap: number;
+  weldDcr: number;
+  /** Local plate bending at the lug (DG1 Ex. 4.7-5, column neglected). */
+  plateM: number;
+  plateMn: number;
+  plateDcr: number;
 }
 
 function anchorChecks(
@@ -1042,8 +1110,7 @@ function anchorChecks(
   const vsa = steelShear(a.ase, futa, a.kind, i.grout.thickness > 0);
   const nuaMax = Math.max(0, ...tension);
   const nShear = shearRodIds.length;
-  const vuaMax =
-    nShear > 0 && i.shear.method === "anchors" ? shear / nShear : 0;
+  const vuaMax = nShear > 0 && rodsCarryShear(i) ? shear / nShear : 0;
   const abrg = a.abrg > 0 ? a.abrg : heavyHexBearingArea(a.da);
   const cac = defaultCac(a.kind, a.hef);
   const tensioned = rods
@@ -1113,7 +1180,7 @@ function anchorChecks(
   // Shear breakout: ACI 17.7.2.1(b) – welded washers: full V on the farthest row; else front row.
   const sb: AnchorChecks["shearBreakout"] = [];
   const shearPts = rods.filter((r) => shearRodIds.includes(r.id));
-  if (i.shear.method === "anchors" && shearPts.length) {
+  if (rodsCarryShear(i) && shearPts.length) {
     const row = a.weldedWashers ? "back" : "front";
     const add = (edge: "west" | "east" | "south" | "north", v: number) => {
       if (v <= 0) return;
@@ -1126,7 +1193,7 @@ function anchorChecks(
   }
   // Pryout 17.7.3 with all shear anchors, concentric (ψec = 1).
   let pry: AnchorChecks["pryout"] = null;
-  if (i.shear.method === "anchors" && shearPts.length && shear > 0) {
+  if (rodsCarryShear(i) && shearPts.length && shear > 0) {
     const eq = shearPts.map(() => 1);
     let ncp = tensionBreakout(
       shearPts,
@@ -1248,47 +1315,98 @@ function weldGroup(i: BasePlateInput) {
   return { L, ix, iy, xm, ym };
 }
 
+/** True when the anchor rods carry (part of) the shear. */
+export const rodsCarryShear = (i: Pick<BasePlateInput, "shear">) =>
+  i.shear.method === "anchors" || i.shear.method === "friction-anchors";
+
+/**
+ * Shear lug, ACI 318-19 17.11 and AISC DG1 3rd Ed. Ex. 4.7-5. Concrete limit
+ * states at strength level (`alpha` × demand under ASD-α); steel per AISC.
+ */
 function lugCheck(
   i: BasePlateInput,
   dir: "x" | "y",
   v: number,
   pu: number,
   nTension: number,
-  /** ASD: ACI bearing / breakout use α × demand (1 for LRFD). */
-  alpha = 1,
+  alpha: number,
+  rods: Rod[],
+  cap: BearingCapacity,
 ): LugCheck {
   const l = i.shear.lug,
     p = i.pedestal;
-  const aef = l.width * l.depth;
+  // 17.11.2.1.1: bearing depth ≤ 2 tsl below the concrete surface.
+  const aef = l.width * Math.min(l.depth, 2 * l.thickness);
   const nsa = steelTension(i.anchors.ase, futaUsed(i.anchors.fy, i.anchors.fu));
-  // 17.11.2.1: ψbrg,sl
+  // 17.11.2.2: ψbrg,sl (strength-level axial load).
+  const pa = pu * alpha;
   const psiBrg =
-    pu >= 0
-      ? Math.min(2, 1 + (4 * pu * 1e3) / (i.plate.bx * i.plate.by * p.fc))
+    pa >= 0
+      ? Math.min(2, 1 + (4 * pa * 1e3) / (i.plate.bx * i.plate.by * p.fc))
       : Math.min(
           1,
-          Math.max(0, 1 + (pu * 1e3) / (Math.max(nTension, 1) * nsa)),
+          Math.max(0, 1 + (pa * 1e3) / (Math.max(nTension, 1) * nsa)),
         );
   const phiVbrg = 0.65 * 1.7 * p.fc * aef * psiBrg;
-  // 17.11.3: breakout from the bearing face (Vb upper-bound expression, verify).
+  // 17.11.3: breakout from the bearing face, φ = 0.65 (17.11.1.1.6).
   const half = dir === "x" ? p.px / 2 : p.py / 2;
   const across = dir === "x" ? p.py : p.px;
   const ca1 = half - l.thickness / 2;
   const c2 = (across - l.width) / 2;
   const c15 = 1.5 * ca1;
   const avc =
-    (l.width + 2 * Math.min(c2, c15)) * Math.min(p.height, l.depth + c15) - aef;
+    (l.width + 2 * Math.min(c2, c15)) * Math.min(p.height, l.depth + c15) -
+    l.width * l.depth;
   const avco = 4.5 * ca1 * ca1;
   const psiEd = c2 >= c15 ? 1 : 0.7 + (0.3 * c2) / c15;
   const vb = 3.7 * p.lambdaA * Math.sqrt(Math.min(p.fc, 70)) * ca1 ** 1.5;
-  const phiVcb = 0.7 * (avc / avco) * psiEd * (p.cracked ? 1 : 1.4) * vb;
-  // Lug cantilever: load at mid-embedment below the grout.
-  const mu = v * (i.grout.thickness + l.depth / 2);
-  const phiMn = plateFactor(i) * l.fy * ((l.width * l.thickness ** 2) / 4);
+  const phiVcb = 0.65 * (avc / avco) * psiEd * (p.cracked ? 1 : 1.4) * vb;
+  // Lug steel (AISC J4.2, J4.5, Manual Eq. 9-1): V and M = V·e at the plate.
+  const e = i.grout.thickness + l.depth / 2;
+  const mu = v * e;
+  const area = l.width * l.thickness,
+    z = (l.width * l.thickness ** 2) / 4;
+  const fbp = plateFactor(i);
+  const phiMn = fbp * l.fy * z;
+  const phiMr =
+    designFactor(aiscFactors.elementRupture, i.designMethod) * l.fu * z;
+  const phiVy =
+    designFactor(aiscFactors.elementShear, i.designMethod) * 0.6 * l.fy * area;
+  const phiVr =
+    designFactor(aiscFactors.elementRupture, i.designMethod) *
+    0.6 *
+    l.fu *
+    area;
+  const interaction9 = mu / phiMn + (v / phiVy) ** 4;
+  // Lug welds: two fillets of length b; couple at a = tsl + 2w/3, kds 1.5.
+  const aw = l.thickness + (2 * l.weld) / 3;
+  const weldF = Math.hypot(v / (2 * l.width), mu / (aw * l.width));
+  const weldCap =
+    designFactor(aiscFactors.weld, i.designMethod) *
+    0.6 *
+    i.weld.fexx *
+    0.7071 *
+    l.weld *
+    1.5;
+  // Local plate bending at the lug from the lug moment alone (P = 0):
+  // DG1 Eq. 4-31/4-32, M = max(T f, qmax Y (N/2 − Y/2)), width = b_sl.
+  const N = dir === "x" ? i.plate.bx : i.plate.by;
+  const B = dir === "x" ? i.plate.by : i.plate.bx;
+  const f = Math.max(...rods.map((r) => Math.abs(dir === "x" ? r.x : r.y)));
+  const q = cap.fpMax * B;
+  const k = f + N / 2;
+  const disc = k * k - (2 * mu) / q;
+  const Y = disc >= 0 ? k - Math.sqrt(disc) : NaN;
+  const plateM = Number.isFinite(Y)
+    ? Math.max(q * Y * f, q * Y * (N / 2 - Y / 2))
+    : Infinity;
+  const plateMn = fbp * i.plate.fy * ((l.width * i.plate.tp ** 2) / 4);
   return {
     direction: dir,
     vu: v,
+    e,
     psiBrg,
+    aef,
     phiVbrg,
     bearingDcr: (alpha * v) / phiVbrg,
     ca1,
@@ -1297,6 +1415,17 @@ function lugCheck(
     phiMn,
     mu,
     flexureDcr: mu / phiMn,
+    phiVy,
+    phiVr,
+    phiMr,
+    steelDcr: Math.max(v / phiVr, mu / phiMr, v / phiVy),
+    interaction: interaction9,
+    weldF,
+    weldCap,
+    weldDcr: weldF / weldCap,
+    plateM,
+    plateMn,
+    plateDcr: plateM / plateMn,
   };
 }
 
@@ -1314,6 +1443,11 @@ export interface BasePlateResult {
   };
   rods: Rod[];
   bearing: BearingCapacity;
+  /**
+   * ASD with LRFD anchor demands: the LRFD run on `lrfdLoads` used for the
+   * ACI 318 checks (null otherwise).
+   */
+  anchorRun: BasePlateResult | null;
   /** Stiffener geometry (null when unstiffened). */
   stiffening: Stiffening | null;
   combos: ComboResult[];
@@ -1431,6 +1565,562 @@ function meyerhofRect(i: BasePlateInput, ex: number, ey: number): PlateRect {
   };
 }
 
+/** Column web and flanges as plate supports for rods between the flanges. */
+export function columnSupportPlates(
+  i: Pick<BasePlateInput, "column" | "rotation">,
+): SupportPlate[] {
+  const c = i.column;
+  if (c.family !== "I") return [];
+  const dAxis: "x" | "y" = i.rotation === 90 ? "x" : "y";
+  const oAxis: "x" | "y" = dAxis === "y" ? "x" : "y";
+  const inner = c.d / 2 - c.tf;
+  // Inside the column outline: |along d| < d/2 − tf and |across| < bf/2.
+  const insideOnly =
+    dAxis === "y" ? { hx: c.bf / 2, hy: inner } : { hx: inner, hy: c.bf / 2 };
+  const out: SupportPlate[] = [];
+  for (const side of [1, -1] as const)
+    out.push({
+      id: `web${side > 0 ? "+" : "−"}`,
+      axis: dAxis,
+      side,
+      pos: 0,
+      root: 0,
+      tip: inner,
+      t: c.tw,
+      insideOnly,
+    });
+  for (const fl of [1, -1] as const)
+    for (const side of [1, -1] as const)
+      out.push({
+        id: `flange${fl > 0 ? "+" : "−"}${side > 0 ? "+" : "−"}`,
+        axis: oAxis,
+        side,
+        pos: fl * (c.d / 2 - c.tf / 2),
+        root: 0,
+        tip: c.bf / 2,
+        t: c.tf,
+        insideOnly,
+      });
+  return out;
+}
+
+interface Env {
+  i: BasePlateInput;
+  rods: Rod[];
+  cap: BearingCapacity;
+  st: Stiffening | null;
+  supports: SupportPlate[];
+  fb: number;
+  sumX2: number;
+  sumY2: number;
+}
+interface PlateState {
+  axes: AxisAnalysis[];
+  kase: BearingCase;
+  method: string;
+  /** Rod tension, N. */
+  tension: number[];
+  /** Per-axis rod tensions (large-moment axes), N. */
+  axisTension: number[][];
+  tp: number;
+  fp: number;
+  bearingDcr: number;
+  ex: number;
+  ey: number;
+  lambdaNp: number;
+  groups: TensionGroup[];
+  panels: PanelResult[];
+  bearingCases: { region: PlateRect; fp: number }[];
+  unstiffenedTp: number;
+}
+
+/** Bearing, rod tension and plate thickness for one set of actions. */
+function plateState(env: Env, pu: number, mx: number, my: number): PlateState {
+  const { i, rods, cap, st, supports, fb } = env;
+  const P = pu;
+  const n = rods.length;
+  const tension = rods.map(() => 0);
+  const axisTension: number[][] = [];
+  const groups: TensionGroup[] = [];
+  let axes: AxisAnalysis[] = [];
+  let kase: BearingCase;
+  let method: string;
+  let tp = 0;
+  const lam = dg1LambdaNp(i, P, cap);
+  const ex = P > 0 ? (my * 1e6) / (P * 1e3) : 0;
+  const ey = P > 0 ? (mx * 1e6) / (P * 1e3) : 0;
+  const hasX = Math.abs(my) > 1e-9,
+    hasY = Math.abs(mx) > 1e-9;
+  const coord = (axis: "x" | "y") => (r: Rod) => (axis === "y" ? r.y : r.x);
+  const box = supports.find((p) => p.insideOnly)?.insideOnly;
+  const insideColumn = (r: Rod) =>
+    !!box && Math.abs(r.x) < box.hx && Math.abs(r.y) < box.hy;
+  /** Tension-side plate for rods of `idx` on one axis (nearest support). */
+  const tensionSide = (
+    axis: "x" | "y",
+    idx: number[],
+    t: number[],
+    lever: number,
+    width: number,
+  ) => {
+    const res = tensionLine(
+      supports,
+      axis,
+      idx.map((k) => ({ ...rods[k]!, t: t[k]! })),
+      lever,
+      width,
+      i.plate.fy,
+      fb,
+    );
+    groups.push(...res.groups);
+    return res.tp;
+  };
+  const elastic = rods.map(
+    (r) =>
+      (-P * 1e3) / n -
+      (env.sumY2 > 0 ? (mx * 1e6 * r.y) / env.sumY2 : 0) -
+      (env.sumX2 > 0 ? (my * 1e6 * r.x) / env.sumX2 : 0),
+  );
+  const largeAxis = (axis: "x" | "y", M: number) => {
+    const a = dg1Axis(i, rods, cap, axis, P, M, 0);
+    const t = rods.map(() => 0);
+    if (a.case === "large" || a.case === "no-solution") {
+      const per = a.tu / Math.max(a.tensionRods.length, 1);
+      for (const id of a.tensionRods) {
+        const k = rods.findIndex((r) => r.id === id);
+        t[k] = Number.isFinite(per) ? per : Infinity;
+      }
+    }
+    return { a, t };
+  };
+  if (
+    P <= 0 &&
+    Math.min(...elastic) >= -1e-6 * Math.max(1, Math.abs(P) * 1e3)
+  ) {
+    // DG1 4.3.2 / Eq. 4-67: tension (and moment with e ≤ f) in the rods only.
+    kase = "uplift";
+    method =
+      hasX || hasY
+        ? "Tension with moment, e ≤ f: elastic rod group, no bearing (DG1 Eq. 4-67)"
+        : "Concentric tension: equal rod tension (DG1 4.3.2)";
+    elastic.forEach((t, k) => (tension[k] = Math.max(0, t)));
+    for (const axis of ["x", "y"] as const) {
+      const a = dg1Axis(
+        i,
+        rods,
+        cap,
+        axis,
+        0,
+        axis === "y" ? mx || 1e-9 : my || 1e-9,
+        0,
+      );
+      let tpa = 0;
+      for (const side of [1, -1]) {
+        const c = coord(axis);
+        const ext =
+          side > 0 ? Math.max(...rods.map(c)) : Math.min(...rods.map(c));
+        const idx = rods
+          .map((r, k) => (Math.abs(c(r) - ext) < 1e-6 ? k : -1))
+          .filter((k) => k >= 0);
+        // Column-face lever of this line (DG1 Eq. 4-61 on its own side).
+        const f = Math.abs(ext);
+        const lever = a.x - a.f + f;
+        tpa = Math.max(tpa, tensionSide(axis, idx, tension, lever, a.b));
+      }
+      // Rods between the flanges bend the plate about the web / flange.
+      const inner = rods
+        .map((_, k) => k)
+        .filter((k) => tension[k]! > 0 && insideColumn(rods[k]!));
+      tpa = Math.max(tpa, tensionSide(axis, inner, tension, 0, a.b));
+      tp = Math.max(tp, tpa);
+      axes.push({
+        ...a,
+        case: "uplift",
+        tu: 0,
+        fp: 0,
+        bearingDcr: 0,
+        tpBearing: 0,
+        tpTension: tpa,
+        tensionRods: [],
+      });
+    }
+  } else if (P <= 0) {
+    // Bearing needed: DG1 Eq. 4-31/4-32 (P = 0) or 4-63 to 4-66 (tension).
+    const list: ("x" | "y")[] = [
+      ...(hasX ? (["x"] as const) : []),
+      ...(hasY ? (["y"] as const) : []),
+    ];
+    for (const axis of list) {
+      const M = axis === "y" ? mx : my;
+      const { a, t } = largeAxis(axis, M);
+      let ax = a;
+      if (a.case === "large" && !(a.y > 0)) {
+        // This axis alone needs no bearing: its elastic share (P counted again).
+        const c = coord(axis);
+        const s2 = axis === "y" ? env.sumY2 : env.sumX2;
+        rods.forEach(
+          (r, k) =>
+            (t[k] = Math.max(
+              0,
+              (-P * 1e3) / n - (s2 > 0 ? (M * 1e6 * c(r)) / s2 : 0),
+            )),
+        );
+        const idx = rods.map((_, k) => k).filter((k) => t[k]! > 0);
+        ax = {
+          ...a,
+          case: "uplift",
+          y: 0,
+          fp: 0,
+          tu: 0,
+          bearingDcr: 0,
+          tpBearing: 0,
+          tpTension: tensionSide(axis, idx, t, a.x, a.b),
+          tensionRods: [],
+        };
+      }
+      axes.push(ax);
+      axisTension.push(t);
+      t.forEach((v, k) => (tension[k] = tension[k]! + v));
+    }
+    kase = axes.some((a) => a.case === "no-solution")
+      ? "no-solution"
+      : axes.some((a) => a.case === "large")
+        ? "large"
+        : "uplift";
+    method =
+      list.length > 1
+        ? "Tension or zero axial load with biaxial moment: per-axis DG1 large-moment analyses with full P, rod tensions superposed (conservative; outside DG1)"
+        : P === 0
+          ? `Pure moment about ${list[0] === "y" ? "X" : "Y"}: DG1 Eq. 4-31/4-32, T = C = qmax·Y`
+          : `Tension with large moment (e > f) about ${list[0] === "y" ? "X" : "Y"}: DG1 Eq. 4-63 to 4-66, Tr = Pr + qmax·Y`;
+  } else if (hasX && hasY) {
+    const yx = i.plate.bx - 2 * Math.abs(ex),
+      yy = i.plate.by - 2 * Math.abs(ey);
+    const fpe = yx > 0 && yy > 0 ? (P * 1e3) / (yx * yy) : Infinity;
+    if (fpe <= cap.fpMax) {
+      kase = "biaxial-small";
+      method =
+        "Biaxial, small eccentricity: uniform bearing on Bx−2ex by By−2ey (DG1)";
+      const ax = dg1Axis(i, rods, cap, "x", P, my, 0),
+        ay = dg1Axis(i, rods, cap, "y", P, mx, 0);
+      const bend = (a: AxisAnalysis, y: number) =>
+        tpFromMpl(bearingMpl(fpe, y, Math.max(a.m, a.nCant)), i.plate.fy, fb);
+      const dcr = fpe / cap.fpMax;
+      axes = [
+        {
+          ...ax,
+          case: "biaxial-small",
+          y: yx,
+          fp: fpe,
+          tu: 0,
+          bearingDcr: dcr,
+          tpBearing: bend(ax, yx),
+          tpTension: 0,
+          tensionRods: [],
+        },
+        {
+          ...ay,
+          case: "biaxial-small",
+          y: yy,
+          fp: fpe,
+          tu: 0,
+          bearingDcr: dcr,
+          tpBearing: bend(ay, yy),
+          tpTension: 0,
+          tensionRods: [],
+        },
+      ];
+    } else {
+      kase = "large";
+      method =
+        "Biaxial, large eccentricity: DG1 per-axis analyses with full Pu";
+      for (const [axis, M] of [
+        ["x", my],
+        ["y", mx],
+      ] as const) {
+        const { a, t } = largeAxis(axis, M);
+        axes.push(a);
+        axisTension.push(t);
+      }
+      if (axes.some((a) => a.case === "no-solution")) kase = "no-solution";
+    }
+  } else {
+    const axis = hasX ? "x" : "y";
+    const a = dg1Axis(i, rods, cap, axis, P, hasX ? my : mx, lam.lambdaNp);
+    axes = [a];
+    kase = a.case;
+    if (a.case === "large" || a.case === "no-solution") {
+      const { t } = largeAxis(axis, hasX ? my : mx);
+      axisTension.push(t);
+    }
+    method =
+      a.case === "axial"
+        ? "Axial compression: DG1 cantilevers m, n, λn′"
+        : a.case === "small"
+          ? `Small moment (e ≤ ecrit) about ${axis === "y" ? "X" : "Y"}: uniform bearing Y = N − 2e`
+          : `Large moment (e > ecrit) about ${axis === "y" ? "X" : "Y"}: uniform bearing at fp,max + rod tension`;
+  }
+  // Rod tension of large-moment axes (biaxial: superposed here; DG1 Eq.
+  // 4-69 may replace it in the caller).
+  if (P > 0)
+    for (const t of axisTension)
+      t.forEach((v, k) => (tension[k] = tension[k]! + v));
+  // Tension interface: each rod to its nearest support (column face with
+  // full width B, web / flange / stiffener face with 45°).
+  axes.forEach((a) => {
+    if (
+      (a.case === "large" || a.case === "no-solution") &&
+      a.tensionRods.length
+    ) {
+      const per = a.tu / a.tensionRods.length;
+      const idx = a.tensionRods.map((id) => rods.findIndex((r) => r.id === id));
+      const t = rods.map((_, k) => (idx.includes(k) ? per : 0));
+      a.tpTension = Number.isFinite(per)
+        ? tensionSide(a.axis, idx, t, a.x, a.b)
+        : NaN;
+    }
+  });
+  // Stiffened zones replace the DG1 cantilever at the bearing interface.
+  const panels = new Map<string, PanelResult>();
+  const bearingCases: PlateState["bearingCases"] = [];
+  let unstiffenedTp = 0;
+  if (kase !== "uplift" && kase !== "no-solution") {
+    const lU = st
+      ? Math.max(0, ...st.zones.filter((z) => !z.stiffened).map((z) => z.depth))
+      : 0;
+    for (const a of axes) {
+      if (!(a.fp > 0) || !(a.y > 0)) continue;
+      const region =
+        a.case === "biaxial-small"
+          ? meyerhofRect(i, ex, ey)
+          : bearingRegion(i, a);
+      bearingCases.push({ region, fp: a.fp });
+      if (!st) continue;
+      const l = a.case === "axial" ? Math.max(lU, lam.lambdaNp) : lU;
+      const yA = a.case === "axial" ? a.n : a.y;
+      const tpU =
+        l > 0 ? tpFromMpl(bearingMpl(a.fp, yA, l), i.plate.fy, fb) : 0;
+      unstiffenedTp = Math.max(unstiffenedTp, tpU);
+      const pr = panelBearing(st, region, a.fp, i.plate.fy, fb);
+      for (const p of pr)
+        if ((panels.get(p.id)?.tpReq ?? -1) < p.tpReq) panels.set(p.id, p);
+      a.tpBearing = Math.max(tpU, ...pr.map((p) => p.tpReq));
+    }
+  }
+  tp = Math.max(
+    tp,
+    ...axes.map((a) => Math.max(a.tpBearing || 0, a.tpTension || 0)),
+  );
+  if (kase === "no-solution") tp = Infinity;
+  return {
+    axes,
+    kase,
+    method,
+    tension,
+    axisTension,
+    tp,
+    fp: kase === "uplift" ? 0 : Math.max(0, ...axes.map((a) => a.fp)),
+    bearingDcr:
+      kase === "uplift" ? 0 : Math.max(0, ...axes.map((a) => a.bearingDcr)),
+    ex,
+    ey,
+    lambdaNp: lam.lambdaNp,
+    groups,
+    panels: [...panels.values()],
+    bearingCases,
+    unstiffenedTp,
+  };
+}
+
+/** Anchor rod as a bolt: AISC 360-22 J3.8 with bending (DG1 Eq. 4-26–4-28). */
+function rodAiscCheck(i: BasePlateInput, t: number, v: number) {
+  const a = i.anchors;
+  const ab = (Math.PI * a.da * a.da) / 4,
+    z = a.da ** 3 / 6;
+  // Reverse curvature over half the distance from the bearing centre
+  // (welded plate washer: tp + tw/2; else mid-plate) to the grout top.
+  const lever =
+    ((a.weldedWashers ? i.plate.tp + a.washer.thickness / 2 : i.plate.tp / 2) /
+      2) *
+    (v > 0 ? 1 : 0);
+  const mRod = v * lever;
+  const fnt = 0.75 * a.fu,
+    fnv = 0.45 * a.fu;
+  const ft = t / ab + mRod / z,
+    fv = v / ab;
+  const lrfd = i.designMethod === "LRFD";
+  const f = aiscFactors.rod;
+  // J3-3a/b: F′nt = 1.3Fnt − (Fnt/φFnv) frv ≤ Fnt (LRFD); ΩFnt/Fnv (ASD).
+  const fntP = Math.min(
+    fnt,
+    1.3 * fnt - (lrfd ? fnt / (f.phi * fnv) : (f.omega * fnt) / fnv) * fv,
+  );
+  const k = designFactor(f, i.designMethod);
+  const ftAllow = Math.max(k * fntP, 0),
+    fvAllow = k * fnv;
+  return {
+    t,
+    v,
+    mRod,
+    lever,
+    ft,
+    fv,
+    ftAllow,
+    fvAllow,
+    dcr: Math.max(
+      ftAllow > 0 ? ft / ftAllow : ft > 0 ? Infinity : 0,
+      fv / fvAllow,
+    ),
+  };
+}
+
+/**
+ * DG1 4.3.11: moment strength about one axis at the applied Pu, considering
+ * the bearing solution, plate thickness, rod steel (AISC and ACI) and ACI
+ * concrete tension limit states (bisection on M, kN·m).
+ */
+function momentStrength(
+  env: Env,
+  axis: "x" | "y",
+  P: number,
+  applied: number,
+  alpha: number,
+  seismic: boolean,
+) {
+  const sgn = applied >= 0 ? 1 : -1;
+  const a0 = dg1Axis(env.i, env.rods, env.cap, axis, P, sgn, 0);
+  const q = env.cap.fpMax * a0.b;
+  const k = a0.f + a0.n / 2;
+  const mNoSolution = ((k * k * q) / 2 - P * 1e3 * a0.f) / 1e6;
+  const ratio = (M: number) => {
+    const ps = plateState(
+      env,
+      P,
+      axis === "y" ? sgn * M : 0,
+      axis === "x" ? sgn * M : 0,
+    );
+    if (ps.kase === "no-solution") return Infinity;
+    const an = anchorChecks(
+      env.i,
+      env.rods,
+      ps.tension.map((t) => t * alpha),
+      0,
+      0,
+      0,
+      P * alpha,
+      [],
+      seismic,
+    );
+    const aisc = rodAiscCheck(env.i, Math.max(0, ...ps.tension), 0).dcr;
+    return Math.max(
+      ps.tp / env.i.plate.tp,
+      an.tensionRatio,
+      aisc,
+      ps.bearingDcr,
+    );
+  };
+  let lo = 0,
+    hi = mNoSolution * (1 - 1e-9);
+  if (!(hi > 0) || ratio(0) > 1) return 0;
+  if (ratio(hi) <= 1) return hi;
+  for (let n = 0; n < 60; n++) {
+    const mid = (lo + hi) / 2;
+    if (ratio(mid) <= 1) lo = mid;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/**
+ * Column-to-plate weld. I-shapes per DG1: flange force (M/d − P/2) on the
+ * outside flange weld with kds 1.5 (Ex. 4.7-9); rods between the flanges on
+ * the web weld over beff with kds 1.5 and the web stress (Ex. 4.7-3); weak-
+ * axis moment and shear on the elastic weld group. HSS: elastic weld group.
+ */
+function columnWeld(
+  i: BasePlateInput,
+  wg: ReturnType<typeof weldGroup>,
+  phiRw: number,
+  P: number,
+  mx: number,
+  my: number,
+  vRes: number,
+  groups: TensionGroup[],
+): ComboResult["weld"] {
+  const c = i.column;
+  const fV = vRes / wg.L;
+  if (c.family !== "I") {
+    const fN = Math.max(
+      0,
+      (-P * 1e3) / wg.L +
+        (Math.abs(mx) * 1e6 * wg.ym) / wg.ix +
+        (Math.abs(my) * 1e6 * wg.xm) / wg.iy,
+    );
+    const f = Math.hypot(fN, fV);
+    return {
+      fN,
+      fV,
+      f,
+      capacity: phiRw,
+      dcr: f / phiRw,
+      length: wg.L,
+      detail: `elastic weld group: fN = −P/Lw + M·c/I = ${fN.toFixed(0)} N/mm, fV = ${fV.toFixed(0)} N/mm`,
+    };
+  }
+  const rot = i.rotation === 90;
+  const strong = rot ? my : mx,
+    weak = rot ? mx : my;
+  const rf = Math.max(0, (Math.abs(strong) * 1e6) / c.d - (P * 1e3) / 2);
+  const fFl = rf / c.bf;
+  const capK = phiRw * 1.5;
+  const fW =
+    (Math.abs(weak) * 1e6 * (rot ? wg.ym : wg.xm)) / (rot ? wg.ix : wg.iy) +
+    Math.max(0, (-P * 1e3) / wg.L) * (Math.abs(strong) > 0 ? 0 : 1);
+  const fGroup = Math.hypot(fW, fV);
+  let fR = 0;
+  for (const g of groups)
+    if (/^(web|flange)/.test(g.support) && g.beff > 0)
+      fR = Math.max(fR, g.tensions.reduce((a, b) => a + b, 0) / g.beff);
+  const webStress = c.tw > 0 ? (2 * fR) / c.tw : 0;
+  const webAllow = plateFactor(i) * c.fy;
+  const cands = [
+    {
+      dcr: fFl / capK,
+      f: fFl,
+      cap: capK,
+      d: `flange force Rf = M/d − P/2 = ${(rf / 1e3).toFixed(1)} kN on the outside flange weld (bf ${c.bf.toFixed(0)} mm, kds 1.5): ${fFl.toFixed(0)} N/mm`,
+    },
+    {
+      dcr: fGroup / phiRw,
+      f: fGroup,
+      cap: phiRw,
+      d: `weak-axis moment and shear on the weld group: √(fN² + fV²) = ${fGroup.toFixed(0)} N/mm`,
+    },
+    {
+      dcr: fR / capK,
+      f: fR,
+      cap: capK,
+      d: `rods between the flanges: ΣT/beff = ${fR.toFixed(0)} N/mm on the web weld (kds 1.5, DG1 Ex. 4.7-3)`,
+    },
+    {
+      dcr: webStress / webAllow,
+      f: fR,
+      cap: (webAllow * c.tw) / 2,
+      d: `web stress 2r/tw = ${webStress.toFixed(0)} MPa vs ${webAllow.toFixed(0)} MPa`,
+    },
+  ];
+  const g = cands.reduce((a, b) => (b.dcr > a.dcr ? b : a));
+  return {
+    fN: Math.max(fFl, fW),
+    fV,
+    f: g.f,
+    capacity: g.cap,
+    dcr: g.dcr,
+    length: wg.L,
+    detail: g.d,
+  };
+}
+
 /** Full analysis of all included combinations. */
 export function analyzeBasePlate(
   raw: BasePlateInput,
@@ -1441,7 +2131,6 @@ export function analyzeBasePlate(
   const cap = basePlateBearing(i);
   const st = basePlateStiffening(i);
   const notes: string[] = [];
-  const nRods = rods.length;
   const sumX2 = rods.reduce((s, r) => s + r.x * r.x, 0),
     sumY2 = rods.reduce((s, r) => s + r.y * r.y, 0);
   const shearRodIds =
@@ -1456,275 +2145,108 @@ export function analyzeBasePlate(
     i.weld.fexx *
     0.7071 *
     i.weld.size;
-  // ACI 318 has no ASD: anchor checks use α × ASD demand vs φRn.
+  // ACI 318 has no ASD: anchor checks use α × ASD demand vs φRn (with the
+  // LRFD-table option the ACI checks come from `anchorRun` instead).
   const alpha = i.designMethod === "ASD" ? i.asdAlpha : 1;
   const seismicSdc = ["C", "D", "E", "F"].includes(i.seismic.sdc);
+  const env: Env = {
+    i,
+    rods,
+    cap,
+    st,
+    supports: [...columnSupportPlates(i), ...(st?.plates ?? [])],
+    fb: plateFactor(i),
+    sumX2,
+    sumY2,
+  };
+  const sctx = basePlateStiffenerContext(i);
   const combos: ComboResult[] = [];
   for (const load of i.loads.filter((l) => l.included)) {
     const P = load.pu;
-    const tension = rods.map(() => 0);
-    let axes: AxisAnalysis[] = [];
-    let kase: BearingCase;
-    let method: string;
-    let bearingDcr = 0,
-      fp = 0,
-      tp = 0;
-    const lam = dg1LambdaNp(i, P, cap);
-    const ex = P > 0 ? (load.my * 1e6) / (P * 1e3) : 0;
-    const ey = P > 0 ? (load.mx * 1e6) / (P * 1e3) : 0;
-    const stiffTension: TensionGroup[] = [];
-    if (P <= 0) {
-      kase = "uplift";
-      method =
-        "Net uplift: elastic rod group, plate inactive in bearing (conservative)";
-      for (let k = 0; k < nRods; k++) {
-        const r = rods[k]!;
-        const t =
-          (-P * 1e3) / nRods -
-          (sumY2 > 0 ? (load.mx * 1e6 * r.y) / sumY2 : 0) -
-          (sumX2 > 0 ? (load.my * 1e6 * r.x) / sumX2 : 0);
-        tension[k] = Math.max(0, t);
-      }
-      // Plate bending from the rods of each outer line about the column face.
-      for (const axis of ["x", "y"] as const) {
-        const a = dg1Axis(
-          i,
-          rods,
-          cap,
-          axis,
-          0,
-          axis === "y" ? load.mx || 1e-9 : load.my || 1e-9,
-          0,
-        );
-        for (const side of [1, -1]) {
-          const coord = (r: Rod) => (axis === "y" ? r.y : r.x);
-          const ext =
-            side > 0
-              ? Math.max(...rods.map(coord))
-              : Math.min(...rods.map(coord));
-          const idx = rods
-            .map((r, k) => (Math.abs(coord(r) - ext) < 1e-6 ? k : -1))
-            .filter((k) => k >= 0);
-          const t = idx.reduce((s, k) => s + tension[k]!, 0);
-          if (st) {
-            // Stiffened: each rod to its nearest support (DG1 Ex. 4.7-7).
-            const res = tensionLine(
-              st,
-              axis,
-              idx.map((k) => ({ ...rods[k]!, t: tension[k]! })),
-              a.x,
-              a.b,
-              i.plate.fy,
-              plateFactor(i),
-            );
-            tp = Math.max(tp, res.tp);
-            stiffTension.push(...res.groups);
-            continue;
-          }
-          // 45° widths of the rods in tension only (engine 0.3.0 fix).
-          const beff = effectiveWidth(
-            idx
-              .filter((k) => tension[k]! > 0)
-              .map((k) => (axis === "y" ? rods[k]!.x : rods[k]!.y)),
-            a.x,
-            a.b,
-          );
-          if (a.x > 0 && t > 0)
-            tp = Math.max(
-              tp,
-              tpFromMpl((t * a.x) / beff, i.plate.fy, plateFactor(i)),
-            );
-        }
-        axes.push({
-          ...a,
-          case: "uplift",
-          tu: 0,
-          fp: 0,
-          bearingDcr: 0,
-          tpBearing: 0,
-          tpTension: tp,
-        });
-      }
-    } else {
-      const hasX = Math.abs(load.my) > 1e-9,
-        hasY = Math.abs(load.mx) > 1e-9;
-      if (hasX && hasY) {
-        // Biaxial small eccentricity: effective (Meyerhof) bearing area, rods inactive.
-        const yx = i.plate.bx - 2 * Math.abs(ex),
-          yy = i.plate.by - 2 * Math.abs(ey);
-        const fpe = yx > 0 && yy > 0 ? (P * 1e3) / (yx * yy) : Infinity;
-        if (fpe <= cap.fpMax) {
-          kase = "biaxial-small";
-          method =
-            "Biaxial, small eccentricity: uniform bearing on Bx−2ex by By−2ey (DG1)";
-          fp = fpe;
-          bearingDcr = fpe / cap.fpMax;
-          const ax = dg1Axis(i, rods, cap, "x", P, load.my, 0),
-            ay = dg1Axis(i, rods, cap, "y", P, load.mx, 0);
-          const bend = (a: AxisAnalysis, y: number) =>
-            tpFromMpl(
-              bearingMpl(fpe, y, Math.max(a.m, a.nCant)),
-              i.plate.fy,
-              plateFactor(i),
-            );
-          axes = [
-            {
-              ...ax,
-              case: "biaxial-small",
-              y: yx,
-              fp: fpe,
-              tu: 0,
-              bearingDcr,
-              tpBearing: bend(ax, yx),
-              tpTension: 0,
-              tensionRods: [],
-            },
-            {
-              ...ay,
-              case: "biaxial-small",
-              y: yy,
-              fp: fpe,
-              tu: 0,
-              bearingDcr,
-              tpBearing: bend(ay, yy),
-              tpTension: 0,
-              tensionRods: [],
-            },
-          ];
-          tp = Math.max(axes[0]!.tpBearing, axes[1]!.tpBearing);
-        } else {
-          kase = "large";
-          method =
-            "Biaxial, large eccentricity: DG1 per axis with full Pu, rod tensions superposed (conservative)";
-          axes = [
-            dg1Axis(i, rods, cap, "x", P, load.my, 0),
-            dg1Axis(i, rods, cap, "y", P, load.mx, 0),
-          ];
-        }
-      } else {
-        const axis = hasX ? "x" : "y";
-        const a = dg1Axis(
-          i,
-          rods,
-          cap,
-          axis,
-          P,
-          hasX ? load.my : load.mx,
-          lam.lambdaNp,
-        );
-        axes = [a];
-        kase = a.case;
-        method =
-          a.case === "axial"
-            ? "Axial compression: DG1 cantilevers m, n, λn′"
-            : a.case === "small"
-              ? `Small moment (e ≤ ecrit) about ${axis === "y" ? "X" : "Y"}: uniform bearing Y = N − 2e`
-              : `Large moment (e > ecrit) about ${axis === "y" ? "X" : "Y"}: uniform bearing at fp,max + rod tension`;
-      }
-      if (kase !== "biaxial-small") {
-        for (const a of axes) {
-          if (a.case === "large" || a.case === "no-solution") {
-            const per = a.tu / Math.max(a.tensionRods.length, 1);
-            for (const id of a.tensionRods) {
-              const k = rods.findIndex((r) => r.id === id);
-              tension[k] =
-                tension[k]! + (Number.isFinite(per) ? per : Infinity);
-            }
-          }
-        }
-        bearingDcr = Math.max(...axes.map((a) => a.bearingDcr));
-        fp = Math.max(...axes.map((a) => a.fp));
-        tp = Math.max(...axes.map((a) => Math.max(a.tpBearing, a.tpTension)));
-        if (axes.some((a) => a.case === "no-solution")) {
-          kase = "no-solution";
-          tp = Infinity;
-        }
-      }
-    }
-    // Stiffened plate: panels replace the DG1 cantilever in stiffened zones.
-    let stiffener: ComboStiffener | null = null;
-    if (st) {
-      const fb = plateFactor(i);
-      const panels = new Map<string, PanelResult>();
-      const bearingCases: { region: PlateRect; fp: number }[] = [];
-      let unstiffenedTp = 0;
-      if (P > 0 && kase !== "no-solution") {
-        const lU = Math.max(
-          0,
-          ...st.zones.filter((z) => !z.stiffened).map((z) => z.depth),
-        );
-        for (const a of axes) {
-          const region =
-            a.case === "biaxial-small"
-              ? meyerhofRect(i, ex, ey)
-              : bearingRegion(i, a);
-          const l = a.case === "axial" ? Math.max(lU, lam.lambdaNp) : lU;
-          const yA = a.case === "axial" ? a.n : a.y;
-          const tpU =
-            l > 0 ? tpFromMpl(bearingMpl(a.fp, yA, l), i.plate.fy, fb) : 0;
-          unstiffenedTp = Math.max(unstiffenedTp, tpU);
-          const pr = panelBearing(st, region, a.fp, i.plate.fy, fb);
-          for (const p of pr)
-            if ((panels.get(p.id)?.tpReq ?? -1) < p.tpReq) panels.set(p.id, p);
-          bearingCases.push({ region, fp: a.fp });
-          a.tpBearing = Math.max(tpU, ...pr.map((p) => p.tpReq));
-          if (a.case === "large" && a.tensionRods.length) {
-            const per = a.tu / a.tensionRods.length;
-            const res = tensionLine(
-              st,
-              a.axis,
-              a.tensionRods.map((id) => ({
-                ...rods.find((r) => r.id === id)!,
-                t: per,
-              })),
-              a.x,
-              a.b,
-              i.plate.fy,
-              fb,
-            );
-            a.tpTension = res.tp;
-            stiffTension.push(...res.groups);
-          }
-        }
-        tp = Math.max(...axes.map((a) => Math.max(a.tpBearing, a.tpTension)));
-      }
-      const sctx = basePlateStiffenerContext(i);
-      const members = st.plates.map((p) =>
-        memberCheck(
-          sctx,
-          st,
-          p,
-          bearingCases
-            .map((b) => stiffenerBearingLoad(p, st.input.t, b.region, b.fp))
-            .filter((b) => b !== null),
-          stiffTension
-            .filter((g) => g.support === p.id)
-            .map((g) => ({ t: g.tensions, xi: g.xi, beff: g.beff })),
-        ),
-      );
-      stiffener = {
-        panels: [...panels.values()],
-        tension: stiffTension,
-        members,
-        unstiffenedTp,
-      };
-    }
     const vRes = Math.hypot(load.vx, load.vy) * 1e3;
     const seismicApplies = seismicSdc && load.seismic;
-    // Friction (DG1): φ = 0.75, μ Pu, compression only; not relied on for E combinations.
+    // Shear lug: V·e (e = tgrout + hsl/2) adds to the base moment (DG1
+    // Ex. 4.7-5; +Vx compresses the +X edge → +My).
+    let lugMoment: ComboResult["lugMoment"] = null;
+    let mx = load.mx,
+      my = load.my;
+    if (i.shear.method === "lug") {
+      const o = i.shear.lug.orientation;
+      const e = i.grout.thickness + i.shear.lug.depth / 2;
+      const dmy = o !== "y" ? (load.vx * e) / 1e3 : 0,
+        dmx = o !== "x" ? (load.vy * e) / 1e3 : 0;
+      lugMoment = { mx: dmx, my: dmy, e };
+      mx += dmx;
+      my += dmy;
+    }
+    const ps = plateState(env, P, mx, my);
+    let tension = ps.tension;
+    let method = ps.method;
+    // DG1 4.3.11 Eq. 4-69: biaxial large moment with compression, shear not
+    // on the rods → moment strengths per axis at Pu, interaction ≤ 1.
+    let biaxial: ComboResult["biaxial"] = null;
+    if (
+      P > 0 &&
+      ps.kase === "large" &&
+      ps.axes.length === 2 &&
+      !rodsCarryShear(i)
+    ) {
+      const mcx = momentStrength(env, "y", P, mx, alpha, seismicApplies),
+        mcy = momentStrength(env, "x", P, my, alpha, seismicApplies);
+      biaxial = {
+        mcx,
+        mcy,
+        ratio: (mx / mcx) ** 2 + (my / mcy) ** 2,
+        basis:
+          "DG1 Eq. 4-69 with Mc per axis at Pu from all limit states (bearing solution, plate, rod steel, ACI tension)",
+      };
+      // Rod forces shown per axis (largest), not superposed.
+      tension = rods.map((_, k) =>
+        Math.max(...ps.axisTension.map((t) => t[k] ?? 0)),
+      );
+      method =
+        "Biaxial, large eccentricity: DG1 Eq. 4-69 interaction (per-axis Mc at Pu)";
+    } else if (P > 0 && ps.kase === "large" && ps.axes.length === 2)
+      method =
+        "Biaxial, large eccentricity: per-axis DG1 analyses with full Pu, rod tensions superposed (rods carry shear, so DG1 Eq. 4-69 does not apply)";
+    // Friction (DG1 Eq. 4-30), strength level: φ0.65 μP ≤ 0.75 min(0.2f′c, 5.5 MPa)·Ac.
     let friction: ComboResult["friction"] = null;
-    if (i.shear.method === "friction") {
+    let vRods = rodsCarryShear(i) ? vRes : 0;
+    if (
+      i.shear.method === "friction" ||
+      i.shear.method === "friction-anchors"
+    ) {
+      const ac =
+        ps.kase === "uplift" || ps.kase === "no-solution"
+          ? 0
+          : ps.kase === "biaxial-small"
+            ? (i.plate.bx - 2 * Math.abs(ps.ex)) *
+              (i.plate.by - 2 * Math.abs(ps.ey))
+            : Math.min(
+                ...ps.axes.map((a) =>
+                  a.case === "axial" ? a.n * a.b : Math.min(a.y, a.n) * a.b,
+                ),
+              );
+      const capLimit = 0.75 * Math.min(0.2 * i.pedestal.fc, 5.5) * ac;
       const capF =
         P > 0 && !seismicApplies
-          ? designFactor(aiscFactors.friction, i.designMethod) *
-            i.shear.mu *
-            P *
-            1e3
+          ? Math.min(
+              aiscFactors.friction.phi * i.shear.mu * alpha * P * 1e3,
+              capLimit,
+            )
           : 0;
+      const demand = alpha * vRes;
+      const share = Math.min(capF, demand);
       friction = {
         capacity: capF,
-        dcr: vRes === 0 ? 0 : capF > 0 ? vRes / capF : Infinity,
+        cap: capLimit,
+        ac,
+        share,
+        dcr: demand === 0 ? 0 : capF > 0 ? demand / capF : Infinity,
       };
+      // Friction added to the rods (ACI 349 D.6.1.4): rods take the rest.
+      if (i.shear.method === "friction-anchors")
+        vRods = Math.max(0, demand - share) / alpha;
     }
     let lug: LugCheck | null = null;
     if (i.shear.method === "lug") {
@@ -1732,14 +2254,23 @@ export function analyzeBasePlate(
       const o = i.shear.lug.orientation;
       const cx =
         o !== "y"
-          ? lugCheck(i, "x", Math.abs(load.vx) * 1e3, P * alpha, nT, alpha)
+          ? lugCheck(i, "x", Math.abs(load.vx) * 1e3, P, nT, alpha, rods, cap)
           : null;
       const cy =
         o !== "x"
-          ? lugCheck(i, "y", Math.abs(load.vy) * 1e3, P * alpha, nT, alpha)
+          ? lugCheck(i, "y", Math.abs(load.vy) * 1e3, P, nT, alpha, rods, cap)
           : null;
       const dcr = (c: LugCheck | null) =>
-        c ? Math.max(c.bearingDcr, c.breakoutDcr, c.flexureDcr) : -1;
+        c
+          ? Math.max(
+              c.bearingDcr,
+              c.breakoutDcr,
+              c.interaction,
+              c.steelDcr,
+              c.weldDcr,
+              c.plateDcr,
+            )
+          : -1;
       lug = dcr(cx) >= dcr(cy) ? cx : cy;
       // A single plate lug cannot resist the perpendicular component.
       if (o === "x" && Math.abs(load.vy) > 0)
@@ -1748,51 +2279,72 @@ export function analyzeBasePlate(
         lug = { ...(lug as LugCheck), bearingDcr: Infinity };
     }
     // ACI 318 anchor checks: strength-level demand (ASD × α).
+    const vScale = vRes > 0 ? vRods / vRes : 0;
     const anchor = anchorChecks(
       i,
       rods,
       tension.map((t) => t * alpha),
-      vRes * alpha,
-      load.vx * alpha,
-      load.vy * alpha,
+      vRods * alpha,
+      load.vx * vScale * alpha,
+      load.vy * vScale * alpha,
       P * alpha,
       shearRodIds,
       seismicApplies,
     );
     const rodShear = rods.map((r) =>
-      i.shear.method === "anchors" && shearRodIds.includes(r.id)
-        ? vRes / shearRodIds.length
-        : 0,
+      vRods > 0 && shearRodIds.includes(r.id) ? vRods / shearRodIds.length : 0,
     );
-    // Column weld (J2.4): tension from uplift/moment and shear, elastic line weld group.
-    const fN = Math.max(
-      0,
-      (-P * 1e3) / wg.L +
-        (Math.abs(load.mx) * 1e6 * wg.ym) / wg.ix +
-        (Math.abs(load.my) * 1e6 * wg.xm) / wg.iy,
+    const rodAisc = rodAiscCheck(
+      i,
+      Math.max(0, ...tension),
+      Math.max(0, ...rodShear),
     );
-    const fV = vRes / wg.L;
-    const fw = Math.hypot(fN, fV);
+    const weld = columnWeld(i, wg, phiRw, P, mx, my, vRes, ps.groups);
+    // Stiffener members.
+    let stiffener: ComboStiffener | null = null;
+    if (st)
+      stiffener = {
+        panels: ps.panels,
+        tension: ps.groups,
+        members: st.plates.map((p) =>
+          memberCheck(
+            sctx,
+            st,
+            p,
+            ps.bearingCases
+              .map((b) => stiffenerBearingLoad(p, st.input.t, b.region, b.fp))
+              .filter((b) => b !== null),
+            ps.groups
+              .filter((g) => g.support === p.id)
+              .map((g) => ({ t: g.tensions, xi: g.xi, beff: g.beff })),
+          ),
+        ),
+        unstiffenedTp: ps.unstiffenedTp,
+      };
     combos.push({
       load,
-      case: kase,
+      case: ps.kase,
       method,
-      ex,
-      ey,
-      axes,
-      bearingDcr,
-      fp,
-      lambdaNp: lam.lambdaNp,
-      tpRequired: tp,
+      ex: ps.ex,
+      ey: ps.ey,
+      axes: ps.axes,
+      bearingDcr: ps.bearingDcr,
+      fp: ps.fp,
+      lambdaNp: ps.lambdaNp,
+      tpRequired: ps.tp,
       rodTension: tension,
       rodShear,
       shearRods: shearRodIds,
       vResultant: vRes,
       anchor,
-      weld: { fN, fV, f: fw, capacity: phiRw, dcr: fw / phiRw, length: wg.L },
+      weld,
       friction,
       lug,
       seismicApplies,
+      lugMoment,
+      rodAisc,
+      biaxial,
+      plateTension: ps.groups,
       stiffener,
     });
   }
@@ -1817,9 +2369,24 @@ export function analyzeBasePlate(
     notes.push(
       "SDC C–F: AISC 341-22 D2.6 column-base required strengths are not calculated; enter base reactions that already satisfy AISC 341 (e.g. Ω0 or expected-strength demands). ACI 318-19 17.10 is applied to E combinations.",
     );
-  if (i.shear.method === "friction" && combos.some((c) => c.seismicApplies))
+  if (
+    (i.shear.method === "friction" || i.shear.method === "friction-anchors") &&
+    combos.some((c) => c.seismicApplies)
+  )
     notes.push(
-      "Friction is not relied on in earthquake combinations; use anchor rods or a shear lug.",
+      "Friction is not relied on in earthquake combinations (DG1 4.3.5, ASCE 7 Ch. 13/15); use anchor rods or a shear lug.",
+    );
+  if (i.shear.method === "friction" || i.shear.method === "friction-anchors")
+    notes.push(
+      `Friction per DG1 Eq. 4-30 (ACI 349-13 D.6.1.4): φ 0.65 × μ ${i.shear.mu} × P ≤ 0.75 min(0.2f′c, 5.5 MPa) × Ac, Ac = bearing area of the combination (engine choice); zero for uplift and E combinations.${i.shear.method === "friction-anchors" ? " The rods resist the shear not taken by friction." : ""}`,
+    );
+  if (combos.some((c) => c.biaxial))
+    notes.push(
+      "Biaxial bending with large eccentricity checked by DG1 Eq. 4-69 (valid with compression and shear by lug or friction); rod forces are shown per axis.",
+    );
+  if (i.shear.method === "lug")
+    notes.push(
+      "Shear lug (DG1 Ex. 4.7-5): V·(tgrout + hsl/2) is added to the base moment for bearing, plate and rods; lug bearing depth ≤ 2tsl; breakout φ 0.65; local plate bending at the lug neglects the column.",
     );
   if (!i.anchors.weldedWashers)
     notes.push(
@@ -1827,7 +2394,7 @@ export function analyzeBasePlate(
     );
   if (i.designMethod === "ASD")
     notes.push(
-      `ASD (AISC 360-22 B3.2): loads are ASD combinations; steel checks use Rn/Ω (Ωc ${aiscFactors.bearing.omega}, Ωb ${aiscFactors.plateFlexure.omega}, Ωw ${aiscFactors.weld.omega}). ACI 318-19 anchor checks have no ASD: demand = ${alpha} × ASD demand vs φRn.`,
+      `ASD (AISC 360-22 B3.2): loads are ASD combinations; steel checks use Rn/Ω (Ωc ${aiscFactors.bearing.omega}, Ωb ${aiscFactors.plateFlexure.omega}, Ωw ${aiscFactors.weld.omega}, rods ${aiscFactors.rod.omega}). ACI 318-19 has no ASD: ${i.asdAnchorBasis === "lrfd" ? "anchor, friction and lug-concrete checks use the separate LRFD combinations (DG1 practice)." : `anchor, friction and lug-concrete checks use ${alpha} × ASD demand vs φRn (engine option; DG1 checks ACI with LRFD loads).`}`,
     );
   if (i.concreteCode !== i.steelCode.replace("AISC 360-22", "ACI 318-19"))
     notes.push(
@@ -1859,6 +2426,19 @@ export function analyzeBasePlate(
     },
     rods,
     bearing: cap,
+    anchorRun:
+      i.designMethod === "ASD" && i.asdAnchorBasis === "lrfd"
+        ? analyzeBasePlate(
+            {
+              ...i,
+              designMethod: "LRFD",
+              asdAnchorBasis: "alpha",
+              loads: i.lrfdLoads,
+              lrfdLoads: [],
+            },
+            tableHole,
+          )
+        : null,
     stiffening: st,
     combos,
     geometry: basePlateGeometry(i, rods, tableHole),
@@ -1900,11 +2480,53 @@ function governing<T>(
   return best;
 }
 
-/** One row per check (governing combination), with the clause basis. */
+/** Checks evaluated with ACI 318 (strength design; LRFD table under ASD). */
+export const basePlateAciCheckIds = new Set([
+  "rod-tension",
+  "rod-shear",
+  "breakout-tension",
+  "pullout",
+  "side-face",
+  "bond",
+  "sustained",
+  "breakout-shear-x",
+  "breakout-shear-y",
+  "pryout",
+  "interaction",
+  "seismic-ductility",
+  "friction",
+  "lug-bearing",
+  "lug-breakout",
+]);
+/**
+ * One row per check (governing combination), with the clause basis. Under
+ * ASD with LRFD anchor demands, the ACI 318 rows come from the LRFD run.
+ */
 export function basePlateDesignChecks(
   i: BasePlateInput,
   r: BasePlateResult,
 ): DesignCheck[] {
+  const own = designChecksOf(i, r);
+  if (!r.anchorRun) return own;
+  const li: BasePlateInput = {
+    ...i,
+    designMethod: "LRFD",
+    asdAnchorBasis: "alpha",
+    loads: i.lrfdLoads,
+    lrfdLoads: [],
+  };
+  const lr = new Map(
+    designChecksOf(li, r.anchorRun)
+      .filter((c) => basePlateAciCheckIds.has(c.id))
+      .map((c) => [c.id, { ...c, label: `${c.label} (LRFD Combinations)` }]),
+  );
+  const out = own
+    .filter((c) => !basePlateAciCheckIds.has(c.id) || lr.has(c.id))
+    .map((c) => lr.get(c.id) ?? c);
+  for (const [id, c] of lr) if (!out.some((x) => x.id === id)) out.push(c);
+  return out;
+}
+function designChecksOf(i: BasePlateInput, r: BasePlateResult): DesignCheck[] {
   const out: DesignCheck[] = [];
   const cs = r.combos;
   const g = r.geometry;
@@ -1948,7 +2570,7 @@ export function basePlateDesignChecks(
       label: "Column-to-Plate Fillet Weld",
       dcr: w.dcr,
       clause: basePlateClauses.weld(),
-      detail: `${w.c.load.id}: f = √(fN² + fV²) = ${w.t.f.toFixed(0)} N/mm vs ${i.designMethod === "LRFD" ? "φRn" : "Rn/Ω"} ${w.t.capacity.toFixed(0)} N/mm (${i.weld.size} mm E${(i.weld.fexx / 6.895).toFixed(0)}, all-around length ${w.t.length.toFixed(0)} mm, compression by bearing).`,
+      detail: `${w.c.load.id}: ${w.t.detail} vs ${i.designMethod === "LRFD" ? "φRn" : "Rn/Ω"} ${w.t.capacity.toFixed(0)} N/mm (${i.weld.size} mm E${(i.weld.fexx / 6.895).toFixed(0)} all around, compression by bearing).`,
     });
   const st = governing(
     cs,
@@ -1963,7 +2585,7 @@ export function basePlateDesignChecks(
       clause: basePlateClauses.steelTension(),
       detail: `${st.c.load.id}: Nua ${kN(st.t.nuaMax)} kN/rod vs φNsa ${kN(st.t.phiNsa)} kN.`,
     });
-  if (i.shear.method === "anchors") {
+  if (rodsCarryShear(i)) {
     const ss = governing(
       cs,
       (c) => c.anchor,
@@ -2052,7 +2674,7 @@ export function basePlateDesignChecks(
       detail: `Sustained share ${(i.anchors.sustained * 100).toFixed(0)} % of Nua.`,
     });
   }
-  if (i.shear.method === "anchors") {
+  if (rodsCarryShear(i)) {
     for (const axis of ["X", "Y"] as const) {
       const edges = axis === "X" ? ["east", "west"] : ["north", "south"];
       const sb = governing(
@@ -2115,32 +2737,29 @@ export function basePlateDesignChecks(
         label: "Shear Transfer – Friction",
         dcr: f.dcr,
         clause: basePlateClauses.friction(),
-        detail: `${f.c.load.id}: Vu ${kN(f.c.vResultant)} kN vs ${i.designMethod === "LRFD" ? "φμPu" : "μPa/Ω"} ${kN(f.t.capacity)} kN (μ ${i.shear.mu}; none for uplift or E combinations).`,
+        detail: `${f.c.load.id}: V ${kN(r.method.anchorDemandFactor * f.c.vResultant)} kN vs φ0.65 μP = ${kN(f.t.capacity)} kN (μ ${i.shear.mu}; cap 0.75 min(0.2f′c, 5.5 MPa) Ac = ${kN(f.t.cap)} kN, Ac ${(f.t.ac / 1e6).toFixed(3)} m²; none for uplift or E combinations).`,
       });
   }
   if (i.shear.method === "lug") {
-    const lb = governing(
-      cs,
-      (c) => c.lug,
-      (x) => x.bearingDcr,
-    );
-    const lc = governing(
-      cs,
-      (c) => c.lug,
-      (x) => x.breakoutDcr,
-    );
-    const lf = governing(
-      cs,
-      (c) => c.lug,
-      (x) => x.flexureDcr,
-    );
+    const L = <K extends keyof LugCheck>(k: K) =>
+      governing(
+        cs,
+        (c) => c.lug,
+        (x) => x[k] as number,
+      );
+    const lb = L("bearingDcr"),
+      lc = L("breakoutDcr"),
+      li = L("interaction"),
+      ls = L("steelDcr"),
+      lw = L("weldDcr"),
+      lp = L("plateDcr");
     if (lb)
       push({
         id: "lug-bearing",
         label: "Shear Lug Bearing",
         dcr: lb.dcr,
         clause: basePlateClauses.lugBearing(),
-        detail: `${lb.c.load.id}: ${lb.t.direction.toUpperCase()} Vu ${kN(lb.t.vu)} kN vs φVbrg ${kN(lb.t.phiVbrg)} kN (ψbrg,sl ${lb.t.psiBrg.toFixed(2)}).${Number.isFinite(lb.dcr) ? "" : " Single-plate lug cannot resist the perpendicular shear."}`,
+        detail: `${lb.c.load.id}: ${lb.t.direction.toUpperCase()} V ${kN(lb.t.vu * r.method.anchorDemandFactor)} kN vs φVbrg ${kN(lb.t.phiVbrg)} kN (Aef ${lb.t.aef.toFixed(0)} mm², depth ≤ 2tsl; ψbrg,sl ${lb.t.psiBrg.toFixed(2)}).${Number.isFinite(lb.dcr) ? "" : " Single-plate lug cannot resist the perpendicular shear."}`,
       });
     if (lc)
       push({
@@ -2148,17 +2767,82 @@ export function basePlateDesignChecks(
         label: "Shear Lug Concrete Breakout",
         dcr: lc.dcr,
         clause: basePlateClauses.lugBreakout(),
-        detail: `${lc.c.load.id}: ca1 ${lc.t.ca1.toFixed(0)} mm, φVcb ${kN(lc.t.phiVcb)} kN.`,
+        detail: `${lc.c.load.id}: ca1 ${lc.t.ca1.toFixed(0)} mm, φVcb ${kN(lc.t.phiVcb)} kN (φ 0.65).`,
       });
-    if (lf)
+    if (li)
       push({
         id: "lug-flexure",
-        label: "Shear Lug Flexure",
-        dcr: lf.dcr,
+        label: "Shear Lug Flexure + Shear (Eq. 9-1)",
+        dcr: li.dcr,
         clause: basePlateClauses.lugFlexure(),
-        detail: `${lf.c.load.id}: Mu ${(lf.t.mu / 1e6).toFixed(2)} kN·m vs φMn ${(lf.t.phiMn / 1e6).toFixed(2)} kN·m.`,
+        detail: `${li.c.load.id}: M/Mc + (V/Vc)⁴ = ${(li.t.mu / 1e6).toFixed(2)}/${(li.t.phiMn / 1e6).toFixed(2)} + (${kN(li.t.vu)}/${kN(li.t.phiVy)})⁴; M = V(tgrout + hsl/2), e ${li.t.e.toFixed(0)} mm.`,
       });
+    if (ls)
+      push({
+        id: "lug-rupture",
+        label: "Shear Lug Shear / Flexural Rupture",
+        dcr: ls.dcr,
+        clause: basePlateClauses.lugRupture(),
+        detail: `${ls.c.load.id}: shear rupture ${kN(ls.t.phiVr)} kN, flexural rupture ${(ls.t.phiMr / 1e6).toFixed(2)} kN·m (Fu ${i.shear.lug.fu} MPa).`,
+      });
+    if (lw)
+      push({
+        id: "lug-weld",
+        label: "Shear Lug Weld",
+        dcr: lw.dcr,
+        clause: basePlateClauses.lugWeld(),
+        detail: `${lw.c.load.id}: √((V/2b)² + (M/(a b))²) = ${lw.t.weldF.toFixed(0)} vs ${lw.t.weldCap.toFixed(0)} N/mm (2 × ${i.shear.lug.weld} mm fillets, kds 1.5).`,
+      });
+    if (lp)
+      push({
+        id: "lug-plate",
+        label: "Base Plate Bending at Lug",
+        dcr: lp.dcr,
+        clause: basePlateClauses.lugPlate(),
+        detail: `${lp.c.load.id}: M = max(T f, qmax Y (N/2 − Y/2)) = ${(lp.t.plateM / 1e6).toFixed(2)} kN·m vs ${(lp.t.plateMn / 1e6).toFixed(2)} kN·m over b_sl (column neglected).`,
+      });
+    // ACI 17.11.1.1.8: hef ≥ 2.5 hsl and ≥ 2.5 csl.
+    const o = i.shear.lug.orientation;
+    const a = i.anchors;
+    const csl = Math.max(
+      o !== "y" ? ((a.nx - 1) * a.sx) / 2 : 0,
+      o !== "x" ? ((a.ny - 1) * a.sy) / 2 : 0,
+    );
+    const need = 2.5 * Math.max(i.shear.lug.depth, csl);
+    push({
+      id: "geo-lug-hef",
+      label: "Anchor Embedment with Shear Lug",
+      dcr: need / a.hef,
+      clause: basePlateClauses.lugHef(),
+      detail: `hef ${a.hef.toFixed(0)} mm vs 2.5 max(hsl ${i.shear.lug.depth.toFixed(0)}, csl ${csl.toFixed(0)}) = ${need.toFixed(0)} mm.`,
+    });
   }
+  const ra = governing(
+    cs,
+    (c) => c.rodAisc,
+    (x) => x.dcr,
+  );
+  if (ra)
+    push({
+      id: "rod-aisc",
+      label: "Anchor Rod (AISC J3.8, With Bending)",
+      dcr: ra.dcr,
+      clause: basePlateClauses.rodAisc(),
+      detail: `${ra.c.load.id}: ft = T/Ab + M/Z = ${ra.t.ft.toFixed(1)} vs ${ra.t.ftAllow.toFixed(1)} MPa; fv = ${ra.t.fv.toFixed(1)} vs ${ra.t.fvAllow.toFixed(1)} MPa (T ${kN(ra.t.t)} kN, V ${kN(ra.t.v)} kN, M = V × ${ra.t.lever.toFixed(1)} mm; Fnt 0.75Fu, Fnv 0.45Fu).`,
+    });
+  const bx = governing(
+    cs,
+    (c) => c.biaxial,
+    (x) => x.ratio,
+  );
+  if (bx)
+    push({
+      id: "biaxial",
+      label: "Biaxial Interaction (DG1 Eq. 4-69)",
+      dcr: bx.dcr,
+      clause: basePlateClauses.biaxial(),
+      detail: `${bx.c.load.id}: (Mx/Mcx)² + (My/Mcy)² with Mcx ${bx.t.mcx.toFixed(1)} kN·m, Mcy ${bx.t.mcy.toFixed(1)} kN·m at Pu ${bx.c.load.pu.toFixed(1)} kN.`,
+    });
   const du = governing(
     cs,
     (c) => c.anchor.ductility,
@@ -2348,6 +3032,7 @@ export function basePlateDesignChecks(
 /* ------------------------------------------------------------------ */
 
 const anchorIds = new Set([
+  "rod-aisc",
   "rod-tension",
   "rod-shear",
   "breakout-tension",
