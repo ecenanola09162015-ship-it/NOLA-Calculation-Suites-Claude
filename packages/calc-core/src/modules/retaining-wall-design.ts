@@ -751,7 +751,11 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
         heelSpan = { q: qHeel.q, mu: span.mu, phiMn: slabFlexuralStrength(fcfy, [{ as: barAreaPerMetre(dist), d }]).phiMn, case: span.case, combo: qHeel.combo };
       }
       if (cf.topReach > i.heel) warnings.push("Counterfort top reach exceeds the heel; it is limited to the heel length.");
-      warnings.push("Counterforts are designed for the FE line reactions of rigid line supports; their axial shortening and flexibility are not modelled. The heel strip (cantilever) check is kept as a conservative bound.");
+      warnings.push(
+        cf.support === "elastic"
+          ? "Counterforts are elastic T-beam cantilevers fixed at the footing (gross section × stiffness factor, shear deformation and axial shortening neglected); footing rotation under them is not modelled. The heel strip (cantilever) check is kept as a conservative bound."
+          : "Counterforts are designed for the FE line reactions of rigid line supports; their flexibility and axial shortening are not modelled. The heel strip (cantilever) check is kept as a conservative bound.",
+      );
     }
   }
   const isStem = (id: string) => id.startsWith("stem") || id.startsWith("plate");

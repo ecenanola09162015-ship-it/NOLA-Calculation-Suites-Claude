@@ -85,7 +85,7 @@ export interface CounterfortInput {
   tributary: number;
   /** FE line reactions: node heights and factored nodal forces per strength combination (kN, towards the toe). */
   ys: number[];
-  combos: { combo: string; force: number[] }[];
+  combos: { combo: string; force: number[]; moment?: number[] }[];
   /** Governing net downward factored heel load, kPa, and its combination. */
   heelNet: { combo: string; q: number } | null;
   footingThickness: number;
@@ -148,13 +148,14 @@ export function designCounterfort(c: CounterfortInput, index: number): Counterfo
   const root = slabSqrtFc(c.fc);
   const legs = 2 * (Math.PI / 4) * dt * dt;
   // Moment and shear at height y from the nodal reactions above it.
-  const actions = (force: number[], y: number) => {
+  // Nodal forces F_j and couples C_j above y: M(y) = Σ F_j (y_j − y) + Σ C_j, V(y) = Σ F_j.
+  const actions = (k: { force: number[]; moment?: number[] }, y: number) => {
     let m = 0,
       v = 0;
     c.ys.forEach((yj, j) => {
       if (yj > y + 1e-9) {
-        m += force[j]! * (yj - y);
-        v += force[j]!;
+        m += k.force[j]! * (yj - y) + (k.moment?.[j] ?? 0);
+        v += k.force[j]!;
       }
     });
     return { m, v };
@@ -168,7 +169,7 @@ export function designCounterfort(c: CounterfortInput, index: number): Counterfo
       vuEff = 0,
       combo = c.combos[0]?.combo ?? "";
     for (const k of c.combos) {
-      const a = actions(k.force, y);
+      const a = actions(k, y);
       const eff = Math.max(0, a.v - ((Math.max(0, a.m) * 1000) / d) * tanA);
       if (a.m > mu) {
         mu = a.m;
@@ -190,7 +191,7 @@ export function designCounterfort(c: CounterfortInput, index: number): Counterfo
   {
     let best = -1;
     for (const k of c.combos) {
-      const a = actions(k.force, govV.y),
+      const a = actions(k, govV.y),
         eff = a.v - ((Math.max(0, a.m) * 1000) / govV.d) * tanA;
       if (eff > best) {
         best = eff;
@@ -204,7 +205,7 @@ export function designCounterfort(c: CounterfortInput, index: number): Counterfo
   // Totals for the governing flexure combination.
   const gov = c.combos.find((k) => k.combo === govM.combo) ?? c.combos[0];
   const reaction = gov ? gov.force.reduce((s, f, j) => s + (c.ys[j]! > 1e-9 ? f : 0), 0) : 0;
-  const baseMoment = gov ? actions(gov.force, 0).m : 0;
+  const baseMoment = gov ? actions(gov, 0).m : 0;
   // Horizontal ties: reaction intensity per metre height.
   let tie = { demand: 0, y: 0, combo: "" };
   for (const k of c.combos)

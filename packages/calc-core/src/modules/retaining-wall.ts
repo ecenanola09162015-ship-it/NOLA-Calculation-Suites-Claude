@@ -70,6 +70,8 @@ export function defaultCounterfort() {
     tension: { diameter: 25, count: 4 },
     ties: { diameter: 12, spacing: 200 },
     heelTies: { diameter: 16, spacing: 200 },
+    support: "elastic" as const,
+    stiffnessFactor: 1,
   };
 }
 export const retainingWallInputSchema = z
@@ -108,6 +110,10 @@ export const retainingWallInputSchema = z
             ties: barRef,
             /** Vertical ties heel → counterfort (2 legs). */
             heelTies: barRef,
+            /** Buttress as a rigid line support or an elastic T-beam cantilever sharing the stem's w and w,y. */
+            support: z.enum(["rigid", "elastic"]).default("elastic"),
+            /** Multiplier on the buttress EI relative to the stem (e.g. 0.35/0.70 = 0.5 for a cracked buttress beside an uncracked wall, ACI 318-19 6.6.3.1.1). */
+            stiffnessFactor: z.number().min(0.05).max(5).default(1),
           })
           .default(defaultCounterfort()),
       })

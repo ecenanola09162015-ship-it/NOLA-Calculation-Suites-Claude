@@ -38,6 +38,8 @@ With `analysis: "plate"` and buttresses on a wall with a heel, each buttress is 
 - Minimum steel min[9.6.1.2, 4/3 As,req (9.6.1.3)], Av,min 9.6.3.4, one-layer clear spacing 25.2.1, hooked anchorage into the footing (ψr = 1.6).
 - Heel between counterforts: continuous slab wu·s²/12 at the counterforts, or wu·a²/2 for a free-end overhang, on the top distribution bars. The heel strip (cantilever) check is kept as a conservative bound.
 
-Not covered: elastic (flexible) buttress supports, counterfort axial shortening, front buttresses / pilasters (walls without a heel), two-layer counterfort bars.
+Buttress support (Phase 3b): **elastic** (default) models each buttress as an Euler–Bernoulli cantilever fixed at the footing, sharing w and w,y with the stem plate nodes on its line (Hermite beam elements). Added EI = Ec·(I_T − bf·t³/12) × stiffness factor, T-section with the Table 6.3.2.1 flange, varying with height. **Rigid** keeps w = w,y = 0 on the line. Counterfort actions use the nodal forces and couples: M(y) = Σ F_j (y_j − y) + Σ C_j. Tests: stiff limit = rigid (< 1e-4), soft limit = cantilever qH²/2, monotonic load shedding, wall-level redistribution (counterfort moments down, stem moments up).
+
+Not covered: buttress shear deformation and footing rotation under the counterforts, counterfort axial shortening, front buttresses / pilasters (walls without a heel), two-layer counterfort bars.
 
 The Section tab exports the section as AutoCAD 2007 DXF (mm, 1:20, office layers; counterforts beyond dashed). Tests: `test/retaining-wall-counterfort.test.ts` (T-beam by hand, reaction equilibrium, heel moments, integration) and `apps/web/test/retaining-wall-dxf.test.ts`.

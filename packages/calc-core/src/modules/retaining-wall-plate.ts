@@ -9,6 +9,7 @@
  * designed as a two-way slab (Ch. 8). Moments are elastic (no redistribution).
  */
 import type { RetainingWallCombination, RetainingWallInput } from "./retaining-wall";
+import { stemThickness } from "./retaining-wall-geometry";
 import type { PressureComponent, PressureKind } from "./retaining-wall-pressure";
 import {
   solveWallPlate,
@@ -45,7 +46,7 @@ export interface WallPlateResult {
   /** Peak strip-equivalent base moment from the 1 m strip, for comparison. */
   notes: string[];
   /** FE line reactions on each buttress (rigid line support), factored per strength combination. */
-  buttressReactions: { x: number; height: number; ys: number[]; combos: { combo: string; force: number[] }[] }[];
+  buttressReactions: { x: number; height: number; elastic: boolean; ys: number[]; combos: { combo: string; force: number[]; moment: number[] }[] }[];
 }
 
 export interface PlateCapacity {
@@ -55,7 +56,23 @@ export interface PlateCapacity {
   shear: (dir: "shearY" | "shearX", y: number) => number;
 }
 
-export function plateSupports(i: RetainingWallInput): WallPlateSupports {
+/**
+ * Added bending stiffness of a counterfort beyond the stem plate itself, m⁴:
+ * T-section (flange bf × t, web bw × reach behind the stem) about its own
+ * centroid, minus the flange's own bf·t³/12 already in the plate.
+ */
+export function counterfortAddedInertia(t: number, reach: number, bw: number, bf: number) {
+  const af = bf * t,
+    aw = bw * reach,
+    yc = (af * (t / 2) + aw * (t + reach / 2)) / (af + aw);
+  const iT = (bf * t ** 3) / 12 + af * (yc - t / 2) ** 2 + (bw * reach ** 3) / 12 + aw * (t + reach / 2 - yc) ** 2;
+  return iT - (bf * t ** 3) / 12;
+}
+
+/** Whether buttresses are designed (and stiffened) as counterforts: a wall with a heel. */
+export const hasCounterforts = (i: RetainingWallInput) => i.wallType !== "basement" && i.heel > 0;
+
+export function plateSupports(i: RetainingWallInput, flexuralRigidity?: number): WallPlateSupports {
   const H = i.height;
   let top: PlateEdge = i.plate.top,
     base: PlateEdge = i.plate.base;
@@ -72,7 +89,31 @@ export function plateSupports(i: RetainingWallInput): WallPlateSupports {
     top,
     left: i.plate.left,
     right: i.plate.right,
-    vertical: i.plate.buttresses.map((b) => ({ x: b.x, height: Math.min(b.height, H) })),
+    vertical: i.plate.buttresses.map((b) => {
+      const height = Math.min(b.height, H);
+      const cf = i.plate.counterfort;
+      if (cf.support !== "elastic" || !flexuralRigidity || !hasCounterforts(i)) return { x: b.x, height };
+      // Effective flange (Table 6.3.2.1): overhang ≤ min(8t, ln/8, clear/2) each side.
+      const sorted = [...i.plate.buttresses].sort((a, c) => a.x - c.x),
+        n = sorted.indexOf(b),
+        prev = sorted[n - 1],
+        next = sorted[n + 1];
+      const clearL = prev ? b.x - prev.x - (b.width + prev.width) / 2 : Infinity,
+        clearR = next ? next.x - b.x - (b.width + next.width) / 2 : Infinity;
+      const ec = 4700 * Math.sqrt(i.fc) * 1000,
+        topReach = Math.min(cf.topReach, i.heel);
+      return {
+        x: b.x,
+        height,
+        stiffness: (y: number) => {
+          const t = stemThickness(i, y),
+            reach = i.heel + ((topReach - i.heel) * Math.min(y, height)) / Math.max(height, 1e-9),
+            over = (c: number) => Math.min(8 * t, height / 8, Number.isFinite(c) ? c / 2 : 8 * t),
+            bf = b.width + over(clearL) + over(clearR);
+          return (cf.stiffnessFactor * ec * counterfortAddedInertia(t, reach, b.width, bf)) / flexuralRigidity;
+        },
+      };
+    }),
     horizontal,
   };
 }
@@ -87,7 +128,7 @@ export function analyseWallPlate(
 ): WallPlateResult {
   const L = i.plate.length,
     H = i.height,
-    supports = plateSupports(i);
+    supports = plateSupports(i, flexuralRigidity);
   const loaded = components.filter((c) => c.id !== "axialD" && c.id !== "axialL");
   const sol = solveWallPlate(
     L,
@@ -217,14 +258,20 @@ export function analyseWallPlate(
   if (components.some((c) => c.id === "axialD" || c.id === "axialL"))
     notes.push("The stem-top line-load eccentric moment is carried in the strip analysis only; review it for the plate.");
   if (supports.vertical.length)
-    notes.push("Buttresses act as rigid line supports; their FE line reactions load the counterfort design.");
+    notes.push(
+      supports.vertical.some((v) => v.stiffness)
+        ? `Buttresses are elastic T-beam cantilevers fixed at the footing (stiffness factor ${i.plate.counterfort.stiffnessFactor}), sharing deflection and slope with the stem; their FE actions load the counterfort design.`
+        : "Buttresses act as rigid line supports; their FE line reactions load the counterfort design.",
+    );
   const buttressReactions = sol.lineReactions.map((ln, b) => ({
     x: ln.x,
     height: supports.vertical[b]!.height,
+    elastic: !!supports.vertical[b]!.stiffness,
     ys: ln.ys,
     combos: strength.map((combo) => ({
       combo: combo.id,
       force: ln.ys.map((_, j) => -loaded.reduce((sum, c, k) => sum + factor(combo, c.kind) * ln.force[k]![j]!, 0)),
+      moment: ln.ys.map((_, j) => -loaded.reduce((sum, c, k) => sum + factor(combo, c.kind) * ln.moment[k]![j]!, 0)),
     })),
   }));
   return { length: L, height: H, supports, mesh: { xs: sol.xs, ys: sol.ys, dof: sol.dof }, peaks, field, notes, buttressReactions };
