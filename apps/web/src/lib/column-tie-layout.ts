@@ -1,3 +1,4 @@
+import { tieBars } from "@nola/calc-core";
 import type {
   ColumnQuantityInput,
   RectangularColumnInput,
@@ -18,7 +19,8 @@ export function crossTieCandidates(
   section: RectangularColumnInput,
   axis: "X" | "Y",
 ) {
-  const bars = section.bars;
+  // A bundle is one bar for the ties (anchor only), as in calc-core.
+  const bars = tieBars(section.bars);
   if (!bars.length) return [];
   const along = axis === "X" ? "x" : "y";
   const across = axis === "X" ? "y" : "x";

@@ -10,6 +10,7 @@
  * along y, and legs parallel to y against bc along x (Ash ⟂ bc).
  */
 import { z } from "zod";
+import { tieBars } from "./column-bundles";
 import { biaxialRawStateAt, biaxialSection } from "./column-biaxial";
 import { rebarGradeFor } from "../rebar-catalogue";
 import { storeyClearHeights } from "./column-storey";
@@ -95,9 +96,11 @@ const tol = 0.1;
 
 /** Opposing face bars sharing a coordinate; mirrors the estimate's rule. */
 export function crossTieCandidatePositions(
-  bars: ColumnBar[],
+  allBars: ColumnBar[],
   axis: "X" | "Y",
 ): number[] {
+  // A bundle is one bar for the ties (anchor only).
+  const bars = tieBars(allBars);
   if (!bars.length) return [];
   const along = axis === "X" ? "x" : "y";
   const across = axis === "X" ? "y" : "x";
@@ -151,10 +154,12 @@ export interface ConfinementLayout {
   availableY: number;
 }
 export function confinementLayout(
-  bars: ColumnBar[],
+  allBars: ColumnBar[],
   interiorX: number,
   interiorY: number,
 ): ConfinementLayout {
+  // A bundle is one laterally supported unit (anchor bar), 25.7.2.3.
+  const bars = tieBars(allBars);
   const candX = crossTieCandidatePositions(bars, "X");
   const candY = crossTieCandidatePositions(bars, "Y");
   const crossX = pickCrossTies(candX, interiorX);
@@ -806,7 +811,7 @@ export function designColumnTransverse(
         id: "smf:all-supported",
         label: "Every longitudinal bar laterally supported",
         dcr: layout.supported.every(Boolean) ? 0 : Infinity,
-        detail: `${layout.nl} of ${input.bars.length} bars supported`,
+        detail: `${layout.nl} of ${layout.supported.length} bars / bundles supported`,
         clause: "ACI 318-19 18.7.5.2(f)",
         invalidLabel: "Not Satisfied",
       });

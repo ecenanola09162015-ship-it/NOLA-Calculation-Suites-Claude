@@ -964,7 +964,7 @@ export function ColumnConfinementPanel(props: Props) {
                 <div>
                   <strong>{fmt(design.layout.hx, 0)} mm</strong>hx
                   <small>
-                    {design.layout.nl} of {input.bars.length} bars supported
+                    {design.layout.nl} of {design.layout.supported.length} bars / bundles supported
                   </small>
                 </div>
                 {design.seismic ? (

@@ -319,3 +319,20 @@ export function bundleSummary(bars: ColumnBar[]) {
     .map(([n, c]) => `${c} × ${n}-bar bundle${c > 1 ? "s" : ""}`)
     .join(", ");
 }
+
+/**
+ * Bars as the TIES see them (user decision 18 Oct 2026): a bundle is one
+ * longitudinal bar for anchorage / lateral support — only its anchor (the
+ * picked bar, on the bar line at the hoop) is kept; the added bars of the
+ * bundle never create cross-tie positions, legs or supported-bar counts.
+ * ACI 318-19 25.6.1.2 (bundles enclosed by ties), 25.7.2.3, 18.7.5.2.
+ */
+export function tieBars(bars: ColumnBar[]): ColumnBar[] {
+  const seen = new Set<string>();
+  return bars.filter((b) => {
+    if (!b.bundle) return true;
+    if (seen.has(b.bundle)) return false;
+    seen.add(b.bundle);
+    return true;
+  });
+}

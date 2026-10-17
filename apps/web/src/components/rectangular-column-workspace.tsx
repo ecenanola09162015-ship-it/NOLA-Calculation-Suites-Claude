@@ -395,6 +395,23 @@ export function RectangularColumnWorkspace({
           y: r1(-y + (2 * y * i) / (nY - 1)),
           diameter,
         });
+    // The generator is always on screen (18 Oct 2026): ask before it
+    // overwrites bundles or hand-edited bars.
+    const key = (bs: { x: number; y: number; diameter: number; bundle?: string | null }[]) =>
+      bs
+        .map((b) => `${b.x}|${b.y}|${b.diameter}|${b.bundle ?? ""}`)
+        .sort()
+        .join(";");
+    const bundles = new Set(input.bars.map((b) => b.bundle).filter(Boolean)).size;
+    if (
+      input.bars.length &&
+      key(input.bars) !== key(bars) &&
+      !window.confirm(
+        `Replace the current ${input.bars.length} bars${bundles ? ` (${bundles} bundle${bundles > 1 ? "s" : ""})` : ""} with a uniform ${nX} × ${nY} layout? Bundles and edited bar positions will be lost.`,
+      )
+    )
+      return;
+    setSelectedBars([]);
     update({ ...input, bars });
   }
   /** fromBottom: the button under the load table scrolls to the results. */
@@ -834,8 +851,9 @@ export function RectangularColumnWorkspace({
             Initial values reproduce your workbook example. Bar coordinates are
             retained; cover and steel-ratio issues appear in results.
           </p>
-          <details>
-            <summary>Generate A Uniform Perimeter Layout</summary>
+          {/* Always visible (18 Oct 2026): important and easily missed. */}
+          <section className="barGenerator" aria-label="Generate a uniform perimeter layout">
+            <h3 className="rcSubhead">Generate A Uniform Perimeter Layout</h3>
             <div className="rcFields">
               <NumberField
                 label="Bars Across b (Including Corners)"
@@ -855,7 +873,7 @@ export function RectangularColumnWorkspace({
             <button className="suiteSecondary" onClick={generateBars}>
               Replace bar layout
             </button>
-          </details>
+          </section>
           <ColumnBundlePanel
             input={input}
             selected={selectedBars}
