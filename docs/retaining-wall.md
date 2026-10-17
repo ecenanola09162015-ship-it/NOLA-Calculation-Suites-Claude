@@ -43,3 +43,15 @@ Buttress support (Phase 3b): **elastic** (default) models each buttress as an Eu
 Not covered: buttress shear deformation and footing rotation under the counterforts, counterfort axial shortening, front buttresses / pilasters (walls without a heel), two-layer counterfort bars.
 
 The Section tab exports the section as AutoCAD 2007 DXF (mm, 1:20, office layers; counterforts beyond dashed). Tests: `test/retaining-wall-counterfort.test.ts` (T-beam by hand, reaction equilibrium, heel moments, integration) and `apps/web/test/retaining-wall-dxf.test.ts`.
+
+## Multi-level basement walls
+
+`basement.levels` lists the storeys from the top (B1) down: floor-to-floor height and the slab at each storey's top (ground slab for B1). The heights must add up to the wall height. Intermediate slabs are rigid pinned supports of the continuous wall, in the 1 m strip (direct stiffness, any number of supports) and as horizontal line supports in the full-width plate. The top and base keep their fixed/pinned choice.
+
+- Per storey: span moment on the inside face, support moments on the soil face, slab reaction at the storey top (strength envelope and service). These are reported in the Stem tab and in the report.
+- Soil layers (`soil.layers`, basement walls): thickness, γ, γsat, φ′ from the ground down. σ′v is accumulated layer by layer with K per layer (same theory), and surcharge pressure uses K of the layer. The last layer continues to the base.
+- Stage check (`basement.stage`): backfill complete, top slab not cast, lower slabs in place. This gives back-face flexure and shear checks.
+
+Not covered: top-down excavation stages (embedded-wall analysis), slab axial flexibility, per-storey wall thickness and bar zones.
+
+Tests (`test/retaining-wall-basement.test.ts`): two- and three-span continuous beam closed forms (1.25wl, wl²/8; 1.1wl, 0.1wl²), storey bookkeeping and the height check, per-storey results, the stage check, plate slab lines, and layered σ′v by hand.

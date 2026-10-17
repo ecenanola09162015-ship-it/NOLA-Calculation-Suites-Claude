@@ -145,10 +145,21 @@ export const retainingWallInputSchema = z
       /** Spring stiffness per metre of wall, kN/m per m. */
       stiffness: z.number().min(1).max(1e8),
     }),
-    /** Basement wall: restraint at the top slab and at the base slab. */
+    /** Basement wall: restraint at the top slab and at the base slab, and the storeys. */
     basement: z.object({
       top: z.enum(["fixed", "pinned"]),
       base: z.enum(["fixed", "pinned"]),
+      /**
+       * Storeys from the top (B1) down: floor-to-floor height and the slab at the
+       * storey's top (ground slab for B1), m. Intermediate slabs are pinned line
+       * supports of the continuous wall. Empty = one storey of the stem height.
+       */
+      levels: z
+        .array(z.object({ height: z.number().min(1.5).max(8), slab: z.number().min(0.1).max(1.5) }))
+        .max(8)
+        .default([]),
+      /** Also check the stage before the top (ground) slab is cast, with the backfill complete. */
+      stage: z.boolean().default(false),
     }),
     soil: z.object({
       theory: z.enum(earthPressureTheories),
@@ -161,6 +172,21 @@ export const retainingWallInputSchema = z
       beta: z.number().min(0).max(40),
       ocr: z.number().min(1).max(10),
       userK: z.number().min(0.05).max(3),
+      /**
+       * Basement walls: soil layers from the ground down (thickness, unit weights,
+       * φ); the last layer continues to the base. Empty = the single soil above.
+       */
+      layers: z
+        .array(
+          z.object({
+            thickness: z.number().min(0.1).max(30),
+            gamma: z.number().min(12).max(24),
+            gammaSat: z.number().min(14).max(25),
+            phi: z.number().min(15).max(50),
+          }),
+        )
+        .max(8)
+        .default([]),
     }),
     surcharge: z.object({
       dead: z.number().min(0).max(200),
@@ -275,6 +301,10 @@ export const retainingWallInputSchema = z
     "Buttresses must lie within the wall length and not exceed the stem height.",
   )
   .refine(
+    (i) => i.wallType !== "basement" || i.basement.levels.length < 2 || Math.abs(i.basement.levels.reduce((s, l) => s + l.height, 0) - i.height) < 1e-6,
+    "The storey heights must add up to the wall height.",
+  )
+  .refine(
     (i) => i.stemBase >= i.stemTop - 1e-9,
     "Stem base thickness must be at least the stem top thickness.",
   )
@@ -375,7 +405,7 @@ export function defaultRetainingWallInput(): RetainingWallInput {
     prop: { height: 3.8, rigid: true, stiffness: 50000 },
     analysis: "strip",
     plate: { length: 10, left: "free", right: "free", top: "free", base: "fixed", buttresses: [], averaging: "peak", divisions: 16, counterfort: defaultCounterfort() },
-    basement: { top: "pinned", base: "fixed" },
+    basement: { top: "pinned", base: "fixed", levels: [], stage: false },
     soil: {
       theory: "rankine",
       phi: 30,
@@ -384,6 +414,7 @@ export function defaultRetainingWallInput(): RetainingWallInput {
       delta: 20,
       beta: 0,
       ocr: 1,
+      layers: [],
       userK: 0.5,
     },
     surcharge: { dead: 0, live: 0 },
@@ -435,5 +466,21 @@ export function keyOffset(i: Pick<RetainingWallInput, "key" | "toe" | "stemBase"
 }
 
 /** Bar area per metre, mm²/m. */
+/**
+ * Basement storeys resolved: intermediate slab heights above the base slab top
+ * (descending) and each storey's [bottom, top] span, m.
+ */
+export function basementStoreys(i: Pick<RetainingWallInput, "height" | "basement" | "wallType">) {
+  const lv = i.wallType === "basement" && i.basement.levels.length >= 2 ? i.basement.levels : [{ height: i.height, slab: 0 }];
+  const storeys: { name: string; bottom: number; top: number; slab: number }[] = [];
+  let top = i.height;
+  lv.forEach((l, k) => {
+    const bottom = k === lv.length - 1 ? 0 : Math.max(0, top - l.height);
+    storeys.push({ name: `B${k + 1}`, bottom, top, slab: l.slab });
+    top = bottom;
+  });
+  return { storeys, intermediate: storeys.slice(0, -1).map((s) => s.bottom) };
+}
+
 export const barAreaPerMetre = (b: RetainingWallBar) =>
   (((Math.PI * b.diameter ** 2) / 4) * 1000) / b.spacing;

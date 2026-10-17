@@ -9,6 +9,7 @@
  */
 import {
   barAreaPerMetre,
+  basementStoreys,
   retainingWallGeometry,
   type RetainingWallBar,
   type RetainingWallInput,
@@ -37,6 +38,29 @@ export function retainingWallSectionDrawing(i: RetainingWallInput, r: RetainingW
   poly("S-CONC", toPts(g.stem), true);
   if (!basement) poly("S-CONC", toPts(g.footing), true);
   if (g.key) poly("S-CONC", toPts(g.key), true);
+  if (basement) {
+    // Base slab, top slab and intermediate floor slabs (stubs to the inside).
+    const ext = M(1.2);
+    const { storeys } = basementStoreys(i);
+    const slab = (y0: number, y1: number, xb: number) =>
+      poly("S-CONC", [
+        [-ext, y0],
+        [xb, y0],
+        [xb, y1],
+        [-ext, y1],
+      ], true);
+    slab(0, tf, M(g.backBase));
+    const ts = M(i.basement.levels.length >= 2 ? storeys[0]!.slab : Math.max(0.15, i.footing));
+    slab(top, top + ts, M(g.backTop));
+    text([-ext, top + ts + TXT], `TOP SLAB (${i.basement.top.toUpperCase()})`);
+    storeys.slice(1).forEach((st) => {
+      const yl = tf + M(st.top),
+        h = M(st.slab),
+        xb = M(g.frontBase + ((g.frontTop - g.frontBase) * st.top) / i.height);
+      slab(yl - h / 2, yl + h / 2, xb);
+      text([-ext, yl + h / 2 + TXT * 0.6], `${st.name} SLAB (PINNED)`);
+    });
+  }
   // Ground lines (retained side and toe side).
   const slope = Math.tan((i.soil.beta * Math.PI) / 180);
   const reachBack = Math.max(1.5, i.heel + 1.5);
@@ -173,7 +197,7 @@ export function retainingWallSectionDrawing(i: RetainingWallInput, r: RetainingW
   prims.push({ t: "dim", layer: "S-DIMS", a: [M(g.frontTop), top], b: [M(g.backTop), top], at: top + 2.5 * TXT, vertical: false, text: `${M(i.stemTop).toFixed(0)}` });
 
   // Title and notes.
-  const x0 = Math.min(-M(1), M(g.frontTop) - 8 * TXT),
+  const x0 = Math.min(-M(1.4), M(g.frontTop) - 8 * TXT),
     x1 = Math.max(B, M(g.backTop + reachBack)) + (r.counterforts.length ? 30 * TXT : 4 * TXT),
     y0 = dimY - 9 * TXT,
     y1 = top + 6 * TXT + Math.max(0, M(reachBack * slope));

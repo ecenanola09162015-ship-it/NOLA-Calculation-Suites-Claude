@@ -18,6 +18,7 @@ import {
 import {
   RETAINING_WALL_ENGINE,
   barAreaPerMetre,
+  basementStoreys,
   type RetainingWallBar,
   type RetainingWallCombination,
   type RetainingWallInput,
@@ -138,6 +139,21 @@ export interface StemStation {
   /** Service (first service combo) moment for the diagram. */
   mService: number;
 }
+export interface StoreyResult {
+  name: string;
+  bottom: number;
+  top: number;
+  slab: number;
+  /** Span moment (front / inside face tension), kN·m/m, and its height. */
+  span: { mu: number; y: number; phiMn: number };
+  /** Support moments (back / soil face tension) at the bottom and top of the storey, kN·m/m. */
+  bottomMoment: number;
+  topMoment: number;
+  phiMnBack: number;
+  /** Factored (strength envelope) and service reaction of the slab at the storey top, kN/m. */
+  slabReaction: number;
+  slabService: number;
+}
 export interface RwCheck {
   id: string;
   group: "Stability" | "Stem" | "Footing" | "Counterfort" | "Detailing";
@@ -170,8 +186,8 @@ export interface RetainingWallResult {
     stations: StemStation[];
     /** Profile of each pressure component on the stem, kPa at y. */
     pressure: (id: string, y: number) => number;
-    reactions: { combo: string; prop: number | null; top: number | null; topMoment: number | null; baseShear: number; baseMoment: number }[];
-    serviceReactions: { combo: string; prop: number | null; top: number | null };
+    reactions: { combo: string; prop: number | null; top: number | null; topMoment: number | null; baseShear: number; baseMoment: number; levels: number[] }[];
+    serviceReactions: { combo: string; prop: number | null; top: number | null; levels: number[] };
   };
   footing: {
     toe: MemberAction[];
@@ -192,6 +208,10 @@ export interface RetainingWallResult {
   warnings: string[];
   /** Full-width plate analysis of the stem (analysis = "plate"). */
   plate: WallPlateResult | null;
+  /** Basement storeys (one entry for a single-storey or non-basement wall). */
+  storeys: StoreyResult[];
+  /** Stage before the top slab is cast (basement, when requested). */
+  stage: { mBack: number; phiMn: number; y: number; combo: string; vu: number; phiVc: number } | null;
   /** Counterfort design (plate analysis with buttresses on a wall with a heel). */
   counterforts: CounterfortResult[];
   heelSpan: { q: number; mu: number; phiMn: number; case: string; combo: string } | null;
@@ -375,7 +395,7 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
       ? { base: "fixed", top: "none", prop: null }
       : i.wallType === "propped"
         ? { base: "fixed", top: "none", prop: { y: i.prop.height, stiffness: i.prop.rigid ? null : i.prop.stiffness } }
-        : { base: i.basement.base, top: i.basement.top, prop: null };
+        : { base: i.basement.base, top: i.basement.top, prop: null, intermediate: basementStoreys(i).intermediate };
   const stemSol: { c: PressureComponent; s: StemSolution }[] = stemComps.map((c) => ({
     c,
     s: solveStem(H, ei, supports, {
@@ -389,6 +409,8 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
     stemSol.reduce((sum, { c, s }) => sum + kindFactor(combo, c.kind) * f(s), 0);
   const strength = i.strength.filter((c) => c.included);
   const service = i.service.filter((c) => c.included);
+  const levelReactions = (combo: RetainingWallCombination) =>
+    (supports.intermediate ?? []).map((_, k) => combine(combo, (s) => s.intermediate[k] ?? 0));
   const nullable = (combo: RetainingWallCombination, f: (s: StemSolution) => number | null) =>
     stemSol.length && f(stemSol[0]!.s) !== null ? combine(combo, (s) => f(s) ?? 0) : null;
 
@@ -564,6 +586,11 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
     yset.add(Math.min(H, cut + 1e-6));
   }
   if (i.wallType === "propped") yset.add(i.prop.height);
+  for (const y of basement ? basementStoreys(i).intermediate : []) {
+    yset.add(y);
+    yset.add(Math.max(0, y - 1e-6));
+    yset.add(Math.min(H, y + 1e-6));
+  }
   const ys = [...yset].sort((a, b) => a - b);
   const firstService = service[0];
   const stations: StemStation[] = ys.map((y) => {
@@ -766,10 +793,58 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
     topMoment: nullable(combo, (s) => s.topMoment),
     baseShear: combine(combo, (s) => s.baseShear),
     baseMoment: combine(combo, (s) => s.baseMoment),
+    levels: levelReactions(combo),
   }));
   const serviceReactions = firstService
-    ? { combo: firstService.id, prop: nullable(firstService, (s) => s.prop), top: nullable(firstService, (s) => s.topForce) }
-    : { combo: "", prop: null, top: null };
+    ? { combo: firstService.id, prop: nullable(firstService, (s) => s.prop), top: nullable(firstService, (s) => s.topForce), levels: levelReactions(firstService) }
+    : { combo: "", prop: null, top: null, levels: [] };
+
+  // ---- Basement storeys: span and support moments, slab reactions --------------
+  const { storeys: storeyList } = basementStoreys(i);
+  const storeys: StoreyResult[] = storeyList.map((st, k) => {
+    const inSpan = stations.filter((s) => s.y >= st.bottom - 1e-9 && s.y <= st.top + 1e-9);
+    const sp = inSpan.reduce((b, s) => (s.mFront < b.mFront ? s : b), inSpan[0]!);
+    const near = (y: number) => stations.reduce((b, s) => (Math.abs(s.y - y) < Math.abs(b.y - y) ? s : b), stations[0]!);
+    const bot = near(st.bottom),
+      tp = near(st.top);
+    const rTop = (r: { top: number | null; levels: number[] }) => (k === 0 ? (r.top ?? 0) : (r.levels[k - 1] ?? 0));
+    return {
+      name: st.name,
+      bottom: st.bottom,
+      top: st.top,
+      slab: st.slab,
+      span: { mu: -sp.mFront, y: sp.y, phiMn: sp.phiMnFront },
+      bottomMoment: bot.mBack,
+      topMoment: tp.mBack,
+      phiMnBack: Math.min(bot.phiMnBack, tp.phiMnBack),
+      slabReaction: reactions.reduce((m, r) => Math.max(m, Math.abs(rTop(r))), 0),
+      slabService: Math.abs(rTop(serviceReactions)),
+    };
+  });
+
+  // ---- Stage before the top slab is cast (basement) ------------------------------
+  let stage: RetainingWallResult["stage"] = null;
+  if (basement && i.basement.stage) {
+    const st = { ...supports, top: "none" as const };
+    const solved = stemComps.map((c) => ({
+      c,
+      s: solveStem(H, ei, st, { p: (y) => c.p(H - y), breaks: c.breaks.map((z) => H - z), couple: c.couple, extraMoment: c.extraMoment }),
+    }));
+    const comb = (combo: RetainingWallCombination, f: (s: StemSolution) => number) =>
+      solved.reduce((sum, { c, s }) => sum + kindFactor(combo, c.kind) * f(s), 0);
+    let best = { dcr: -1, mBack: 0, phiMn: 0, y: 0, combo: "" };
+    let vBest = { dcr: -1, vu: 0, phiVc: 0 };
+    for (const y of ys)
+      for (const combo of strength) {
+        const m = comb(combo, (s) => s.moment(y)),
+          v = Math.abs(comb(combo, (s) => s.shear(y)));
+        const cap = slabFlexuralStrength(fcfy, [{ as: barAreaPerMetre(backAt(y)), d: dBack(y) }]).phiMn;
+        if (m / cap > best.dcr) best = { dcr: m / cap, mBack: m, phiMn: cap, y, combo: combo.id };
+        const vc = shearCapacity(i.fc, barAreaPerMetre(backAt(y)), dBack(y), true).phiVc;
+        if (v / vc > vBest.dcr) vBest = { dcr: v / vc, vu: v, phiVc: vc };
+      }
+    stage = { mBack: best.mBack, phiMn: best.phiMn, y: best.y, combo: best.combo, vu: vBest.vu, phiVc: vBest.phiVc };
+  }
 
   // ---- Development and curtailment -------------------------------------------
   const db = back.diameter,
@@ -801,6 +876,10 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
     push({ id: `fl:${f.id}`, group: isStem(f.id) ? "Stem" : "Footing", label: `${f.label} · Flexure`, demand: f.mu, capacity: f.phiMn, unit: "kN·m/m", detail: `${f.combo}; ${f.location}; As ${f.as.toFixed(0)} mm²/m, d ${f.d.toFixed(0)} mm, φ ${f.phi.toFixed(3)}${f.tensionControlled ? "" : " (not tension-controlled)"}`, clause: f.id.startsWith("plate") ? clauses.plateFlexure() : f.id.startsWith("stem") ? clauses.stemFlexure() : clauses.footingFlexure() });
   for (const v of shear)
     push({ id: `sh:${v.id}`, group: isStem(v.id) ? "Stem" : "Footing", label: v.label, demand: v.vu, capacity: v.phiVc, unit: "kN/m", detail: `${v.combo}; ${v.location}; d ${v.d.toFixed(0)} mm, λs ${v.lambdaS.toFixed(3)}`, clause: v.id.startsWith("plate") ? clauses.plateShear() : v.id.startsWith("stem") ? clauses.stemShear() : clauses.footingShear() });
+  if (stage) {
+    push({ id: "stage:flex", group: "Stem", label: "Stage before top slab · back-face flexure", demand: stage.mBack, capacity: stage.phiMn, unit: "kN·m/m", detail: `${stage.combo}; y = ${stage.y.toFixed(2)} m; backfill complete, top slab not cast${storeys.length > 1 ? ", lower slabs in place" : " (cantilever from the base)"}`, clause: clauses.stemFlexure() });
+    push({ id: "stage:shear", group: "Stem", label: "Stage before top slab · one-way shear", demand: stage.vu, capacity: stage.phiVc, unit: "kN/m", detail: "Same stage, envelope", clause: clauses.stemShear() });
+  }
   for (const c of counterforts) {
     const n = `Counterfort B${c.index + 1}`;
     push({ id: `cf-fl:${c.index}`, group: "Counterfort", label: `${n} · T-beam flexure, back-edge bars`, demand: c.flexure.mu, capacity: c.flexure.phiMn, unit: "kN·m", detail: `${c.flexure.combo}; y = ${c.flexure.y.toFixed(2)} m; d ${c.flexure.d.toFixed(0)} mm (normal to back edge, α ${((c.alpha * 180) / Math.PI).toFixed(1)}°), bf ${c.flexure.bf.toFixed(0)} mm, a ${c.flexure.strength.a.toFixed(0)} mm${c.flexure.strength.inFlange ? " in flange" : " into web"}, φ ${c.flexure.strength.phi.toFixed(3)}`, clause: clauses.counterfortFlexure() });
@@ -892,7 +971,9 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
   if (i.seismic.method === "mononobe-okabe" && i.wallType === "basement")
     warnings.push("Mononobe-Okabe assumes a yielding wall; a basement wall restrained by slabs normally uses Wood's method.");
   if (i.wallType === "basement")
-    warnings.push("Basement wall: stability and footing are not checked here. Design the slabs and foundation for the reported reactions, and check the temporary cantilever stage before the top slab is cast.");
+    warnings.push(
+      `Basement wall: stability and footing are not checked here. Design the slabs and foundation for the reported reactions${i.basement.stage ? "" : ", and check the temporary stage before the top slab is cast (switch on the stage check)"}.${storeys.length > 1 ? " Intermediate slabs are rigid pinned supports; top-down excavation stages are not checked." : ""}`,
+    );
   if (i.wallType === "propped")
     warnings.push("The prop, its connections and the supporting structure must be designed for the reported reactions; the stage before the prop is installed is not checked.");
   if (!basement)
@@ -935,6 +1016,8 @@ export function designRetainingWall(i: RetainingWallInput): RetainingWallResult 
     plate: plateResult,
     counterforts,
     heelSpan,
+    storeys,
+    stage,
   };
 }
 

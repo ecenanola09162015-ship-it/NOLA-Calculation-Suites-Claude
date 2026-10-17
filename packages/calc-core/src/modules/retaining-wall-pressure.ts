@@ -109,6 +109,21 @@ export interface EarthCoefficients {
   theta: number | null;
 }
 
+/** Earth pressure coefficient of the selected theory for another φ (soil layers). */
+export function layerK(i: RetainingWallInput, phi: number) {
+  const s = i.soil;
+  switch (s.theory) {
+    case "rankine":
+      return rankineKa(phi, s.beta);
+    case "coulomb":
+      return coulombKa(phi, s.delta, s.beta);
+    case "at-rest":
+      return atRestK0(phi, s.ocr);
+    default:
+      return s.userK;
+  }
+}
+
 export function earthCoefficients(i: RetainingWallInput): EarthCoefficients {
   const s = i.soil;
   const coulomb = s.theory === "coulomb";
@@ -199,15 +214,51 @@ export function pressureComponents(
     zw = H - hw,
     gEff = i.soil.gammaSat - gw,
     tanI = Math.tan(rad(c.inclination));
-  const sigma = (z: number) =>
+  let sigma = (z: number) =>
     i.soil.gamma * Math.min(z, zw) + gEff * Math.max(0, z - zw);
+  let kAt = (_z: number) => c.kh;
   const breaks = hw > 0 && hw < H ? [zw] : [];
+  // Basement walls: layered soil (σ′v accumulated layer by layer, K per layer).
+  const layers = i.wallType === "basement" ? (i.soil.layers ?? []) : [];
+  if (layers.length) {
+    const tops: number[] = [];
+    let z0 = 0;
+    for (const l of layers) {
+      tops.push(z0);
+      z0 += l.thickness;
+    }
+    const idx = (z: number) => {
+      let k = 0;
+      for (let n = 0; n < layers.length; n++) if (z >= tops[n]! - 1e-12) k = n;
+      return k;
+    };
+    const ks = layers.map((l) => layerK(i, l.phi) * Math.cos(rad(c.inclination)));
+    sigma = (z: number) => {
+      let sv = 0;
+      layers.forEach((l, n) => {
+        const a = tops[n]!,
+          b = n === layers.length - 1 ? Infinity : a + l.thickness;
+        if (z <= a) return;
+        const e = Math.min(z, b);
+        const dry = Math.max(0, Math.min(e, zw) - a),
+          wet = Math.max(0, e - Math.max(a, zw));
+        sv += l.gamma * dry + (l.gammaSat - gw) * wet;
+      });
+      return sv;
+    };
+    kAt = (z: number) => ks[idx(z)]!;
+    for (const t of tops.slice(1)) if (t > 0 && t < H) breaks.push(t);
+    breaks.sort((a, b) => a - b);
+  }
   const out: PressureComponent[] = [
     {
       id: "soil",
       label: "Earth pressure",
       kind: "H",
-      p: (z) => c.kh * sigma(Math.min(Math.max(z, 0), H)),
+      p: (z) => {
+        const zz = Math.min(Math.max(z, 0), H);
+        return kAt(zz) * sigma(zz);
+      },
       breaks,
       verticalRatio: tanI,
     },
@@ -217,8 +268,8 @@ export function pressureComponents(
       id: "surchargeDead",
       label: "Dead surcharge",
       kind: "H",
-      p: () => c.kh * i.surcharge.dead,
-      breaks: [],
+      p: (z) => kAt(Math.min(Math.max(z, 0), H)) * i.surcharge.dead,
+      breaks: layers.length ? [...breaks] : [],
       verticalRatio: tanI,
     });
   if (i.surcharge.live > 0)
@@ -226,8 +277,8 @@ export function pressureComponents(
       id: "surchargeLive",
       label: "Live surcharge",
       kind: "L",
-      p: () => c.kh * i.surcharge.live,
-      breaks: [],
+      p: (z) => kAt(Math.min(Math.max(z, 0), H)) * i.surcharge.live,
+      breaks: layers.length ? [...breaks] : [],
       verticalRatio: tanI,
     });
   if (hw > 0)

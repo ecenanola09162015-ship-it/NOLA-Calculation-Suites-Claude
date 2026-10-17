@@ -271,6 +271,20 @@ export function retainingWallReportData(
             ),
           ]
         : [stemRows]),
+      ...(i.wallType === "basement"
+        ? [
+            section(
+              `Basement Storeys — ${r.storeys.length} level${r.storeys.length > 1 ? "s" : ""} (top ${i.basement.top}, base ${i.basement.base}, intermediate slabs pinned)`,
+              r.storeys.map((st) => [
+                `${st.name} · ${f(st.bottom)}–${f(st.top)} m${st.slab ? `, slab ${f(st.slab * 1000, 0)} mm` : ""}`,
+                `${f(st.span.mu, 1)} / ${f(st.span.phiMn, 1)} at y ${f(st.span.y)} m`,
+                `${f(st.bottomMoment, 1)} / ${f(st.topMoment, 1)} (φMn ${f(st.phiMnBack, 1)})`,
+                `${f(st.slabReaction, 1)} / ${f(st.slabService, 1)}`,
+              ]),
+              ["Storey", "Span Mu / φMn (inside), kN·m/m", "Support Mu bottom / top (soil face)", "Slab at top Vu / service, kN/m"],
+            ),
+          ]
+        : []),
       ...(r.counterforts.length
         ? [
             section(
@@ -297,6 +311,6 @@ export function retainingWallReportData(
     ],
     estimate,
     generatedAt: new Date().toISOString(),
-    scopeNote: `${typeLabel[i.wallType]} · ${r.plate ? `full-width plate L ${f(r.plate.length)} m${r.counterforts.length ? `, ${r.counterforts.length} counterforts` : ""}` : "1 m strip"} · ACI 318-19 calculation basis`,
+    scopeNote: `${typeLabel[i.wallType]}${i.wallType === "basement" && r.storeys.length > 1 ? ` (${r.storeys.length} levels)` : ""} · ${r.plate ? `full-width plate L ${f(r.plate.length)} m${r.counterforts.length ? `, ${r.counterforts.length} counterforts` : ""}` : "1 m strip"} · ACI 318-19 calculation basis`,
   };
 }

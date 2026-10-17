@@ -193,7 +193,7 @@ describe("BW-01 basement wall (audit A2, corrected)", () => {
       i.footing = 0.1;
       i.soil.theory = "at-rest";
       i.surcharge.dead = 5;
-      i.basement = { top, base: "fixed" };
+      i.basement = { top, base: "fixed", levels: [], stage: false };
       i.service = [{ id: "S", d: 1, h: 1, l: 1, e: 0, w: 0, included: true }];
     }));
   it("fixed–fixed reactions 17.82 + 36.26 = 54.08 kN/m (workbook 10.91 + 20.13)", () => {

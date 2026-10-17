@@ -575,12 +575,90 @@ export function RetainingWallWorkspace({
                   </select>
                 </label>
               ))}
+              <label>
+                Basement floors
+                <select
+                  value={Math.max(1, input.basement.levels.length)}
+                  onChange={(e) =>
+                    patch((d) => {
+                      const n = Number(e.target.value);
+                      if (n <= 1) {
+                        d.basement.levels = [];
+                        return;
+                      }
+                      const old = d.basement.levels;
+                      const h = Number((d.height / n).toFixed(2));
+                      d.basement.levels = Array.from({ length: n }, (_, k) => old[k] ?? { height: h, slab: 0.2 });
+                      d.height = Number(d.basement.levels.reduce((a, l) => a + l.height, 0).toFixed(3));
+                    })
+                  }
+                >
+                  {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
+          )}
+          {basement && input.basement.levels.length >= 2 && (
+            <div className="slabTableWrap">
+              <table className={`slabBars ${styles.bars}`} aria-label="Basement storeys">
+                <thead>
+                  <tr>
+                    <th>Storey</th>
+                    <th>Floor-to-floor, m</th>
+                    <th>Slab at top, m</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {input.basement.levels.map((l, k) => (
+                    <tr key={k}>
+                      <th>
+                        B{k + 1}
+                        {k === 0 ? " (ground slab above)" : ""}
+                      </th>
+                      {(["height", "slab"] as const).map((f) => (
+                        <td key={f}>
+                          <input
+                            aria-label={`Storey B${k + 1} ${f}`}
+                            type="number"
+                            step="0.05"
+                            className={styles.factor}
+                            value={Number.isFinite(l[f]) ? l[f] : ""}
+                            onChange={(e) =>
+                              patch((d) => {
+                                d.basement.levels[k]![f] = e.target.value === "" ? NaN : Number(e.target.value);
+                                if (f === "height") d.height = Number(d.basement.levels.reduce((a, x) => a + x.height, 0).toFixed(3));
+                              })
+                            }
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {basement && (
+            <Check
+              label="Check the stage before the top slab is cast (backfill complete, lower slabs in place)"
+              value={input.basement.stage}
+              onChange={(v) => patch((d) => (d.basement.stage = v))}
+            />
           )}
 
           <h2>02 · Geometry</h2>
           <div className="slabFieldGrid">
-            <Numeric label={basement ? "Clear wall height" : "Stem height above footing"} unit="m" value={input.height} onChange={(v) => patch((d) => (d.height = v))} />
+            <Numeric
+              label={basement ? (input.basement.levels.length >= 2 ? "Wall height (sum of storeys)" : "Clear wall height") : "Stem height above footing"}
+              unit="m"
+              value={input.height}
+              disabled={basement && input.basement.levels.length >= 2}
+              onChange={(v) => patch((d) => (d.height = v))}
+            />
             <Numeric label="Stem thickness, top" unit="m" value={input.stemTop} onChange={(v) => patch((d) => (d.stemTop = v))} />
             <Numeric label="Stem thickness, base" unit="m" value={input.stemBase} onChange={(v) => patch((d) => (d.stemBase = v))} />
             {input.stemBase > input.stemTop && (
@@ -681,6 +759,66 @@ export function RetainingWallWorkspace({
             <Numeric label="Surcharge, dead" unit="kPa" value={input.surcharge.dead} onChange={(v) => patch((d) => (d.surcharge.dead = v))} />
             <Numeric label="Surcharge, live" unit="kPa" value={input.surcharge.live} onChange={(v) => patch((d) => (d.surcharge.live = v))} />
           </div>
+          {basement && (
+            <>
+              <h3 className={styles.subhead}>Soil layers from the ground down (optional)</h3>
+              {input.soil.layers.length > 0 && (
+                <div className="slabTableWrap">
+                  <table className={`slabBars ${styles.bars}`} aria-label="Soil layers">
+                    <thead>
+                      <tr>
+                        <th>Layer</th>
+                        <th>Thickness, m</th>
+                        <th>γ, kN/m³</th>
+                        <th>γsat, kN/m³</th>
+                        <th>φ′, deg</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {input.soil.layers.map((l, k) => (
+                        <tr key={k}>
+                          <th>{k === input.soil.layers.length - 1 ? `L${k + 1} (to base)` : `L${k + 1}`}</th>
+                          {(["thickness", "gamma", "gammaSat", "phi"] as const).map((f) => (
+                            <td key={f}>
+                              <input
+                                aria-label={`Layer ${k + 1} ${f}`}
+                                type="number"
+                                step="any"
+                                className={styles.factor}
+                                value={Number.isFinite(l[f]) ? l[f] : ""}
+                                onChange={(e) => patch((d) => (d.soil.layers[k]![f] = e.target.value === "" ? NaN : Number(e.target.value)))}
+                              />
+                            </td>
+                          ))}
+                          <td>
+                            <button type="button" className="slabMode" onClick={() => patch((d) => d.soil.layers.splice(k, 1))}>
+                              Remove
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <button
+                type="button"
+                className="suiteSecondary"
+                disabled={input.soil.layers.length >= 8}
+                onClick={() =>
+                  patch((d) =>
+                    d.soil.layers.push({ thickness: 3, gamma: d.soil.gamma, gammaSat: d.soil.gammaSat, phi: d.soil.phi }),
+                  )
+                }
+              >
+                Add soil layer
+              </button>
+              {input.soil.layers.length > 0 && (
+                <p className="slabMuted">Layers replace the single soil above for the earth pressure (K per layer, σ′v accumulated); the last layer continues to the base.</p>
+              )}
+            </>
+          )}
           {r && (
             <p className="slabMuted">
               K = {fmt(r.coefficients.k, 4)} (horizontal {fmt(r.coefficients.kh, 4)}, thrust at {fmt(r.coefficients.inclination, 1)}°)
@@ -936,6 +1074,46 @@ export function RetainingWallWorkspace({
           {tab === "stem" && (
             <section className="slabPanel">
               {r ? <div className={styles.drawing} dangerouslySetInnerHTML={{ __html: stemSvg }} /> : <p className="slabMuted">Complete valid inputs.</p>}
+              {r && basement && (
+                <div className="slabTableWrap">
+                  <table aria-label="Basement storey results">
+                    <thead>
+                      <tr>
+                        <th>Storey</th>
+                        <th>Span Mu (inside face), kN·m/m</th>
+                        <th>Support Mu bottom / top (soil face), kN·m/m</th>
+                        <th>Slab at top: Vu / service, kN/m</th>
+                        <th>Span DCR</th>
+                        <th>Support DCR</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {r.storeys.map((st) => (
+                        <tr key={st.name}>
+                          <th>
+                            {st.name} · {fmt(st.bottom)}–{fmt(st.top)} m
+                          </th>
+                          <td>
+                            {fmt(st.span.mu, 1)} at y {fmt(st.span.y)} m
+                          </td>
+                          <td>
+                            {fmt(st.bottomMoment, 1)} / {fmt(st.topMoment, 1)}
+                          </td>
+                          <td>
+                            {fmt(st.slabReaction, 1)} / {fmt(st.slabService, 1)}
+                          </td>
+                          <td>
+                            <DesignStatus dcr={st.span.phiMn > 0 ? st.span.mu / st.span.phiMn : st.span.mu > 0 ? Infinity : 0} policy={policy} />
+                          </td>
+                          <td>
+                            <DesignStatus dcr={st.phiMnBack > 0 ? Math.max(st.bottomMoment, st.topMoment) / st.phiMnBack : 0} policy={policy} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
               <p className="slabMuted">Factored envelopes over the strength combinations; φMn steps where alternate back bars stop.</p>
             </section>
           )}
