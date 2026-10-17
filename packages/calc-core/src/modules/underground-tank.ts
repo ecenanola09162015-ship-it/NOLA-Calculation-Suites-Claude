@@ -25,6 +25,9 @@ const bar = z.object({ diameter: z.number().min(6).max(40), spacing: z.number().
 export type TankBar = z.infer<typeof bar>;
 export const tankBarArea = (b: TankBar) => ((Math.PI / 4) * b.diameter ** 2 * 1000) / b.spacing;
 
+export function defaultTankSeismic(enabled = true) {
+  return { enabled, ss: 1.5, s1: 0.6, fa: 1.0, fv: 1.5, tl: 8, importance: 1.25, b: 0.667, yielding: false, clf: 2.2, factorF: 1.2, factorE: 1.0, factorL: 0.5 };
+}
 export const tankInputSchema = z
   .object({
     code: z.enum(["ACI 350-20", "NSCP 2015"]),
@@ -94,6 +97,30 @@ export const tankInputSchema = z
       roofBottom: bar,
       roofTop: bar,
     }),
+    /** ACI 350.3-20 seismic design (rectangular tanks, Type 1.1 / 1.2). */
+    seismic: z
+      .object({
+        enabled: z.boolean(),
+        /** Mapped MCE spectral accelerations and site coefficients (ASCE 7-16 Tables 11.4-1, 11.4-2). */
+        ss: z.number().min(0).max(4),
+        s1: z.number().min(0).max(2),
+        fa: z.number().min(0.5).max(3),
+        fv: z.number().min(0.5).max(4),
+        tl: z.number().min(1).max(20),
+        /** Table 4.1.1a importance factor. */
+        importance: z.number().min(1).max(1.5),
+        /** Vertical / horizontal design acceleration ratio (4.1.4.1, ≥ 2/3). */
+        b: z.number().min(0.667).max(1.5),
+        /** Backfill can yield (active, 3/8 factor of R8.1a) or not (at rest). */
+        yielding: z.boolean(),
+        /** Roof uplift coefficient C_LF for inadequate freeboard (R7.1, 1.4–3.2). */
+        clf: z.number().min(1.4).max(3.2),
+        /** Load factors in the seismic cases: liquid F, earthquake E, live L. */
+        factorF: z.number().min(0.9).max(1.6),
+        factorE: z.number().min(1).max(1.5),
+        factorL: z.number().min(0).max(1.6),
+      })
+      .default(defaultTankSeismic(false)),
     divisions: z.number().int().min(8).max(24),
     dcrLimit: z.number().min(0.5).max(1.2),
   })
@@ -134,6 +161,7 @@ export function defaultTankInput(): TankInput {
       roofBottom: { diameter: 16, spacing: 125 },
       roofTop: { diameter: 16, spacing: 150 },
     },
+    seismic: defaultTankSeismic(true),
     divisions: 12,
     dcrLimit: 1,
   };
@@ -148,3 +176,15 @@ export const tankDraftSchema = z.object({
   reviewCompleted: z.boolean().optional(),
 });
 export type TankDraft = z.infer<typeof tankDraftSchema>;
+
+/**
+ * ACI 350.3-20 Table 4.1.1b, fixed- or hinged-base tanks: Ri 2.25 on or above
+ * grade, 3.25 buried (maximum liquid surface at or below ground), linear in
+ * between for partially buried tanks; Rc = 1.0.
+ */
+export function tankResponseFactor(i: Pick<TankInput, "liquid" | "soil">) {
+  const hl = i.liquid.depth;
+  if (hl <= 0) return 3.25;
+  const buried = Math.max(0, Math.min(1, i.soil.ground / hl));
+  return 2.25 + (3.25 - 2.25) * buried;
+}

@@ -5,6 +5,7 @@
  * PDF report. The engine and drawings are shared with the report.
  */
 import { useDeferredValue, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import {
   defaultDesignCheckPolicy,
   defaultTankInput,
@@ -22,13 +23,18 @@ import {
   type TankFace,
   type TankInput,
   type TankPanelId,
+  type TankSeismicDirection,
 } from "@nola/calc-core";
 import type { ProjectRecord, CalculationDraftRecord } from "@/lib/projects";
 import { DesignReviewPanel, DesignStatus } from "./design-review-panel";
 import { ReportExportControls } from "./report-export-controls";
 import { DuplicateSavePrompt, type DraftDuplicate } from "./duplicate-save-prompt";
 import { tankFaceLabels, tankPanelSvg, tankPlanSvg, tankSectionSvg } from "@/lib/tank-drawing";
+import { TankDxfButton } from "./tank-dxf-button";
 import styles from "./tank-workspace.module.css";
+
+// three.js is only downloaded when the 3D tab is opened (client-only).
+const Tank3DView = dynamic(() => import("./tank-3d-view"), { ssr: false, loading: () => <p className="slabMuted">Loading 3D view…</p> });
 
 const fmt = (n: number | null | undefined, p = 2) =>
   n === null || n === undefined || !Number.isFinite(n) ? "—" : n.toLocaleString("en-US", { minimumFractionDigits: p, maximumFractionDigits: p });
@@ -79,7 +85,8 @@ export function TankWorkspace({
   const [remarks, setRemarks] = useState<DesignRemarks>(restored.success ? (restored.data.remarks ?? {}) : {});
   const [title, setTitle] = useState(draft?.title ?? "Underground Tank — T-01");
   const [id, setId] = useState<string | undefined>(restored.success ? draft?.id : undefined);
-  const [tab, setTab] = useState<"plan" | "section" | "panels">("section");
+  const [tab, setTab] = useState<"plan" | "section" | "panels" | "seismic" | "3d">("section");
+  const [snapshot3d, setSnapshot3d] = useState<string | null>(null);
   const [panel, setPanel] = useState<TankPanelId>("long");
   const [face, setFace] = useState<TankFace>("backY");
   const [message, setMessage] = useState(""),
@@ -158,6 +165,7 @@ export function TankWorkspace({
     if (!r) return "";
     if (tab === "plan") return tankPlanSvg(analysed, r);
     if (tab === "section") return tankSectionSvg(analysed, r);
+    if (tab === "seismic" || tab === "3d") return "";
     return tankPanelSvg(r, r.panels.some((p) => p.id === panel) ? panel : "long", face);
   }, [r, analysed, tab, panel, face]);
   const barField = (k: (typeof barRows)[number][0], f: keyof TankBar, v: number) => patch((d) => (d.bars[k][f] = v));
@@ -190,7 +198,7 @@ export function TankWorkspace({
             if (!r) throw Error("Complete Valid Tank Inputs First.");
             if (missing) throw Error("Record Engineering Judgment Remarks Before Exporting.");
             const { tankReportData } = await import("../lib/reports/tank-report");
-            return tankReportData(project, title, analysed, r, policy, remarks);
+            return tankReportData(project, title, analysed, r, policy, remarks, snapshot3d);
           }}
         />
       </div>
@@ -306,7 +314,42 @@ export function TankWorkspace({
             <Numeric label="Live L" value={input.factors.live} onChange={(v) => patch((d) => (d.factors.live = v))} />
           </div>
 
-          <h2>05 · Reinforcement</h2>
+          <h2>05 · Seismic (ACI 350.3-20)</h2>
+          <Check label="Seismic design (rectangular tank, Type 1.1 / 1.2)" value={input.seismic.enabled} onChange={(v) => patch((d) => (d.seismic.enabled = v))} />
+          {input.seismic.enabled && (
+            <>
+              <div className="slabFieldGrid">
+                <Numeric label="Ss" unit="g" value={input.seismic.ss} onChange={(v) => patch((d) => (d.seismic.ss = v))} />
+                <Numeric label="S1" unit="g" value={input.seismic.s1} onChange={(v) => patch((d) => (d.seismic.s1 = v))} />
+                <Numeric label="Fa" value={input.seismic.fa} onChange={(v) => patch((d) => (d.seismic.fa = v))} />
+                <Numeric label="Fv" value={input.seismic.fv} onChange={(v) => patch((d) => (d.seismic.fv = v))} />
+                <Numeric label="TL" unit="s" value={input.seismic.tl} onChange={(v) => patch((d) => (d.seismic.tl = v))} />
+                <Numeric label="Vertical ratio b" value={input.seismic.b} onChange={(v) => patch((d) => (d.seismic.b = v))} />
+              </div>
+              <label>
+                Risk category / importance I (Table 4.1.1a)
+                <select value={input.seismic.importance} onChange={(e) => patch((d) => (d.seismic.importance = Number(e.target.value)))}>
+                  <option value={1}>I or II · I = 1.00</option>
+                  <option value={1.25}>III (water / wastewater treatment) · I = 1.25</option>
+                  <option value={1.5}>IV (essential, fire water, toxic) · I = 1.50</option>
+                </select>
+              </label>
+              <Check label="Backfill can yield (active, 3/8 factor of R8.1a)" value={input.seismic.yielding} onChange={(v) => patch((d) => (d.seismic.yielding = v))} />
+              <div className="slabFieldGrid">
+                <Numeric label="Roof uplift coefficient C_LF" value={input.seismic.clf} onChange={(v) => patch((d) => (d.seismic.clf = v))} />
+                <Numeric label="Seismic factor on F" value={input.seismic.factorF} onChange={(v) => patch((d) => (d.seismic.factorF = v))} />
+                <Numeric label="Factor on E" value={input.seismic.factorE} onChange={(v) => patch((d) => (d.seismic.factorE = v))} />
+                <Numeric label="Seismic factor on L" value={input.seismic.factorL} onChange={(v) => patch((d) => (d.seismic.factorL = v))} />
+              </div>
+              {r?.seismic && (
+                <p className="slabMuted">
+                  SDS {fmt(r.seismic.sds, 3)}, SD1 {fmt(r.seismic.sd1, 3)}; Ri {fmt(r.seismic.ri, 2)} (buried / on grade by the liquid level vs ground), Rc 1.0.
+                </p>
+              )}
+            </>
+          )}
+
+          <h2>06 · Reinforcement</h2>
           <div className="slabTableWrap">
             <table className={`slabBars ${styles.bars}`} aria-label="Tank reinforcement">
               <thead>
@@ -354,6 +397,8 @@ export function TankWorkspace({
                 ["section", "Section"],
                 ["plan", "Plan"],
                 ["panels", "Panel moments"],
+                ["seismic", "Seismic"],
+                ["3d", "3D view"],
               ] as const
             ).map(([k, t]) => (
               <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>
@@ -380,11 +425,68 @@ export function TankWorkspace({
                 </div>
               </>
             )}
-            {r ? (
+            {tab === "3d" && r ? (
+              <>
+                <Tank3DView input={analysed} result={r} onSnapshot={setSnapshot3d} />
+                {snapshot3d && (
+                  <p className="slabMuted">
+                    A 3D snapshot will be included in the Complete PDF report. <button onClick={() => setSnapshot3d(null)}>Remove snapshot</button>
+                  </p>
+                )}
+              </>
+            ) : tab === "seismic" ? (
+              r?.seismic ? (
+                <div className="slabTableWrap">
+                  <table aria-label="ACI 350.3-20 seismic results">
+                    <thead>
+                      <tr>
+                        <th>ACI 350.3-20</th>
+                        <th>Motion along Lx (short walls loaded)</th>
+                        <th>Motion along Ly (long walls loaded)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(
+                        [
+                          ["L / B, m", (d: TankSeismicDirection) => `${fmt(d.L)} / ${fmt(d.B)}`],
+                          ["WL, Wi, Wc, kN (9.2.1)", (d: TankSeismicDirection) => `${fmt(d.wl, 0)}, ${fmt(d.wi, 0)}, ${fmt(d.wc, 0)}`],
+                          ["hi, hc (EBP) / hi′, hc′ (IBP), m (9.2.2–9.2.3)", (d: TankSeismicDirection) => `${fmt(d.hi)}, ${fmt(d.hc)} / ${fmt(d.hiIbp)}, ${fmt(d.hcIbp)}`],
+                          ["ε (9.6.1)", (d: TankSeismicDirection) => fmt(d.eps, 3)],
+                          ["Ti, Tc, s (9.2.4)", (d: TankSeismicDirection) => `${d.ti > 0 ? fmt(d.ti, 3) : "rigid"}, ${fmt(d.tc, 3)}`],
+                          ["Ci, Cc, Ct (9.4)", (d: TankSeismicDirection) => `${fmt(d.ci, 3)}, ${fmt(d.cc, 3)}, ${fmt(d.ct, 3)}`],
+                          ["ü_v (4.1.4)", (d: TankSeismicDirection) => fmt(d.uv, 3)],
+                          ["Pw, Pw′, Pr, kN (4.1.1)", (d: TankSeismicDirection) => `${fmt(d.pw, 1)}, ${fmt(d.pwOne, 1)}, ${fmt(d.pr, 1)}`],
+                          ["Pi, Pc, kN (4.1.1)", (d: TankSeismicDirection) => `${fmt(d.pi, 1)}, ${fmt(d.pc, 1)}`],
+                          ["Peg, kN (R8.1)", (d: TankSeismicDirection) => fmt(d.peg, 1)],
+                          ["Base shear V, kN (4.1.2)", (d: TankSeismicDirection) => fmt(d.v, 1)],
+                          ["Mb (EBP) / Mo (IBP), kN·m (4.1.3)", (d: TankSeismicDirection) => `${fmt(d.mb, 1)} / ${fmt(d.mo, 1)}`],
+                          ["d_max / freeboard, m (7.1a)", (d: TankSeismicDirection) => `${fmt(d.dmax, 3)} / ${fmt(d.freeboard, 3)}`],
+                          ["R7.1: k_r, roof uplift kPa over Li m", (d: TankSeismicDirection) => (d.kr > 0 ? `${fmt(d.kr, 3)}, ${fmt(d.uplift, 1)} over ${fmt(d.li)}` : "adequate freeboard")],
+                        ] as const
+                      ).map(([label, f]) => (
+                        <tr key={label}>
+                          <th>{label}</th>
+                          <td>{f(r.seismic!.x)}</td>
+                          <td>{f(r.seismic!.y)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="slabMuted">
+                    SDS {fmt(r.seismic.sds, 3)}, SD1 {fmt(r.seismic.sd1, 3)} (9.4.1d–e); Ri {fmt(r.seismic.ri, 2)}, Rc {fmt(r.seismic.rc, 1)} (Table 4.1.1b). Wall pressures
+                    combine ½Pi, ½Pc, Pw′ and the vertical acceleration per 5.3.2 (R5.3.1 linear distributions); the trailing wall adds the dynamic earth
+                    pressure, resultant at 0.6H (R8.1).
+                  </p>
+                </div>
+              ) : (
+                <p className="slabMuted">Switch on seismic design in panel 05.</p>
+              )
+            ) : r ? (
               <div className={styles.drawing} role="img" aria-label={`Tank ${tab}`} dangerouslySetInnerHTML={{ __html: view }} />
             ) : (
               <p className="slabMuted">Complete valid inputs to draw the tank.</p>
             )}
+            {tab === "section" && <TankDxfButton input={analysed} result={r} title={title} />}
             {tab === "panels" && r && (
               <div className="slabTableWrap">
                 <table>

@@ -252,4 +252,6 @@ export const tankClauses = {
   thickness: () => aci350("11.3.1.2† walls ≥ 3 m high in contact with liquid: 300 mm"),
   flotation: () => "ACI 350.4R† / project criteria: FS ≥ input against flotation, empty tank",
   bearing: () => "Allowable bearing (service), full tank",
+  freeboard: () => "ACI 350.3-20 7.1 (Eq. 7.1a d_max = (L/2)·Cc·I); R7.1 roof uplift",
+  seismicWall: () => "ACI 350.3-20 4.1.1, 5.3.1–5.3.2, R5.3.1, Ch. 8; ACI 350-20 Ch. 13†",
 } as const;
