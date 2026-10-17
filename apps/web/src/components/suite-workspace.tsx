@@ -28,6 +28,7 @@ const RetainingWallWorkspace = dynamic(
   { loading: () => <p>Opening retaining wall workspace…</p> },
 );
 import { ProjectContext, ProjectEditor } from "./project-context";
+import { CalcSuiteProvider } from "./calc-actions";
 import { ProjectExplorer, type RenameResult } from "./project-explorer";
 import { ThemeSwitcher, useLauncherTheme } from "./launcher-theme";
 import { LauncherHero } from "./launcher-hero";
@@ -259,7 +260,7 @@ export function SuiteWorkspace({
       </button>
     );
   }
-  return (
+  const page = (
     <main
       className="suiteApp"
       data-theme={theme}
@@ -705,5 +706,19 @@ export function SuiteWorkspace({
         <span>Pilot build · Independent calculation review pending</span>
       </footer>
     </main>
+  );
+  return (
+    // Save to project: a copy lands in another project's explorer list.
+    <CalcSuiteProvider
+      projects={projects}
+      onCopied={(item) =>
+        setDrafts((previous) => [
+          item,
+          ...previous.filter((d) => d.id !== item.id),
+        ])
+      }
+    >
+      {page}
+    </CalcSuiteProvider>
   );
 }
