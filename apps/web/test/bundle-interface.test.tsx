@@ -35,7 +35,7 @@ describe("bundled bars panel", () => {
   it("renders the controls in panel 02 and the Select / Bundle columns", () => {
     const html = renderToStaticMarkup(<RectangularColumnWorkspace cloudReady={false} onSaved={() => {}} />);
     const p2 = html.slice(html.indexOf("02 · Reinforcement"), html.indexOf("03 · Factored"));
-    for (const t of ["Bundled Bars", "Bars per bundle", "4 bars (maximum, 25.6.1.1)", "Select corners", "Select all perimeter", "Bundle selected (0)", "Unbundle selected", 'role="button"'])
+    for (const t of ["Bundled Bars", "Bars per bundle", "4 bars (maximum, 25.6.1.1)", "Select corners", "Select all perimeter", "Apply bundles", "Unbundle selected", 'role="button"'])
       expect(p2).toContain(t);
     expect(html).toContain("<th>Select</th>");
     expect(html).toContain("<th>Bundle</th>");
@@ -86,10 +86,19 @@ describe.skipIf(!CHROME)("bundled bars in a real browser", () => {
       // Pick two bars by clicking them in the section picture.
       await page.getByRole("button", { name: "Bar 1", exact: true }).click();
       await page.getByRole("button", { name: "Bar 2", exact: true }).click();
-      await page.getByText("Bundle selected (2)").waitFor();
+      await page.getByText("Apply bundles: 2 × 2 bars").waitFor();
       await page.getByLabel("Bars per bundle").selectOption("3");
-      await page.getByRole("button", { name: "Bundle selected (2)" }).click();
+      await page.getByRole("button", { name: "Apply bundles: 2 × 3 bars" }).click();
       await page.waitForFunction((n) => document.querySelectorAll('svg [role="button"]').length === n + 4, n0);
+      // Confirmation, true-scale bundles with outline + label, flash, magnified inset.
+      await page.getByText(`Bundled bars applied: 2 × 3-bar bundles (B1–B2). 4 bars added; ${n0 + 4} bars total.`).waitFor();
+      expect(await page.locator(".rcSectionView svg text", { hasText: "B1 · 3-D20" }).count()).toBe(1);
+      expect(await page.locator(".bundleFlash").count()).toBe(2);
+      await page.locator("figure.bundleInset", { hasText: "B1 · 3-D20" }).waitFor();
+      expect(await page.locator("figure.bundleInset").textContent()).toContain("db,eq = 20·√3 = 34.6 mm");
+      // Zoom 2× widens the section inside its own scroll box, not the page.
+      await page.getByRole("button", { name: "2×" }).click();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       expect(await page.getByRole("button", { name: /\(bundle B1\)/ }).count()).toBe(3);
       expect(await page.getByRole("button", { name: /\(bundle B2\)/ }).count()).toBe(3);
       // Tie Ø10 with bundles: warning with a one-click fix (25.7.2.2).
@@ -101,6 +110,7 @@ describe.skipIf(!CHROME)("bundled bars in a real browser", () => {
       await page.getByRole("button", { name: "Bar 1 (bundle B1)" }).click();
       await page.getByRole("button", { name: "Unbundle selected" }).click();
       await page.waitForFunction((n) => document.querySelectorAll('svg [role="button"]').length === n + 2, n0);
+      await page.getByText(`Bundles removed: B1 back to single bars. 2 bars removed; ${n0 + 2} bars total.`).waitFor();
       expect(errors).toEqual([]);
     } finally {
       await browser.close();

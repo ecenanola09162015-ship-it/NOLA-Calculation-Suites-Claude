@@ -40,7 +40,7 @@ import {
 import { ColumnQuantityPanel } from "./column-quantity-panel";
 import { StoreyGeometryFields } from "./column-storey-panel";
 import { DesignCodeFields } from "./column-materials-fields";
-import { ColumnBundlePanel } from "./column-bundle-panel";
+import { BundleInset, ColumnBundlePanel } from "./column-bundle-panel";
 import { ConcreteStrengthFields } from "./concrete-strength-fields";
 import { ColumnSectionDrawingButton } from "./column-section-drawing-button";
 import dynamic from "next/dynamic";
@@ -236,6 +236,11 @@ export function RectangularColumnWorkspace({
   const [dirty, setDirty] = useState(false);
   // Bars picked for bundling (section picture / coordinates table).
   const [selectedBars, setSelectedBars] = useState<number[]>([]);
+  // Section view: zoom, bundles just applied (flash) and the magnified bundle.
+  const sectionRef = useRef<HTMLDivElement>(null);
+  const [sectionZoom, setSectionZoom] = useState(1);
+  const [flashBundles, setFlashBundles] = useState<string[]>([]);
+  const [focusBundle, setFocusBundle] = useState<string | null>(null);
   const markUnsaved = () => {
     setSaved(false);
     setDirty(true);
@@ -564,6 +569,10 @@ export function RectangularColumnWorkspace({
     setTieDesign(next);
     markUnsaved();
   }
+  // Magnified bundle: the one tapped / last applied, else the first bundle.
+  const bundleIds = [...new Set(input.bars.map((b) => b.bundle).filter((b): b is string => !!b))];
+  const shownBundle =
+    focusBundle && bundleIds.includes(focusBundle) ? focusBundle : (bundleIds[0] ?? null);
   return (
     <div className="rcWorkspace">
       <div className="rcToolbar">
@@ -755,15 +764,37 @@ export function RectangularColumnWorkspace({
         </section>
         <section className="rcPanel">
           <h2>02 · Reinforcement Layout</h2>
-          <ColumnSection
-            input={input}
-            selected={selectedBars}
-            onToggle={(i) =>
-              setSelectedBars((s) =>
-                s.includes(i) ? s.filter((k) => k !== i) : [...s, i],
-              )
-            }
-          />
+          <div className="rcSectionView" ref={sectionRef}>
+            <div className="sectionZoom" role="group" aria-label="Section zoom">
+              {[1, 1.5, 2].map((z) => (
+                <button
+                  key={z}
+                  className={`suiteSecondary${sectionZoom === z ? " active" : ""}`}
+                  aria-pressed={sectionZoom === z}
+                  onClick={() => setSectionZoom(z)}
+                >
+                  {z}×
+                </button>
+              ))}
+            </div>
+            <div className="sectionScroll">
+              <div style={{ width: `${sectionZoom * 100}%` }}>
+                <ColumnSection
+                  input={input}
+                  selected={selectedBars}
+                  flash={flashBundles}
+                  onToggle={(i) => {
+                    const id = input.bars[i]?.bundle;
+                    if (id) setFocusBundle(id);
+                    setSelectedBars((s) =>
+                      s.includes(i) ? s.filter((k) => k !== i) : [...s, i],
+                    );
+                  }}
+                />
+              </div>
+            </div>
+            {shownBundle && <BundleInset input={input} bundle={shownBundle} />}
+          </div>
           <p className="rcMuted">
             Initial values reproduce your workbook example. Bar coordinates are
             retained; cover and steel-ratio issues appear in results.
@@ -795,6 +826,13 @@ export function RectangularColumnWorkspace({
             selected={selectedBars}
             onSelect={setSelectedBars}
             onChange={update}
+            onApplied={(ids) => {
+              setFocusBundle(ids[0] ?? null);
+              setFlashBundles(ids);
+              window.setTimeout(() => setFlashBundles([]), 2500);
+              // Show the result: back up to the section view (phones).
+              sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
             minTie={
               rebarSizes[standard]
                 .map((s) => s.calcDiameter)
