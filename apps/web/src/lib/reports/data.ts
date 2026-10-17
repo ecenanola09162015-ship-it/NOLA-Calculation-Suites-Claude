@@ -249,6 +249,14 @@ export function columnReportData(
   const checks = [...columnDesignChecks(result), ...columnTransverseChecks(t)];
   const slender = !!input.slenderness?.enabled;
   const shearOn = !!t && (!!tieDesign?.shear.enabled || t.seismic);
+  // Equations-table summary of the transverse design actually performed.
+  const smfRho = !!t?.checks.some((c) => c.id === "smf:rho");
+  const worstTransverse = t
+    ? [...t.checks].sort((a, b) => (b.dcr ?? -1) - (a.dcr ?? -1))[0]
+    : undefined;
+  const shearTiesText = !t
+    ? "Not Evaluated: shear and confinement design not enabled (tie quantities are estimating inputs only)"
+    : `${shearOn ? "Shear designed" : "Shear not evaluated"}; ${t.seismic ? `${t.frame} confinement designed: lo ${t.adopted.lo} mm @ ${t.adopted.sEnd} mm, outside lo @ ${t.adopted.sMid} mm` : `ties @ ${t.adopted.sMid} mm`}; governing ${worstTransverse ? `${worstTransverse.label} DCR ${Number.isFinite(worstTransverse.dcr) ? f(worstTransverse.dcr, 3) : (worstTransverse.invalidLabel ?? "Not Permitted")}` : "none"} — full checks in Shear And Confinement Design`;
   const twoPages = slender || !!t;
   // Summary shows one biaxial flexure row: the 3D strain-compatibility check
   // (exact; it passes whenever the conservative linear screen passes).
@@ -474,15 +482,20 @@ export function columnReportData(
             d.sway ? "6.2.5.1; 6.6.4.6" : "6.2.5.1; 6.6.4.4; 6.6.4.5",
           ])
         : []),
+      // Reflects what was actually checked (was a fixed "not evaluated" text).
       [
         "Reinforcement Limits",
-        `rho = As/Ag = ${f(result.steelRatio * 100)}%; general-column range 1–8%; seismic limits require separate review`,
-        "10.6; 18.7",
+        `rho = As/Ag = ${f(result.steelRatio * 100)}%; general columns 1–8% (10.6.1.1)${smfRho ? "; SMF 1–6% (18.7.4.1) checked — see Shear And Confinement Design" : ""}`,
+        smfRho ? "10.6.1.1; 18.7.4.1" : "10.6.1.1",
       ],
       [
         "Shear / Seismic Ties",
-        "Not Evaluated In This Build",
-        "22.5; Ch. 18, 25",
+        shearTiesText,
+        t
+          ? t.seismic
+            ? "22.5; 10.7.6.5; 18.7.5; 18.7.6; 25.7.2"
+            : "22.5; 10.7.6.5; 25.7.2"
+          : "22.5; Ch. 18, 25",
       ],
     ],
     ["Check / Equation", "Substitution / Result", "Reference"],

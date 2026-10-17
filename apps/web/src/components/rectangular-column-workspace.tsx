@@ -1,4 +1,5 @@
 "use client";
+import { useUnsavedGuard } from "../lib/unsaved";
 import { useMemo, useRef, useState } from "react";
 import {
   analyzeRectangularColumn,
@@ -165,11 +166,14 @@ export function RectangularColumnWorkspace({
   draft,
   cloudReady,
   onSaved,
+  onDirtyChange,
 }: {
   project?: ProjectRecord;
   draft?: CalculationDraftRecord;
   cloudReady: boolean;
   onSaved: (draft: CalculationDraftRecord) => void;
+  /** Reports unsaved edits to the suite (asks before navigating away). */
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const restored = columnDraftSchema.safeParse(draft?.payload);
   const editVersion = useRef(0);
@@ -226,6 +230,13 @@ export function RectangularColumnWorkspace({
   const [selected, setSelected] = useState("");
   const [message, setMessage] = useState("");
   const [saved, setSaved] = useState(Boolean(restored.success));
+  // Edited since opened / last saved (unsaved-changes guard).
+  const [dirty, setDirty] = useState(false);
+  const markUnsaved = () => {
+    setSaved(false);
+    setDirty(true);
+  };
+  useUnsavedGuard(dirty, onDirtyChange);
   const [busy, setBusy] = useState(false);
   const [duplicate, setDuplicate] = useState<DraftDuplicate | null>(null);
   const [paste, setPaste] = useState("");
@@ -280,7 +291,7 @@ export function RectangularColumnWorkspace({
         gradeId: next.tieFyt === undefined ? tieSteel.gradeId : next.tieGradeId,
       });
     setResult(null);
-    setSaved(false);
+    markUnsaved();
     setMessage("Inputs changed. Calculate again to update results.");
   }
   function updateLoad(
@@ -462,9 +473,10 @@ export function RectangularColumnWorkspace({
       if (!response.ok)
         throw new Error(body.error ?? "Could not save calculation.");
       setId(body.draft.id);
-      setSaved(
-        editVersion.current === saveVersion && livePolicy.current === policyKey,
-      );
+      const clean =
+        editVersion.current === saveVersion && livePolicy.current === policyKey;
+      setSaved(clean);
+      setDirty(!clean);
       setSavedPolicy(policyKey);
       onSaved(body.draft);
       setMessage(
@@ -528,7 +540,7 @@ export function RectangularColumnWorkspace({
   };
   const changeRemarks = (next: DesignRemarks) => {
     editVersion.current++;
-    setSaved(false);
+    markUnsaved();
     setRemarks(next);
   };
   const drawingAction = (
@@ -546,7 +558,7 @@ export function RectangularColumnWorkspace({
   function updateTie(next: ColumnTieDesignInput) {
     editVersion.current++;
     setTieDesign(next);
-    setSaved(false);
+    markUnsaved();
   }
   return (
     <div className="rcWorkspace">
@@ -560,7 +572,7 @@ export function RectangularColumnWorkspace({
               editVersion.current++;
               setTitle(e.target.value);
               setDuplicate(null);
-              setSaved(false);
+              markUnsaved();
             }}
           />
         </label>
@@ -723,7 +735,7 @@ export function RectangularColumnWorkspace({
                 editVersion.current++;
                 setScope(e.target.checked);
                 setResult(null);
-                setSaved(false);
+                markUnsaved();
               }}
             />
             <span>
@@ -1406,7 +1418,7 @@ export function RectangularColumnWorkspace({
                   transverse.design,
                 ),
               );
-              setSaved(false);
+              markUnsaved();
               setMessage(
                 "Adopted tie design written to the Quantity Estimate. Checked cut lengths were cleared.",
               );
@@ -1425,7 +1437,7 @@ export function RectangularColumnWorkspace({
           onChange={(next) => {
             editVersion.current++;
             changeQuantity(next);
-            setSaved(false);
+            markUnsaved();
           }}
         />
       ) : null}

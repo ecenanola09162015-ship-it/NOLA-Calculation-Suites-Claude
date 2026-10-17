@@ -1,4 +1,5 @@
 "use client";
+import { useUnsavedGuard } from "../lib/unsaved";
 import { useDeferredValue, useMemo, useRef, useState } from "react";
 import {
   analyzeSlab,
@@ -125,11 +126,14 @@ export function SlabWorkspace({
   draft,
   cloudReady,
   onSaved,
+  onDirtyChange,
 }: {
   project?: ProjectRecord;
   draft?: CalculationDraftRecord;
   cloudReady: boolean;
   onSaved: (d: CalculationDraftRecord) => void;
+  /** Reports unsaved edits to the suite (asks before navigating away). */
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const restored = useMemo(
     () => slabDraftSchema.safeParse(draft?.payload),
@@ -189,7 +193,14 @@ export function SlabWorkspace({
   const [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
     [duplicate, setDuplicate] = useState<DraftDuplicate | null>(null),
-    [saved, setSaved] = useState(!!restored.success);
+    [saved, setSaved] = useState(!!restored.success),
+    // Edited since opened / last saved (unsaved-changes guard).
+    [dirty, setDirty] = useState(false);
+  const markUnsaved = () => {
+    setSaved(false);
+    setDirty(true);
+  };
+  useUnsavedGuard(dirty, onDirtyChange);
   const [paste, setPaste] = useState(""),
     [loadPreview, setLoadPreview] = useState<SlabInput["loads"] | null>(null),
     [pasteError, setPasteError] = useState("");
@@ -286,7 +297,7 @@ export function SlabWorkspace({
   function update(next: SlabInput) {
     editVersion.current++;
     setInput(next);
-    setSaved(false);
+    markUnsaved();
     setRecommendations([]);
     setAdoptHistory([]);
     setAdoptedNote("");
@@ -297,7 +308,7 @@ export function SlabWorkspace({
     editVersion.current++;
     setAdoptHistory((h) => [...h, input]);
     setInput(next);
-    setSaved(false);
+    markUnsaved();
     setAdoptedNote(note);
   }
   function undoAdopt() {
@@ -306,7 +317,7 @@ export function SlabWorkspace({
     editVersion.current++;
     setAdoptHistory((h) => h.slice(0, -1));
     setInput(previous);
-    setSaved(false);
+    markUnsaved();
     setAdoptedNote(adoptHistory.length > 1 ? "Last adopt undone." : "");
   }
   function change(key: keyof SlabInput, value: number) {
@@ -496,9 +507,10 @@ export function SlabWorkspace({
       if (opts.title) setTitle(opts.title);
       if (!response.ok) throw new Error(body.error ?? "Save failed.");
       setId(body.draft.id);
-      setSaved(
-        version === editVersion.current && livePolicy.current === policyKey,
-      );
+      const clean =
+        version === editVersion.current && livePolicy.current === policyKey;
+      setSaved(clean);
+      setDirty(!clean);
       setSavedPolicy(policyKey);
       onSaved(body.draft);
       setMessage(
@@ -555,7 +567,7 @@ export function SlabWorkspace({
               editVersion.current++;
               setTitle(e.target.value);
               setDuplicate(null);
-              setSaved(false);
+              markUnsaved();
             }}
           />
         </label>
@@ -1854,7 +1866,7 @@ export function SlabWorkspace({
           remarks={remarks}
           onChange={(next) => {
             editVersion.current++;
-            setSaved(false);
+            markUnsaved();
             setRemarks(next);
           }}
         />
@@ -1865,7 +1877,7 @@ export function SlabWorkspace({
           value={quantity}
           onChange={(q) => {
             editVersion.current++;
-            setSaved(false);
+            markUnsaved();
             setQuantity(q);
           }}
           onResetCutoffs={() =>
