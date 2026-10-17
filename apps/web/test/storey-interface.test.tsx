@@ -35,14 +35,14 @@ const input: RectangularColumnInput = {
 };
 
 describe("storey geometry in the column workspace", () => {
-  it("panel 01 asks for H and the two beam depths and shows ℓu", () => {
+  it("panel 01 asks for H and the N/S/E/W beams and shows ℓu", () => {
     const html = renderToStaticMarkup(
       <RectangularColumnWorkspace cloudReady={false} onSaved={() => {}} />,
     );
     expect(html).toContain("Storey Geometry");
     expect(html).toContain("Floor-to-floor height H");
-    expect(html).toContain("Beam along X — depth (braces Muy)");
-    expect(html).toContain("Beam along Y — depth (braces Mux)");
+    expect(html).toContain('aria-label="North beam depth"');
+    expect(html).toContain('aria-label="East beam depth"');
     expect(html).toContain("Drop panel / capital / haunch");
     expect(html).toContain("ℓu,x (Mux) = 2,500 mm");
   });

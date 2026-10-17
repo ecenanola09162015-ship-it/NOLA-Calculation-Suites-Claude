@@ -4737,3 +4737,35 @@ tr.barSelected td {
     stroke-opacity: 0.2;
   }
 }
+
+/* Storey 3D (17 Oct 2026): fields full width; units inline so a long label
+   with a large phone font cannot push "mm" off screen. */
+.storeyBody {
+  grid-template-columns: minmax(0, 1fr);
+}
+.storeyFields label .rcUnit {
+  float: none;
+  margin-left: 4px;
+}
+.storeySides table {
+  width: 100%;
+}
+.storeySides td input,
+.storeySides td select {
+  width: 100%;
+  min-width: 70px;
+  box-sizing: border-box;
+}
+.storeySides td small {
+  display: block;
+  font-size: 11px;
+}
+.storey3d {
+  margin: 8px 0 0;
+}
+.storey3dCanvas {
+  width: 100%;
+  min-height: 300px;
+  border-radius: 8px;
+  overflow: hidden;
+}
