@@ -138,6 +138,42 @@ describe("stair frame solver (B1–B4 closed forms)", () => {
     expect(maxSag(r)).toBeGreaterThan(mMax * 0.995);
   });
 
+  it("B3b published example (stair with quarter-space landing, IS 456 worked example): reactions and Mmax", () => {
+    // Landing B 1.5 m at w = 7.401 kN/m (half load), flight 3.0 m plan rising
+    // 1.5 m at w = 14.801 kN/m, span 4.5 m simply supported. Published:
+    // Rb = 24,052 N, Rc = 31,452 N, V = 0 at 2.125 m from C, Mmax = 33,417,883 N·mm.
+    const wB = 7.401,
+      wF = 14.801,
+      a = 1.5,
+      b = 3.0;
+    const nodes = [
+      ...Array.from({ length: 16 }, (_, k) => ({ x: (a * k) / 15, y: 0 })),
+      ...Array.from({ length: 24 }, (_, k) => ({
+        x: a + (b * (k + 1)) / 24,
+        y: (1.5 * (k + 1)) / 24,
+      })),
+    ];
+    const members = nodes.slice(1).map((_, k) => ({
+      i: k,
+      j: k + 1,
+      ei: 1e4,
+      ea: 1e7,
+      q: k < 15 ? wB : wF,
+    }));
+    const [r] = solveFrame({
+      nodes,
+      members,
+      restraints: [
+        { node: 0, ux: true, uy: true, rz: false },
+        { node: nodes.length - 1, ux: false, uy: true, rz: false },
+      ],
+    });
+    expect(r.reactions[0].ry).toBeCloseTo(24.052, 2);
+    expect(r.reactions[1].ry).toBeCloseTo(31.452, 2);
+    // 2.125 m from C is the node at x = 2.375 m (1.5 + 7 × 0.125)
+    expect(maxSag(r)).toBeCloseTo(33.418, 2);
+  });
+
   it("B4 cantilever: −wa²/2 at the support", () => {
     const g = line(1.5, 0, 6, 9);
     const [r] = solveFrame({
