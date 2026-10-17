@@ -98,3 +98,62 @@ describe("Counterfort wall design", () => {
     expect(rr.counterforts).toHaveLength(0);
   });
 });
+
+describe("Elastic buttresses", () => {
+  const L = 9,
+    H = 3,
+    q = 10;
+  const solve = (stiffness?: (y: number) => number, base: "fixed" | "free" = "fixed") =>
+    solveWallPlate(L, H, 0.2, { base, top: "free", left: "free", right: "free", vertical: [1.5, 4.5, 7.5].map((x) => ({ x, height: H, stiffness })), horizontal: [] }, [{ q: () => q }], 16);
+  const totals = (s: ReturnType<typeof solve>, n: number) => {
+    const l = s.lineReactions[n]!;
+    const F = -l.force[0]!.reduce((a, f, j) => a + (l.ys[j]! > 0 ? f : 0), 0);
+    const M = -l.force[0]!.reduce((a, f, j) => a + f * l.ys[j]!, 0) - l.moment[0]!.reduce((a, c, j) => a + (l.ys[j]! > 0 ? c : 0), 0);
+    return { F, M };
+  };
+  it("tend to the rigid line support when very stiff", () => {
+    const r = totals(solve(), 1),
+      e = totals(solve(() => 1e7), 1);
+    expect(rel(e.F, r.F)).toBeLessThan(1e-4);
+    expect(rel(e.M, r.M)).toBeLessThan(1e-4);
+  });
+  it("tend to no buttress when very soft (cantilever qH²/2)", () => {
+    const s = solve(() => 1e-4);
+    // FE moment at a clamped edge (second derivative) is within 1.5 % on this mesh.
+    expect(rel(-s.at(0, 3, 0).my, (q * H * H) / 2)).toBeLessThan(0.015);
+    expect(totals(s, 1).F).toBeLessThan(0.01);
+  });
+  it("shed load to the stem base monotonically as they soften", () => {
+    const f = [1e6, 1e3, 50, 5, 0.5].map((k) => totals(solve(() => k), 1));
+    for (let n = 1; n < f.length; n++) {
+      expect(f[n]!.F).toBeLessThan(f[n - 1]!.F + 1e-9);
+      expect(f[n]!.M).toBeLessThan(f[n - 1]!.M + 1e-9);
+    }
+  });
+  it("shift moment from the counterforts to the stem in the wall design", () => {
+    const base = defaultRetainingWallInput();
+    const mk = (support: "rigid" | "elastic", stiffnessFactor = 1) =>
+      designRetainingWall(
+        retainingWallInputSchema.parse({
+          ...base,
+          height: 6,
+          stemTop: 0.25,
+          stemBase: 0.3,
+          toe: 0.8,
+          heel: 3,
+          footing: 0.5,
+          analysis: "plate",
+          plate: { ...base.plate, length: 9, buttresses: [1.5, 4.5, 7.5].map((x) => ({ x, height: 6, width: 0.3 })), counterfort: { ...base.plate.counterfort, support, stiffnessFactor } },
+        }),
+      );
+    const rigid = mk("rigid"),
+      stiff = mk("elastic", 5),
+      soft = mk("elastic", 0.1);
+    const total = (r: typeof rigid) => r.counterforts.reduce((a, c) => a + c.baseMoment, 0);
+    expect(total(soft)).toBeLessThan(total(rigid));
+    expect(rel(total(stiff), total(rigid))).toBeLessThan(0.005);
+    const stemBack = (r: typeof rigid) => r.plate!.peaks.find((p) => p.id === "backY")!.demand;
+    expect(stemBack(soft)).toBeGreaterThan(stemBack(rigid));
+    expect(soft.plate!.buttressReactions[1]!.elastic).toBe(true);
+  });
+});

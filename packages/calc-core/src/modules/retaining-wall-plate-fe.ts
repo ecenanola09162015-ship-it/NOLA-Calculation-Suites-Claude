@@ -27,8 +27,13 @@ export interface WallPlateSupports {
   top: PlateEdge;
   left: PlateEdge;
   right: PlateEdge;
-  /** Vertical line supports (buttresses) at x, from the base up to height. */
-  vertical: { x: number; height: number }[];
+  /**
+   * Vertical line supports (buttresses) at x, from the base up to height.
+   * Rigid (w = 0, w,y = 0 on the line) unless `stiffness` is given: then the
+   * buttress is an Euler–Bernoulli cantilever fixed at y = 0, sharing w and
+   * w,y with the plate nodes on the line; stiffness(y) = EI_buttress / D (m).
+   */
+  vertical: { x: number; height: number; stiffness?: (y: number) => number }[];
   /** Horizontal line supports (props) at height y over the full length. */
   horizontal: number[];
 }
@@ -52,11 +57,13 @@ export interface WallPlateSolution {
   dof: number;
   at: (k: number, x: number, y: number) => PlateField;
   /**
-   * Nodal reactions (kN) on each vertical line support, per load case, from
-   * the unconstrained stiffness (R = K·u − F on the w DOFs). ys are the node
-   * heights on the line, base node included (shared with the base edge).
+   * Nodal reactions on each vertical line support, per load case: force
+   * (kN, w DOF) and couple (kN·m, w,y DOF), as forces of the buttress on the
+   * plate. Rigid lines: R = K·u − F from the unconstrained rows; elastic
+   * lines: R = −K_b·u of the buttress beam. ys are the node heights on the
+   * line, base node included (shared with the base edge).
    */
-  lineReactions: { x: number; ys: number[]; force: number[][] }[];
+  lineReactions: { x: number; ys: number[]; force: number[][]; moment: number[][] }[];
 }
 
 function hermite(s: number, h: number, d: number): number[] {
@@ -218,27 +225,58 @@ export function solveWallPlate(
       }
       for (const b of supports.vertical)
         if (Math.abs(x - b.x) < eps && y <= b.height + eps) {
+          if (b.stiffness) {
+            if (y < eps) fixed[d] = fixed[d + 2] = 1; // buttress fixed to the footing
+            continue;
+          }
           fixed[d] = 1;
           if (y < b.height - eps) fixed[d + 2] = 1;
         }
       for (const yp of supports.horizontal)
         if (Math.abs(y - yp) < eps) fixed[d] = fixed[d + 1] = 1;
     }
-  // Keep the unconstrained rows of the buttress w DOFs for the reactions.
   const lineNodes = supports.vertical.map((b) => {
     const i = xs.findIndex((x) => Math.abs(x - b.x) < eps);
     const js = ys.map((y, j) => (y <= b.height + eps ? j : -1)).filter((j) => j >= 0);
-    return { x: b.x, i, js };
+    return { x: b.x, i, js, stiffness: b.stiffness };
   });
-  const rowCopy = new Map<number, Float64Array>();
-  for (const ln of lineNodes)
-    for (const j of ln.js) {
-      const r = node(ln.i, j),
-        row = new Float64Array(dof);
-      for (let c = Math.max(0, r - bw + 1); c < Math.min(dof, r + bw); c++)
-        row[c] = c >= r ? K[r * bw + (c - r)]! : K[c * bw + (r - c)]!;
-      rowCopy.set(r, row);
+  // Elastic buttresses: Hermite beam elements on (w, w,y) of the line nodes.
+  const beamK = (ei: number, h: number) => {
+    const k = ei / h ** 3;
+    return [
+      [12 * k, 6 * h * k, -12 * k, 6 * h * k],
+      [6 * h * k, 4 * h * h * k, -6 * h * k, 2 * h * h * k],
+      [-12 * k, -6 * h * k, 12 * k, -6 * h * k],
+      [6 * h * k, 2 * h * h * k, -6 * h * k, 4 * h * h * k],
+    ];
+  };
+  const addK = (a: number, b: number, v: number) => {
+    if (b >= a) K[a * bw + (b - a)]! += v;
+    else return;
+  };
+  for (const ln of lineNodes) {
+    if (!ln.stiffness) continue;
+    for (let n = 0; n + 1 < ln.js.length; n++) {
+      const j0 = ln.js[n]!,
+        j1 = ln.js[n + 1]!,
+        h = ys[j1]! - ys[j0]!,
+        kb = beamK(ln.stiffness((ys[j0]! + ys[j1]!) / 2), h),
+        map = [node(ln.i, j0), node(ln.i, j0) + 2, node(ln.i, j1), node(ln.i, j1) + 2];
+      for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) addK(map[r]!, map[c]!, kb[r]![c]!);
     }
+  }
+  // Keep the unconstrained rows of the rigid-line w and w,y DOFs for the reactions.
+  const rowCopy = new Map<number, Float64Array>();
+  for (const ln of lineNodes) {
+    if (ln.stiffness) continue;
+    for (const j of ln.js)
+      for (const r of [node(ln.i, j), node(ln.i, j) + 2]) {
+        const row = new Float64Array(dof);
+        for (let c = Math.max(0, r - bw + 1); c < Math.min(dof, r + bw); c++)
+          row[c] = c >= r ? K[r * bw + (c - r)]! : K[c * bw + (r - c)]!;
+        rowCopy.set(r, row);
+      }
+  }
   const loadCopy = new Map<number, number[]>();
   for (const r of rowCopy.keys()) loadCopy.set(r, F.map((f) => f[r]!));
   for (let r = 0; r < dof; r++) {
@@ -313,19 +351,39 @@ export function solveWallPlate(
       qy: -(ev(2, 1) + ev(0, 3)),
     };
   };
-  const lineReactions = lineNodes.map((ln) => ({
-    x: ln.x,
-    ys: ln.js.map((j) => ys[j]!),
-    force: U.map((u, k) =>
-      ln.js.map((j) => {
-        const r = node(ln.i, j),
-          row = rowCopy.get(r)!;
+  const rigidReaction = (u: Float64Array, k: number, r: number) => {
+    const row = rowCopy.get(r)!;
+    let s = 0;
+    for (let c = Math.max(0, r - bw + 1); c < Math.min(dof, r + bw); c++) s += row[c]! * u[c]!;
+    return s - loadCopy.get(r)![k]!;
+  };
+  const lineReactions = lineNodes.map((ln) => {
+    const elastic = (u: Float64Array, off: 0 | 1) =>
+      ln.js.map((_, n) => {
+        // −K_b·u at node n, DOF w (off 0) or w,y (off 1), summed over the two adjacent beam elements.
         let s = 0;
-        for (let c = Math.max(0, r - bw + 1); c < Math.min(dof, r + bw); c++) s += row[c]! * u[c]!;
-        return s - loadCopy.get(r)![k]!;
-      }),
-    ),
-  }));
+        for (const [m, side] of [
+          [n - 1, 1],
+          [n, 0],
+        ] as const) {
+          if (m < 0 || m + 1 >= ln.js.length) continue;
+          const j0 = ln.js[m]!,
+            j1 = ln.js[m + 1]!,
+            h = ys[j1]! - ys[j0]!,
+            kb = beamK(ln.stiffness!((ys[j0]! + ys[j1]!) / 2), h),
+            ue = [u[node(ln.i, j0)]!, u[node(ln.i, j0) + 2]!, u[node(ln.i, j1)]!, u[node(ln.i, j1) + 2]!],
+            row = 2 * side + off;
+          for (let c = 0; c < 4; c++) s += kb[row]![c]! * ue[c]!;
+        }
+        return -s;
+      });
+    return {
+      x: ln.x,
+      ys: ln.js.map((j) => ys[j]!),
+      force: U.map((u, k) => (ln.stiffness ? elastic(u, 0) : ln.js.map((j) => rigidReaction(u, k, node(ln.i, j))))),
+      moment: U.map((u, k) => (ln.stiffness ? elastic(u, 1) : ln.js.map((j) => rigidReaction(u, k, node(ln.i, j) + 2)))),
+    };
+  });
   return { xs, ys, dof, at, lineReactions };
 }
 

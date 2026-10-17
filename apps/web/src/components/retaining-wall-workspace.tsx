@@ -515,7 +515,24 @@ export function RetainingWallWorkspace({
               {input.plate.buttresses.length > 0 && input.wallType !== "basement" && (
                 <>
                   <h3 className={styles.subhead}>Counterfort design (all buttresses)</h3>
+                  <label>
+                    Buttress support in the plate
+                    <select
+                      value={input.plate.counterfort.support}
+                      onChange={(e) => patch((d) => (d.plate.counterfort.support = e.target.value as "rigid" | "elastic"))}
+                    >
+                      <option value="elastic">Elastic T-beam cantilever (shares w and slope with the stem)</option>
+                      <option value="rigid">Rigid line support</option>
+                    </select>
+                  </label>
                   <div className="slabFieldGrid">
+                    {input.plate.counterfort.support === "elastic" && (
+                      <Numeric
+                        label="Buttress stiffness factor"
+                        value={input.plate.counterfort.stiffnessFactor}
+                        onChange={(v) => patch((d) => (d.plate.counterfort.stiffnessFactor = v))}
+                      />
+                    )}
                     <Numeric label="Top reach behind stem" unit="m" value={input.plate.counterfort.topReach} onChange={(v) => patch((d) => (d.plate.counterfort.topReach = v))} />
                     <Numeric label="Cover" unit="mm" value={input.plate.counterfort.cover} onChange={(v) => patch((d) => (d.plate.counterfort.cover = v))} />
                     <Numeric label="Back-edge bars, number" value={input.plate.counterfort.tension.count} onChange={(v) => patch((d) => (d.plate.counterfort.tension.count = Math.round(v)))} />
@@ -525,7 +542,10 @@ export function RetainingWallWorkspace({
                     <Numeric label="Heel ties Ø (2 legs)" unit="mm" value={input.plate.counterfort.heelTies.diameter} onChange={(v) => patch((d) => (d.plate.counterfort.heelTies.diameter = v))} />
                     <Numeric label="Heel ties spacing" unit="mm" value={input.plate.counterfort.heelTies.spacing} onChange={(v) => patch((d) => (d.plate.counterfort.heelTies.spacing = v))} />
                   </div>
-                  <p className="slabMuted">Base reach = heel length. Bars in one layer across the buttress thickness.</p>
+                  <p className="slabMuted">
+                    Base reach = heel length. Bars in one layer across the buttress thickness. Stiffness factor multiplies the buttress EI relative to the
+                    stem: 1.0 for the same cracking state, 0.5 for a cracked buttress beside an uncracked wall (0.35/0.70, ACI 318-19 6.6.3.1.1).
+                  </p>
                 </>
               )}
               <p className="slabMuted">
