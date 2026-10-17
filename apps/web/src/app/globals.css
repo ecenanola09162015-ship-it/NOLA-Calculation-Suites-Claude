@@ -4495,6 +4495,25 @@ input.rcDerived {
 .bpLoads input:not([type]) {
   width: 70px;
 }
+.bpMinPlate {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.bpMinPlate p {
+  margin: 0;
+}
+.bpRodPointActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+.bpRodPaste textarea {
+  width: 100%;
+  font-family: var(--font-mono, monospace);
+}
 .bpResults tr {
   cursor: pointer;
 }

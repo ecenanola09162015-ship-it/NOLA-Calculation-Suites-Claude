@@ -13,6 +13,8 @@ import {
   basePlateDesignChecks,
   basePlateDraftSchema,
   basePlateInputSchema,
+  basePlateMinimumPlate,
+  basePlateRods,
   defaultBasePlateInput,
   defaultDesignCheckPolicy,
   futaUsed,
@@ -59,6 +61,10 @@ import { BasePlateColumnFields } from "./base-plate-column-fields";
 import { BasePlateStiffenerFields } from "./base-plate-stiffener-fields";
 import { BasePlateLoadTable } from "./base-plate-load-table";
 import { BasePlateSeismicFields } from "./base-plate-seismic-fields";
+import {
+  BasePlateRodCoordinates,
+  BasePlateRodPoints,
+} from "./base-plate-rod-points";
 import { SaveRunBar, SaveToProject, StaleResultsNotice } from "./calc-actions";
 
 // three.js is only downloaded when the 3D tab is opened (client-only).
@@ -235,6 +241,7 @@ export function BasePlateWorkspace({
   }
   const [snapshot3d, setSnapshot3d] = useState<string | null>(null);
   const [comboId, setComboId] = useState<string>("");
+  const [minPlateNote, setMinPlateNote] = useState("");
   const [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
     [duplicate, setDuplicate] = useState<DraftDuplicate | null>(null),
@@ -366,6 +373,30 @@ export function BasePlateWorkspace({
         ? null
         : (anchors.product ?? defaultProduct(kind)),
     });
+  }
+  /** Rods of the nx × ny grid (Grid layout) as editable points. */
+  function gridPoints() {
+    return basePlateRods({
+      anchors: { ...anchors, layout: "grid" },
+    }).map((r) => ({ id: r.id, x: r.x, y: r.y }));
+  }
+  /** Preliminary plate: minimum edge distance around the column. */
+  function applyMinimumPlate() {
+    const m = basePlateMinimumPlate(input);
+    setMinPlateNote(m.note);
+    if (!m.fitsPedestal) return;
+    update({
+      ...input,
+      plate: { ...input.plate, bx: m.bx, by: m.by },
+      anchors:
+        m.sx !== null && m.sy !== null
+          ? { ...anchors, sx: m.sx, sy: m.sy }
+          : anchors,
+    });
+  }
+  /** Rods of the current layout as points. */
+  function currentPoints() {
+    return basePlateRods(input).map((r) => ({ id: r.id, x: r.x, y: r.y }));
   }
   function autoSpacing() {
     const clear = 25;
@@ -673,6 +704,16 @@ export function BasePlateWorkspace({
               value={input.plate.by}
               onChange={(v) => set("plate", { by: v })}
             />
+            <div className="bpMinPlate">
+              <button
+                className="suiteSecondary"
+                onClick={applyMinimumPlate}
+                title="Rods at washer/2 + weld + 6 mm outside the column; plate edge at max(hole/2 + ½ in, washer/2, AISC J3.4); rounded up to 10 mm"
+              >
+                Minimum plate from column
+              </button>
+              {minPlateNote && <p className="slabHint">{minPlateNote}</p>}
+            </div>
             <Numeric
               label="Thickness tp"
               value={input.plate.tp}
@@ -867,53 +908,81 @@ export function BasePlateWorkspace({
               <span>Layout</span>
               <select
                 value={anchors.layout}
-                onChange={(e) =>
+                onChange={(e) => {
+                  const layout = e.target
+                    .value as BasePlateInput["anchors"]["layout"];
+                  // Custom starts from the grid when no points are stored;
+                  // stored points are kept when switching back (C2).
                   set("anchors", {
-                    layout: e.target.value as "grid" | "perimeter",
-                  })
-                }
+                    layout,
+                    ...(layout === "custom" && !anchors.points.length
+                      ? { points: gridPoints() }
+                      : {}),
+                  });
+                }}
               >
                 <option value="grid">Grid nx × ny</option>
                 <option value="perimeter">Perimeter only</option>
+                <option value="custom">Custom coordinates</option>
               </select>
             </label>
-            <Numeric
-              label="nx"
-              unit=""
-              step="1"
-              value={anchors.nx}
-              onChange={(v) => set("anchors", { nx: Math.round(v) })}
-            />
-            <Numeric
-              label="ny"
-              unit=""
-              step="1"
-              value={anchors.ny}
-              onChange={(v) => set("anchors", { ny: Math.round(v) })}
-            />
-            <Numeric
-              label="Spacing sx"
-              value={anchors.sx}
-              onChange={(v) => set("anchors", { sx: v })}
-            />
-            <Numeric
-              label="Spacing sy"
-              value={anchors.sy}
-              onChange={(v) => set("anchors", { sy: v })}
-            />
+            {anchors.layout !== "custom" && (
+              <>
+                <Numeric
+                  label="nx"
+                  unit=""
+                  step="1"
+                  value={anchors.nx}
+                  onChange={(v) => set("anchors", { nx: Math.round(v) })}
+                />
+                <Numeric
+                  label="ny"
+                  unit=""
+                  step="1"
+                  value={anchors.ny}
+                  onChange={(v) => set("anchors", { ny: Math.round(v) })}
+                />
+                <Numeric
+                  label="Spacing sx"
+                  value={anchors.sx}
+                  onChange={(v) => set("anchors", { sx: v })}
+                />
+                <Numeric
+                  label="Spacing sy"
+                  value={anchors.sy}
+                  onChange={(v) => set("anchors", { sy: v })}
+                />
+              </>
+            )}
             <Numeric
               label="Embedment hef"
               value={anchors.hef}
               onChange={(v) => set("anchors", { hef: v })}
             />
           </div>
-          <button
-            className="suiteSecondary"
-            onClick={autoSpacing}
-            title="Outer rods at hole/2 + 25 mm clear from the plate edges"
-          >
-            Spread rods to the plate edges
-          </button>
+          {anchors.layout === "custom" ? (
+            <BasePlateRodPoints
+              points={anchors.points}
+              onChange={(points) => set("anchors", { points })}
+              onFromGrid={() => set("anchors", { points: gridPoints() })}
+            />
+          ) : (
+            <>
+              <button
+                className="suiteSecondary"
+                onClick={autoSpacing}
+                title="Outer rods at hole/2 + 25 mm clear from the plate edges"
+              >
+                Spread rods to the plate edges
+              </button>
+              <BasePlateRodCoordinates
+                points={currentPoints()}
+                onEdit={() =>
+                  set("anchors", { layout: "custom", points: currentPoints() })
+                }
+              />
+            </>
+          )}
           <div className="slabFieldGrid">
             <label className="slabNumeric">
               <span>Hole</span>

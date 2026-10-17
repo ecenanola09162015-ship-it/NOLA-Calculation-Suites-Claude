@@ -76,6 +76,11 @@ const W = { heavy: 1.6, medium: 1.0, light: 0.6 };
 const esc = (s: string) =>
   s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 const nn = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1));
+/** Coordinate to 0.1 mm without trailing zeros ("−170", "42.5", "0"). */
+const xy = (v: number) => {
+  const r = Math.round(v * 10) / 10;
+  return (r === 0 ? 0 : r).toString();
+};
 const n1 = (v: number) => (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1));
 const T = (
   x: number,
@@ -87,9 +92,11 @@ const T = (
     fill?: string;
     bold?: boolean;
     rotate?: number;
+    /** White outline behind the glyphs (labels over hatching). */
+    halo?: boolean;
   } = {},
 ) =>
-  `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" font-size="${o.size ?? 9}" text-anchor="${o.anchor ?? "middle"}" fill="${o.fill ?? C.text}"${o.bold ? ' font-weight="700"' : ""}${o.rotate ? ` transform="rotate(${o.rotate} ${x.toFixed(1)} ${y.toFixed(1)})"` : ""}>${esc(s)}</text>`;
+  `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" font-size="${o.size ?? 9}" text-anchor="${o.anchor ?? "middle"}" fill="${o.fill ?? C.text}"${o.bold ? ' font-weight="700"' : ""}${o.halo ? ' stroke="#fff" stroke-width="2" paint-order="stroke" stroke-linejoin="round"' : ""}${o.rotate ? ` transform="rotate(${o.rotate} ${x.toFixed(1)} ${y.toFixed(1)})"` : ""}>${esc(s)}</text>`;
 const L = (
   x1: number,
   y1: number,
@@ -335,8 +342,16 @@ export function basePlatePlanSvg(
     b += T(X(r.x) + ws / 2 + 2, Y(r.y) - ws / 2, r.id, {
       size: 7,
       anchor: "start",
-      fill: C.dim,
+      fill: C.text,
+      halo: true,
     });
+    // Rod centre from the column centroid (x, y), mm.
+    b += T(
+      X(r.x) + ws / 2 + 2,
+      Y(r.y) - ws / 2 + 7,
+      `(${xy(r.x)}, ${xy(r.y)})`,
+      { size: 6, anchor: "start", fill: C.text, halo: true },
+    );
     if (t > 0)
       b += T(X(r.x), Y(r.y) + ws / 2 + 9, `${(t / 1e3).toFixed(1)} kN`, {
         size: 7.5,
@@ -377,9 +392,34 @@ export function basePlatePlanSvg(
     `Pedestal ${n1(p.py)}`,
     1,
   );
-  const xs = [...new Set(rods.map((r) => r.x))].sort((u, v) => u - v),
-    ys = [...new Set(rods.map((r) => r.y))].sort((u, v) => u - v);
-  if (xs.length > 1)
+  // Distinct rod lines (custom points within 0.5 mm share a line).
+  const lines = (v: number[]) =>
+    [...v]
+      .sort((u, w) => u - w)
+      .filter((u, k, arr) => k === 0 || u - arr[k - 1]! > 0.5);
+  const xs = lines(rods.map((r) => r.x)),
+    ys = lines(rods.map((r) => r.y));
+  const custom = a.layout === "custom";
+  if (custom) {
+    // Chain of actual distances between rod lines.
+    for (let k = 1; k < xs.length; k++)
+      b += dim(
+        X(xs[k - 1]!),
+        bottom,
+        X(xs[k]!),
+        bottom,
+        n1(xs[k]! - xs[k - 1]!),
+        1,
+      );
+    for (let k = 1; k < ys.length; k++)
+      b += dim(
+        X(-p.px / 2) - 12,
+        Y(ys[k - 1]!),
+        X(-p.px / 2) - 12,
+        Y(ys[k]!),
+        n1(ys[k]! - ys[k - 1]!),
+      );
+  } else if (xs.length > 1)
     b += dim(X(xs[0]!), bottom, X(xs[1]!), bottom, `sx ${n1(a.sx)}`, 1);
   b += dim(
     X(-p.px / 2),
@@ -389,7 +429,7 @@ export function basePlatePlanSvg(
     `c ${n1(p.px / 2 + xs[0]!)}`,
     1,
   );
-  if (ys.length > 1)
+  if (!custom && ys.length > 1)
     b += dim(
       X(-p.px / 2) - 12,
       Y(ys[0]!),

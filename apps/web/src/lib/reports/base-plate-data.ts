@@ -14,6 +14,7 @@ import {
   type BasePlateResult,
   type DesignCheckPolicy,
   type DesignRemarks,
+  basePlateRods,
 } from "@nola/calc-core";
 import type { ProjectRecord } from "../projects";
 import { basePlatePlanSvg, basePlateSectionSvg } from "../base-plate-drawing";
@@ -159,7 +160,13 @@ export function basePlateReportData(
       ],
       [
         "Layout",
-        `${a.layout} ${a.nx} × ${a.ny}, sx ${f(a.sx, 0)}, sy ${f(a.sy, 0)} mm; hef ${f(a.hef, 0)} mm; hole ${f(a.hole, 1)} mm (${a.holeSource === "table" ? "Table 14-2" : "custom"}); washer ${f(a.washer.size, 1)} × ${f(a.washer.thickness, 1)} mm${a.weldedWashers ? " welded" : ""}`,
+        `${a.layout === "custom" ? "custom coordinates" : `${a.layout} ${a.nx} × ${a.ny}, sx ${f(a.sx, 0)}, sy ${f(a.sy, 0)} mm`}; rods from the column centroid (x, y) mm: ${basePlateRods(
+          i,
+        )
+          .map((q) => `${q.id} ${f(q.x, 0)}, ${f(q.y, 0)}`)
+          .join(
+            "; ",
+          )}; hef ${f(a.hef, 0)} mm; hole ${f(a.hole, 1)} mm (${a.holeSource === "table" ? "Table 14-2" : "custom"}); washer ${f(a.washer.size, 1)} × ${f(a.washer.thickness, 1)} mm${a.weldedWashers ? " welded" : ""}`,
       ],
       ...(a.product
         ? [

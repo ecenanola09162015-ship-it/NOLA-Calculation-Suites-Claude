@@ -1,6 +1,6 @@
 # Steel column base plate & anchor rod design pilot
 
-The Base Plate launcher card (Steel) opens a live workspace inside the project explorer. The engine lives in `packages/calc-core` (`modules/base-plate.ts`, `modules/base-plate-anchors.ts`, `anchor-rods.ts`, shared `steel-shapes/`); the web workspace, PDF report and save endpoint consume the same versioned inputs (`kind: "base-plate"`, `version: 1`). Saved base plates are `verification-required`. Engine `base-plate-0.5.0`.
+The Base Plate launcher card (Steel) opens a live workspace inside the project explorer. The engine lives in `packages/calc-core` (`modules/base-plate.ts`, `modules/base-plate-anchors.ts`, `anchor-rods.ts`, shared `steel-shapes/`); the web workspace, PDF report and save endpoint consume the same versioned inputs (`kind: "base-plate"`, `version: 1`). Saved base plates are `verification-required`. Engine `base-plate-0.6.0`.
 
 ## Basis
 
@@ -15,6 +15,25 @@ The Base Plate launcher card (Steel) opens a live workspace inside the project e
 Two primary codes: **Concrete** (ACI 318-19, or NSCP 2015 project on the ACI 318-19 basis) and **Steel** (AISC 360-22 + DG1, or NSCP 2015 project on the AISC 360-22 basis); other editions are listed as Future Development. Drafts saved with one `code` open with both codes set from it.
 
 **LRFD / ASD** (shared `steel-design-method.ts`, reused by later steel modules): LRFD applies φ (bearing 0.65, plate 0.90, weld 0.75, friction 0.75) to factored combinations; ASD applies 1/Ω (2.31, 1.67, 2.00, 2.00) to service combinations (AISC 360-22 B3.2). ACI 318-19 has no ASD, so under ASD the anchor checks (Ch. 17, incl. lug bearing/breakout) use α × ASD demand against φRn, α = 1.6 by default (editable 1.4–2.0, printed in the report).
+
+## Custom rod coordinates (engine 0.6.0)
+
+Anchors → Layout offers **Grid**, **Perimeter** or **Custom coordinates**. Custom points are rod centres in mm from the column centroid (x east, y north). The table starts from the current grid, accepts rows pasted from Excel (ID, x, y), and the points are kept when switching back to a grid.
+
+- Every check uses the actual points: DG1 tension row = outermost rods on the tension side (rods within 5 mm count as the same row), elastic rod group, ACI 17.6.2.3 ψec,N from the centroid of the tension rods (an off-centre layout raises the eccentricity automatically), breakout and edge projections, pedestal edge distance.
+- Minimum spacing is the smallest centre-to-centre distance of any two rods; the lug csl uses the outermost rod.
+- Validation: ≥ 2 rods, unique IDs, every rod inside the plate; geo-hole-edge (½ in clear) and geo-clash apply per rod; the OSHA 1926.755 note appears below 4 rods.
+- Drawings, 3D and the PDF plot the actual coordinates; custom dimension strings show coordinates instead of sx / sy.
+
+## Minimum plate from column (engine 0.6.0)
+
+Section 02 button next to Plate Bx / By sets a preliminary plate (`basePlateMinimumPlate`):
+
+- Rod lines outside the column outline at g = max(washer, hole)/2 + weld + 6 mm (washer clear of the column fillet); sx = (outline x + 2g)/(nx − 1), sy likewise, rotation respected.
+- Edge e = max(hole/2 + ½ in, washer/2, AISC 360-22 Table J3.4 for the rod size).
+- Bx, By = rod line extent + 2e; extents and plate rounded up to 10 mm so the minimum is never undercut.
+- Custom coordinates keep their points; only the plate is sized (max |x|, |y| + e).
+- Not applied when the plate exceeds the pedestal (note shown). All checks then run as usual.
 
 ## Hole bearing / tearout (engine 0.5.0)
 
