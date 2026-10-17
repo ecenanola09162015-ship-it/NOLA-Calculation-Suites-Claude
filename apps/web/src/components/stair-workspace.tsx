@@ -4,7 +4,7 @@
  * the Slab workspace: inputs left, drawings / analysis / 3-D in the centre,
  * design checks right, then warnings, design review, quantities.
  */
-import { useDeferredValue, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   analyzeStairs,
@@ -45,12 +45,28 @@ import { StairForceDiagrams, StairPlan, StairSection } from "./stair-diagrams";
 import styles from "./stair-workspace.module.css";
 import { stairBarColors } from "@/lib/stair-bar-styles";
 import { DesignCodeSelect } from "./design-code-select";
+import { postCalculation } from "@/lib/calc-save";
+import { useCalculationRun } from "@/lib/use-calc-run";
+import { useUnsavedGuard } from "../lib/unsaved";
+import { SaveRunBar, SaveToProject, StaleResultsNotice } from "./calc-actions";
 
 // three.js is only downloaded when the 3D tab is opened (client-only).
 const Stair3DView = dynamic(() => import("./stair-3d-view"), {
   ssr: false,
   loading: () => <p className="slabMuted">Loading 3D view…</p>,
 });
+
+/** Schema check message shown live and on Run (first issue only). */
+const inputIssue = (issues: { path: PropertyKey[]; message: string }[]) =>
+  `Check inputs: ${issues[0]?.path.join(" › ") || "value"} — ${issues[0]?.message ?? "invalid"}.`;
+/** Run calculation: parse, then analyse; errors keep their messages. */
+function analyseStairs(input: StairsInput) {
+  const parsed = stairsInputSchema.safeParse(input);
+  if (!parsed.success) throw new Error(inputIssue(parsed.error.issues));
+  const r = analyzeStairs(parsed.data);
+  if (r.error) throw new Error(r.error);
+  return { valid: parsed.data, result: r };
+}
 
 /** ACI 318-19 20.2.2.2. */
 const ES_DEFAULT = 200000;
@@ -138,11 +154,14 @@ export function StairWorkspace({
   draft,
   cloudReady,
   onSaved,
+  onDirtyChange,
 }: {
   project?: ProjectRecord;
   draft?: CalculationDraftRecord;
   cloudReady: boolean;
   onSaved: (d: CalculationDraftRecord) => void;
+  /** Reports unsaved edits to the suite (asks before navigating away). */
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const restored = useMemo(
     () => stairsDraftSchema.safeParse(draft?.payload),
@@ -186,34 +205,29 @@ export function StairWorkspace({
   const [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
     [duplicate, setDuplicate] = useState<DraftDuplicate | null>(null),
-    [saved, setSaved] = useState(!!restored.success);
+    [saved, setSaved] = useState(!!restored.success),
+    [savedAt, setSavedAt] = useState(
+      restored.success ? draft?.updatedAt : undefined,
+    ),
+    // Edited since opened / last saved (unsaved-changes guard).
+    [edited, setEdited] = useState(false);
+  const markUnsaved = () => {
+    setSaved(false);
+    setEdited(true);
+  };
+  useUnsavedGuard(edited, onDirtyChange);
   const editVersion = useRef(0);
-  const analysed = useDeferredValue(input);
-  const analysis = useMemo(() => {
-    const parsed = stairsInputSchema.safeParse(analysed);
-    if (!parsed.success)
-      return {
-        valid: null as StairsInput | null,
-        result: null as StairsResult | null,
-        error: `Check inputs: ${parsed.error.issues[0]?.path.join(" › ") || "value"} — ${parsed.error.issues[0]?.message ?? "invalid"}.`,
-      };
-    try {
-      const r = analyzeStairs(parsed.data);
-      return {
-        valid: parsed.data,
-        result: r.error ? null : r,
-        error: r.error ?? "",
-      };
-    } catch (e) {
-      return {
-        valid: parsed.data,
-        result: null,
-        error: e instanceof Error ? e.message : "Check inputs.",
-      };
-    }
-  }, [analysed]);
-  const r = analysis.result,
-    valid = analysis.valid;
+  // Explicit Run calculation: results belong to the last run and are
+  // withheld after any input edit until the next run (runs once on open).
+  const calc = useCalculationRun(input, analyseStairs, "Check inputs.");
+  // Geometry drawings and the 3-D view follow the live inputs.
+  const live = useMemo(() => stairsInputSchema.safeParse(input), [input]);
+  const liveValid: StairsInput | null = live.success ? live.data : null;
+  const analysis = {
+    error: live.success ? calc.error : inputIssue(live.error.issues),
+  };
+  const r: StairsResult | null = calc.result?.result ?? null,
+    valid: StairsInput | null = calc.result?.valid ?? null;
   const checks = useMemo(() => (r ? stairsDesignChecks(r) : []), [r]);
   const sections = useMemo(() => (r ? stairsDesignCheckSections(r) : []), [r]);
   const quantity = useMemo(
@@ -228,7 +242,7 @@ export function StairWorkspace({
   function update(next: StairsInput) {
     editVersion.current++;
     setInput(next);
-    setSaved(false);
+    markUnsaved();
     setMessage("");
   }
   const set = <K extends keyof StairsInput>(k: K, v: StairsInput[K]) =>
@@ -352,71 +366,104 @@ export function StairWorkspace({
     set("localLoads", [...input.localLoads, next]);
   }
   function optimize(k: BarKey) {
-    if (!valid || !Number.isFinite(optimizeTarget)) return;
+    if (!r || !valid || !Number.isFinite(optimizeTarget)) return;
     const res = stairOptimizeSpacing(valid, k, optimizeTarget);
     if (res.spacing !== null) setBar(k, "spacing", res.spacing);
     setMessage(res.message);
   }
 
-  async function save(opts: { overwrite?: boolean; title?: string } = {}) {
-    if (!project) return;
+  /** Validated draft payload of the current inputs (save and copy). */
+  function buildPayload() {
+    const parsed = stairsDraftSchema.safeParse({
+      kind: "stairs",
+      version: 1,
+      input,
+      designPolicy: policy,
+      remarks,
+      // Saved after a run of these inputs; false while results are out of date.
+      reviewCompleted: !!r,
+      estimate: { enabled: estimateOn },
+    });
+    if (!parsed.success || !title.trim())
+      throw new Error(
+        "Complete valid inputs and a calculation title before saving.",
+      );
+    if (missing.length)
+      throw Error("Add Remarks For Each Amber Design Check Before Saving.");
+    return parsed.data;
+  }
+  const dirty = !(saved && savedPolicy === policyKey);
+  /** Save changes to this calculation file; resolves true when saved. */
+  async function save(
+    opts: { overwrite?: boolean; title?: string } = {},
+  ): Promise<boolean> {
+    if (!project) return false;
     const saveTitle = opts.title ?? title;
     const version = editVersion.current;
     setBusy(true);
     setMessage("");
     try {
-      const parsed = stairsDraftSchema.safeParse({
-        kind: "stairs",
-        version: 1,
-        input,
-        designPolicy: policy,
-        remarks,
-        reviewCompleted: !!r,
-        estimate: { enabled: estimateOn },
+      const payload = buildPayload();
+      const res = await postCalculation({
+        id,
+        projectId: project.id,
+        moduleSlug: "stairs",
+        title: saveTitle,
+        overwrite: opts.overwrite,
+        payload,
       });
-      if (!parsed.success || !title.trim())
-        throw new Error(
-          "Complete valid inputs and a calculation title before saving.",
-        );
-      if (missing.length)
-        throw Error("Add Remarks For Each Amber Design Check Before Saving.");
-      const response = await fetch("/api/calculations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id,
-          projectId: project.id,
-          moduleSlug: "stairs",
-          title: saveTitle,
-          overwrite: opts.overwrite === true,
-          payload: parsed.data,
-        }),
-      });
-      const body = await response.json();
-      if (response.status === 409 && body.duplicate) {
-        setDuplicate(body.duplicate);
-        return;
+      if (!res.ok && res.duplicate) {
+        setDuplicate(res.duplicate);
+        return false;
       }
       setDuplicate(null);
       if (opts.title) setTitle(opts.title);
-      if (!response.ok) throw new Error(body.error ?? "Save failed.");
-      setId(body.draft.id);
-      setSaved(
-        version === editVersion.current && livePolicy.current === policyKey,
-      );
+      if (!res.ok) throw new Error(res.error);
+      setId(res.draft.id);
+      setSavedAt(res.draft.updatedAt);
+      const clean =
+        version === editVersion.current && livePolicy.current === policyKey;
+      setSaved(clean);
+      setEdited(!clean);
       setSavedPolicy(policyKey);
-      onSaved(body.draft);
+      onSaved(res.draft);
       setMessage(
         version === editVersion.current
-          ? "Stair inputs saved. Reopen this calculation from the project explorer."
+          ? r
+            ? "Stair inputs saved. Reopen this calculation from the project explorer."
+            : "Stair inputs saved. Results are out of date: run the calculation to update them."
           : "Earlier inputs saved; newer edits remain unsaved.",
       );
+      return true;
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Save failed.");
+      return false;
     } finally {
       setBusy(false);
     }
   }
+  /** Save to project: save this file first (skipped when nothing changed). */
+  const saveChanges = async () => (!dirty && id ? true : save());
+  const canSave = !!project && cloudReady && !!title.trim();
+  const saveRun = (section: string) => (
+    <SaveRunBar
+      section={section}
+      dirty={dirty}
+      busy={busy}
+      canSave={canSave}
+      saveBlockedReason={
+        !project
+          ? "Create or select a project to save this calculation."
+          : !cloudReady
+            ? "Cloud saving is not configured."
+            : "Enter a calculation title."
+      }
+      savedAt={savedAt}
+      onSave={() => void save()}
+      stale={calc.stale}
+      onRun={calc.run}
+    />
+  );
 
   const dog = input.stairType === "dog-leg";
   /** Design width used for totals, m (1 m in strip mode). */
@@ -441,25 +488,27 @@ export function StairWorkspace({
               editVersion.current++;
               setTitle(e.target.value);
               setDuplicate(null);
-              setSaved(false);
+              markUnsaved();
             }}
           />
         </label>
-        <button
-          className="suitePrimary"
-          onClick={() => save()}
-          disabled={busy || !project || !cloudReady || !r}
-        >
-          {busy
-            ? "Saving…"
-            : saved && savedPolicy === policyKey
-              ? "Saved"
-              : "Save stairs"}
-        </button>
+        {saveRun("Calculation")}
+        <SaveToProject
+          currentProjectId={project?.id}
+          moduleSlug="stairs"
+          title={title}
+          canCopy={canSave}
+          buildPayload={buildPayload}
+          saveChanges={saveChanges}
+        />
         <ReportExportControls
           moduleName="Stairs"
           disabled={!r || !valid}
-          disabledReason="Complete valid stair inputs to enable export."
+          disabledReason={
+            calc.stale
+              ? "Run calculation to enable export."
+              : "Complete valid stair inputs to enable export."
+          }
           hint={
             missing.length
               ? `Record Engineering Judgment Remarks Before Exporting (${missing.length}).`
@@ -788,6 +837,8 @@ export function StairWorkspace({
             </div>
           )}
 
+          {saveRun("Geometry")}
+
           <h2>02 · Supports</h2>
           <Choice
             question="Bottom support rests on"
@@ -966,6 +1017,8 @@ export function StairWorkspace({
             onChange={(v) => set("seismic", { connection: v })}
           />
 
+          {saveRun("Supports")}
+
           <h2>03 · Materials & Cover</h2>
           <div className="slabFieldGrid">
             <ConcreteStrengthFields
@@ -1021,6 +1074,8 @@ export function StairWorkspace({
               onChange={(v) => set("bottomCover", v)}
             />
           </div>
+
+          {saveRun("Materials")}
 
           <h2>04 · Reinforcement</h2>
           <div className="slabTableWrap">
@@ -1114,7 +1169,7 @@ export function StairWorkspace({
                         <button
                           type="button"
                           className="slabMode"
-                          disabled={!valid}
+                          disabled={!r || !valid}
                           onClick={() => optimize(row.key)}
                           title={OPTIMIZE_TIP}
                         >
@@ -1231,6 +1286,7 @@ export function StairWorkspace({
               / RA 9514 values as required.
             </p>
           </details>
+          {saveRun("Reinforcement")}
         </aside>
 
         <div className="slabCenter">
@@ -1263,9 +1319,9 @@ export function StairWorkspace({
           </div>
           {tab === "3d" && (
             <section className="slabPanel slab3dPanel">
-              {valid ? (
+              {liveValid ? (
                 <Stair3DView
-                  input={valid}
+                  input={liveValid}
                   highlight={activeSet}
                   onSnapshot={setSnapshot3d}
                 />
@@ -1279,10 +1335,10 @@ export function StairWorkspace({
           <section
             className={`slabPanel slabDrawing ${tab === "drawings" ? "" : "slabScreenHidden"}`}
           >
-            {valid ? (
+            {liveValid ? (
               <>
-                <StairSection input={valid} highlight={activeSet} />
-                <StairPlan input={valid} highlight={activeSet} />
+                <StairSection input={liveValid} highlight={activeSet} />
+                <StairPlan input={liveValid} highlight={activeSet} />
               </>
             ) : (
               <p className="slabMuted">
@@ -1431,6 +1487,7 @@ export function StairWorkspace({
             >
               + Add combination
             </button>
+            {saveRun("Loads & combinations")}
             <h2>Local Loads</h2>
             <p className="slabMuted">
               Position x is horizontal from the {dog ? "strip's" : "bottom"}{" "}
@@ -1592,6 +1649,7 @@ export function StairWorkspace({
                 </table>
               </div>
             )}
+            {saveRun("Local loads")}
             {r && (
               <>
                 <h2>Analysis Results (per metre width)</h2>
@@ -1692,6 +1750,7 @@ export function StairWorkspace({
 
         <aside className="slabPanel slabSummary">
           <h2>Design Checks</h2>
+          {calc.stale ? <StaleResultsNotice onRun={calc.run} /> : null}
           <div className="slabStatus">
             <DesignStatus dcr={maxDcr} policy={policy} />
             <span>Governing DCR {fmt(maxDcr, 3)}</span>
@@ -1838,7 +1897,7 @@ export function StairWorkspace({
                 remarks={remarks}
                 onChange={(next) => {
                   editVersion.current++;
-                  setSaved(false);
+                  markUnsaved();
                   setRemarks(next);
                 }}
               />
@@ -1854,7 +1913,7 @@ export function StairWorkspace({
             aria-pressed={estimateOn}
             onClick={() => {
               editVersion.current++;
-              setSaved(false);
+              markUnsaved();
               setEstimateOn(!estimateOn);
             }}
           >
