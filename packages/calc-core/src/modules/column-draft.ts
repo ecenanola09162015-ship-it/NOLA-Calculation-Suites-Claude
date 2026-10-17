@@ -21,6 +21,7 @@ export const columnInputSchema = z
           x: z.number().min(-5000).max(5000),
           y: z.number().min(-5000).max(5000),
           diameter: z.number().positive().max(100),
+          bundle: z.string().max(10).nullable().optional(),
         }),
       )
       .min(4)

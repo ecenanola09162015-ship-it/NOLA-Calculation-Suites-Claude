@@ -30,6 +30,8 @@ import {
   slabBeamSizes,
   psiToMpaExact,
   concreteStrengthNotes,
+  bundleIssues,
+  bundleSummary,
 } from "@nola/calc-core";
 import { loadStyles } from "@/lib/load-styles";
 import type { ProjectRecord } from "../projects";
@@ -337,7 +339,9 @@ export function columnReportData(
           "Longitudinal Bars",
           [...barGroups]
             .map(([d, n]) => `${n}-${rebarDesignation(std, d)}`)
-            .join("; ") + `; As = ${f(result.steelArea, 0)} mm²`,
+            .join("; ") +
+          `; As = ${f(result.steelArea, 0)} mm²` +
+          (bundleSummary(input.bars) ? `; bundled: ${bundleSummary(input.bars)}` : ""),
         ],
         t && tieDesign
           ? [
@@ -829,6 +833,10 @@ export function columnReportData(
           tieDesign.confinement.frame === "SMF",
       }).map((n) => n.text),
       ...result.warnings,
+      // Bundled bars: code checks and notes (25.6.1, 25.7.2.2, 20.5.1.3.4).
+      ...bundleIssues(input).map(
+        (i) => `${i.level === "error" ? "Bundled bars — not satisfied: " : i.level === "warning" ? "Bundled bars — warning: " : "Bundled bars: "}${i.text} (${i.clause})`,
+      ),
       ...(t
         ? t.notes
         : [

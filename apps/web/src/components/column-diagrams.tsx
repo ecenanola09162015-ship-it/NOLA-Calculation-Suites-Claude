@@ -7,7 +7,16 @@ import {
   type RectangularColumnResult,
 } from "@nola/calc-core";
 const fixed = (n: number) => (Number.isFinite(n) ? n.toFixed(1) : "—");
-export function ColumnSection({ input }: { input: RectangularColumnInput }) {
+export function ColumnSection({
+  input,
+  selected = [],
+  onToggle,
+}: {
+  input: RectangularColumnInput;
+  /** Bars picked for bundling (highlighted); click toggles via onToggle. */
+  selected?: number[];
+  onToggle?: (bar: number) => void;
+}) {
   if (
     ![
       input.width,
@@ -60,17 +69,54 @@ export function ColumnSection({ input }: { input: RectangularColumnInput }) {
       )}
       {input.bars.map((bar, i) => (
         <g key={i}>
-          <circle
-            cx={170 + bar.x * scale}
-            cy={155 - bar.y * scale}
-            r={Math.max(2, (bar.diameter * scale) / 2)}
-            fill="#8058a4"
-          />
+          <g
+            className={onToggle ? "barPick" : undefined}
+            role={onToggle ? "button" : undefined}
+            aria-label={
+              onToggle
+                ? `Bar ${i + 1}${bar.bundle ? ` (bundle ${bar.bundle})` : ""}`
+                : undefined
+            }
+            aria-pressed={onToggle ? selected.includes(i) : undefined}
+            onClick={onToggle ? () => onToggle(i) : undefined}
+          >
+            {onToggle && (
+              // Larger invisible hit area for small bars; bundled bars touch,
+              // so their hit area stays within the bar to keep each one pickable.
+              <circle
+                cx={170 + bar.x * scale}
+                cy={155 - bar.y * scale}
+                r={
+                  bar.bundle
+                    ? (bar.diameter * scale) / 2 + 1
+                    : Math.max(7, (bar.diameter * scale) / 2 + 3)
+                }
+                fill="transparent"
+              />
+            )}
+            {selected.includes(i) && (
+              <circle
+                cx={170 + bar.x * scale}
+                cy={155 - bar.y * scale}
+                r={Math.max(4, (bar.diameter * scale) / 2) + 3}
+                fill="none"
+                stroke="#e07000"
+                strokeWidth="2"
+              />
+            )}
+            <circle
+              cx={170 + bar.x * scale}
+              cy={155 - bar.y * scale}
+              r={Math.max(2, (bar.diameter * scale) / 2)}
+              fill={bar.bundle ? "#5b3a8a" : "#8058a4"}
+            />
+          </g>
           <text
             x={170 + bar.x * scale + 9}
             y={155 - bar.y * scale - 5}
             fontSize="10"
             fill="#49405a"
+            pointerEvents="none"
           >
             {i + 1}
           </text>
