@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useRef, useState } from "react";
+import { useDeferredValue, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   barAreaPerMetre,
@@ -156,6 +156,22 @@ export function RetainingWallWorkspace({
   });
   const analysed = analysis.ranInput;
   const r = analysis.result;
+  // Geometry drawings follow the live inputs like the other modules: while
+  // results are out of date the section and 3D show a preview of the edited
+  // wall (pressures and bearing hidden in the section until Run).
+  const liveInput = useDeferredValue(input);
+  const preview = useMemo(() => {
+    if (!analysis.stale) return null;
+    const parsed = retainingWallInputSchema.safeParse(liveInput);
+    if (!parsed.success) return null;
+    try {
+      return { input: parsed.data, result: designRetainingWall(parsed.data) };
+    } catch {
+      return null;
+    }
+  }, [analysis.stale, liveInput]);
+  const drawInput = preview?.input ?? analysed;
+  const drawResult = r ?? preview?.result ?? null;
   const checks = useMemo(() => (r ? retainingWallDesignChecks(r) : []), [r]);
   const missing = r ? missingJudgmentRemarks(checks, policy, remarks).length : 0;
   const status = r ? retainingWallStatus(r, input.dcrLimit) : null;
@@ -264,17 +280,20 @@ export function RetainingWallWorkspace({
   );
 
   const sectionSvg = useMemo(
-    () => (r ? retainingWallSectionSvg(analysed, r, layers) : ""),
-    [r, analysed, layers],
+    () =>
+      drawResult
+        ? retainingWallSectionSvg(drawInput, drawResult, r ? layers : { ...layers, pressures: false, bearing: false })
+        : "",
+    [r, drawResult, drawInput, layers],
   );
   const estimate = useMemo(() => {
-    if (!quantity.enabled || !r) return null;
+    if (!quantity.enabled || !drawResult) return null;
     try {
-      return estimateRetainingWallQuantity(analysed, quantity);
+      return estimateRetainingWallQuantity(drawInput, quantity);
     } catch {
       return null;
     }
-  }, [quantity, r, analysed]);
+  }, [quantity, drawResult, drawInput]);
   const elevationSvg = useMemo(
     () => (r?.plate && tab === "elevation" ? retainingWallElevationSvg(analysed, r, elevationField) : ""),
     [r, analysed, elevationField, tab],
@@ -948,7 +967,10 @@ export function RetainingWallWorkspace({
                   </label>
                 ))}
               </div>
-              {r ? (
+              {!r && preview ? (
+                <p className="slabMuted">Preview of the edited geometry. Pressures and bearing show after Run calculation.</p>
+              ) : null}
+              {drawResult ? (
                 <div className={styles.drawing} role="img" aria-label="Retaining wall section" dangerouslySetInnerHTML={{ __html: sectionSvg }} />
               ) : (
                 <p className="slabMuted">Complete valid inputs to draw the section.</p>
@@ -1074,9 +1096,10 @@ export function RetainingWallWorkspace({
               )}
             </section>
           )}
-          {tab === "3d" && r && (
+          {tab === "3d" && drawResult && (
             <section className="slabPanel slab3dPanel">
-              <RetainingWall3DView input={analysed} result={r} onSnapshot={setSnapshot3d} />
+              {!r && <p className="slabMuted">Preview of the edited geometry. Pressure arrows and the moment colour map are not run results until Run calculation.</p>}
+              <RetainingWall3DView input={drawInput} result={drawResult} onSnapshot={setSnapshot3d} />
               {snapshot3d && (
                 <p className="slabMuted">
                   A 3D snapshot will be included in the Complete PDF report. <button onClick={() => setSnapshot3d(null)}>Remove snapshot</button>

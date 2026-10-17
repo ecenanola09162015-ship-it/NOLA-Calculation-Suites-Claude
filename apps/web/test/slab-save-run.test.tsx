@@ -108,6 +108,26 @@ describe.skipIf(!CHROME)("slab save / run in a real browser", () => {
         governing({ ...fresh(), lx: 5.5 }),
       );
       expect(await page.getByText("Results out of date").count()).toBe(0);
+      // Adopting a suggested spacing does not run: results out of date, the
+      // suggestions and Undo stay on screen (decision 17 Oct 2026).
+      await page.getByRole("button", { name: "Suggest spacing" }).click();
+      const adopt = page.getByRole("button", {
+        name: "Adopt Spacing to Main Bars",
+      });
+      await adopt.click();
+      await page.getByText("Inputs changed since the last run").waitFor();
+      expect(await page.getByText("Calculation Report").count()).toBe(0);
+      await page.getByRole("button", { name: "Undo adopt" }).waitFor();
+      expect(
+        await page
+          .getByText("Spacing adopted. Run calculation to update results.")
+          .count(),
+      ).toBe(1);
+      await page
+        .getByRole("group", { name: "Calculation: save and run" })
+        .getByRole("button", { name: "Run calculation" })
+        .click();
+      await page.getByText("Calculation Report").first().waitFor();
       // No project in this harness: Save changes cannot save and says why.
       const saveBtn = page
         .getByRole("group", { name: "Loads: save and run" })

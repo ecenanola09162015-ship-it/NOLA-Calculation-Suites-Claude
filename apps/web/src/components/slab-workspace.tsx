@@ -1,6 +1,6 @@
 "use client";
 import { useUnsavedGuard } from "../lib/unsaved";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   analyzeSlab,
   defaultDesignCheckPolicy,
@@ -225,15 +225,10 @@ export function SlabWorkspace({
   // affect quantities only.
   const designInput = input;
   const analysis = useCalculationRun(designInput, (i) => analyzeSlab(i, false));
-  // Adopt / Undo of a suggested spacing come from the engine: run with them
-  // so the suggestions stay on screen for the next adopt.
-  const runAfterAdopt = useRef(false);
+  // Adopt / Undo of a suggested spacing do not run the calculation: results
+  // are out of date until Run (decision 17 Oct 2026). The suggestions stay
+  // on screen so main and extra can both be adopted, or undone, first.
   const runCalculation = analysis.run;
-  useEffect(() => {
-    if (!runAfterAdopt.current) return;
-    runAfterAdopt.current = false;
-    runCalculation();
-  }, [input, runCalculation]);
   const bars = useMemo(() => {
     try {
       return resolveSlabBars(input);
@@ -313,17 +308,16 @@ export function SlabWorkspace({
   function adoptSuggestion(next: SlabInput, note: string) {
     editVersion.current++;
     setAdoptHistory((h) => [...h, input]);
-    runAfterAdopt.current = true;
     setInput(next);
     markUnsaved();
     setAdoptedNote(note);
+    setMessage("Spacing adopted. Run calculation to update results.");
   }
   function undoAdopt() {
     const previous = adoptHistory.at(-1);
     if (!previous) return;
     editVersion.current++;
     setAdoptHistory((h) => h.slice(0, -1));
-    runAfterAdopt.current = true;
     setInput(previous);
     markUnsaved();
     setAdoptedNote(adoptHistory.length > 1 ? "Last adopt undone." : "");
@@ -597,6 +591,34 @@ export function SlabWorkspace({
   const maxDcr = r
     ? Math.max(...slabDesignChecks(input, r).map((c) => c.dcr ?? Infinity))
     : null;
+  /** Suggested Design: shown with results, and kept while adopted spacings await Run. */
+  const suggestions = (
+    <>
+      <h3>Suggested Design</h3>
+      <p>
+        Largest practical spacing on a 25 mm grid: main only, extra only, or
+        main + extra. Adopt writes the spacing into the bar tables; Undo
+        restores the previous spacings.
+      </p>
+      <SlabSpacingSuggestions
+        input={input}
+        recommendations={recommendations}
+        onSuggest={() => {
+          try {
+            setRecommendations(analyzeSlab(input, true).recommendations);
+          } catch (e) {
+            setMessage(
+              e instanceof Error ? e.message : "Cannot suggest spacing.",
+            );
+          }
+        }}
+        onAdopt={adoptSuggestion}
+        onUndo={undoAdopt}
+        canUndo={adoptHistory.length > 0}
+        adoptedNote={adoptedNote}
+      />
+    </>
+  );
   return (
     <section className="slabWorkspace">
       <div className="slabToolbar">
@@ -664,7 +686,8 @@ export function SlabWorkspace({
         />
       </div>
       <p className="slabPilot">
-        Development pilot · Calculation basis: ACI 318-19. Independent engineering review required.
+        Development pilot · Calculation basis: ACI 318-19. Independent
+        engineering review required.
       </p>
       {!project && <p>Create or select a project to save this calculation.</p>}
       {duplicate ? (
@@ -1438,6 +1461,10 @@ export function SlabWorkspace({
           {analysis.stale ? (
             <StaleResultsNotice onRun={runCalculation} />
           ) : null}
+          {analysis.stale &&
+          (recommendations.length > 0 || adoptHistory.length > 0)
+            ? suggestions
+            : null}
           {r && (
             <>
               <dl>
@@ -1520,33 +1547,7 @@ export function SlabWorkspace({
                   </dd>
                 </div>
               </dl>
-              <h3>Suggested Design</h3>
-              <p>
-                Largest practical spacing on a 25 mm grid: main only, extra
-                only, or main + extra. Adopt writes the spacing into the bar
-                tables; Undo restores the previous spacings.
-              </p>
-              <SlabSpacingSuggestions
-                input={input}
-                recommendations={recommendations}
-                onSuggest={() => {
-                  try {
-                    setRecommendations(
-                      analyzeSlab(input, true).recommendations,
-                    );
-                  } catch (e) {
-                    setMessage(
-                      e instanceof Error
-                        ? e.message
-                        : "Cannot suggest spacing.",
-                    );
-                  }
-                }}
-                onAdopt={adoptSuggestion}
-                onUndo={undoAdopt}
-                canUndo={adoptHistory.length > 0}
-                adoptedNote={adoptedNote}
-              />
+              {suggestions}
             </>
           )}
         </aside>
